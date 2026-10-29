@@ -1,0 +1,12 @@
+# Núcleo (todas já presentes no ambiente de teste)
+pydantic>=2.9
+Jinja2>=3.1
+python-docx>=1.1
+openpyxl>=3.1
+pandas>=2.2
+pypdf>=4.0          # leitura/validação do PDF gerado
+# Fase 3 (protocolo)
+# Necessária para o mapeador do formulário do PJe e para a suíte
+# tests/testes_mapeador.py. Sem ela a suíte é PULADA, e suíte pulada não está
+# testada — tests/rodar_todos.py avisa quando isso acontece.
+playwright>=1.47

@@ -1,0 +1,130 @@
+{
+  "_sobre": [
+    "Vetores de teste COMPARTILHADOS entre o Python e o TypeScript.",
+    "",
+    "A especificação do portal deixava uma escolha: portar o algoritmo do",
+    "dígito verificador para TypeScript (rápido, mas passa a existir em dois",
+    "lugares e pode divergir) ou expor como API (uma fonte da verdade, mas",
+    "depende de rede a cada dígito).",
+    "",
+    "Este arquivo resolve o impasse: as duas implementações são testadas",
+    "contra os MESMOS vetores. Se uma divergir da outra, um teste reprova —",
+    "em qualquer dos dois lados. Assim a pessoa tem validação instantânea no",
+    "navegador e a divergência deixa de ser risco silencioso.",
+    "",
+    "Quem acrescentar caso aqui acrescenta para os dois lados de uma vez."
+  ],
+  "cpf": {
+    "validos": [
+      "111.444.777-35",
+      "11144477735",
+      "529.982.247-25",
+      "52998224725"
+    ],
+    "invalidos": [
+      {
+        "valor": "111.444.777-36",
+        "motivo": "dígito verificador errado"
+      },
+      {
+        "valor": "111.111.111-11",
+        "motivo": "todos os dígitos iguais"
+      },
+      {
+        "valor": "000.000.000-00",
+        "motivo": "todos os dígitos iguais"
+      },
+      {
+        "valor": "123.456.789-00",
+        "motivo": "dígito verificador errado"
+      },
+      {
+        "valor": "111.444.777-3",
+        "motivo": "faltam dígitos"
+      },
+      {
+        "valor": "111.444.777-351",
+        "motivo": "dígitos demais"
+      },
+      {
+        "valor": "",
+        "motivo": "vazio"
+      },
+      {
+        "valor": "abc.def.ghi-jk",
+        "motivo": "não é número"
+      }
+    ]
+  },
+  "processo_cnj": {
+    "validos": [
+      {
+        "valor": "0000001-91.2026.4.01.3400",
+        "segmento": "4",
+        "tribunal": "01",
+        "justica": "federal",
+        "trf1": true
+      },
+      {
+        "valor": "00000019120264013400",
+        "segmento": "4",
+        "tribunal": "01",
+        "justica": "federal",
+        "trf1": true
+      },
+      {
+        "valor": "0000001-85.2026.4.03.6100",
+        "segmento": "4",
+        "tribunal": "03",
+        "justica": "federal",
+        "trf1": false
+      },
+      {
+        "valor": "9999999-48.2026.4.01.3400",
+        "segmento": "4",
+        "tribunal": "01",
+        "justica": "federal",
+        "trf1": true,
+        "_porque": "Sequencial alto de propósito: a base do MOD 97-10 fica com 20 dígitos (99999992026401340000), acima do inteiro seguro do JavaScript. Com Number em vez de BigInt o dígito sai 63 em vez de 48 — errado, e errado só em parte dos casos, que é o pior tipo de erro."
+      }
+    ],
+    "invalidos": [
+      {
+        "valor": "0000001-92.2026.4.01.3400",
+        "motivo": "dígito verificador errado"
+      },
+      {
+        "valor": "0000001-91.2026.4.01.340",
+        "motivo": "faltam dígitos"
+      },
+      {
+        "valor": "",
+        "motivo": "vazio"
+      },
+      {
+        "valor": "numero-qualquer",
+        "motivo": "não é número"
+      }
+    ],
+    "fora_do_trf1": [
+      {
+        "valor": "0000001-69.2026.8.19.0001",
+        "justica": "estadual"
+      },
+      {
+        "valor": "0000001-22.2026.5.01.0001",
+        "justica": "trabalho"
+      },
+      {
+        "valor": "0000001-70.2026.6.07.0001",
+        "justica": "eleitoral"
+      },
+      {
+        "valor": "0000001-85.2026.4.03.6100",
+        "justica": "federal, mas outro tribunal (TRF3)"
+      }
+    ]
+  },
+  "_gerado_em": "2026-10-27",
+  "_como_gerar": "Os números válidos foram GERADOS por sindilote.processo_cnj.calcular_verificador, não escritos à mão. A primeira versão deste arquivo tinha um vetor inventado — trocar o tribunal mantendo o dígito produz número inválido, porque o dígito depende do número inteiro. Vetor inventado é teste que mente."
+}

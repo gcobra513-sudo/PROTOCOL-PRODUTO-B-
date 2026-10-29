@@ -1,0 +1,7 @@
+﻿CPF/CNPJ;Nome Completo;E-MAIL;matricula_siape;Cargo;Situacao;Data de Nascimento;Observacoes
+111.444.777-35;MARIA DE EXEMPLO (CADASTRO FICTICIO);maria@exemplo.org;1001;Auditor-Fiscal;ativo;1960-05-02;
+529.982.247-25;JOAO DE EXEMPLO (CADASTRO FICTICIO);joao@exemplo.org;1002;Auditor-Fiscal;aposentado;1955-01-10;filiado desde 1998
+526.018.159-06;ANA DE EXEMPLO (CADASTRO FICTICIO);ana@exemplo;1003;Analista;ativo;;email conferir
+111.444.777-00;PEDRO DE EXEMPLO (CADASTRO FICTICIO);pedro@exemplo.org;1004;Analista;ativo;1970-03-03;
+111.444.777-35;MARIA DE EXEMPLO (CADASTRO FICTICIO);maria@exemplo.org;1001;Analista;ativo;1960-05-02;recadastrada
+248.438.034-80;CARLA DE EXEMPLO (CADASTRO FICTICIO);;1006;Auditor-Fiscal;pensionista;1948-07-19;

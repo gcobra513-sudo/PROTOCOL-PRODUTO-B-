@@ -1,0 +1,10 @@
+# Dependências SÓ do servidor do portal.
+#
+# Separadas do requirements.txt da raiz de propósito: aquele traz pandas,
+# Jinja2, python-docx e playwright, que são do motor de lote e do mapeador.
+# O servidor não precisa de nenhum deles, e instalar 400 MB para servir um
+# formulário só faz a implantação demorar e aumentar a superfície.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+pypdf>=4.0          # confere a camada de texto dos PDFs recebidos

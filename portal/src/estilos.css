@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+   * A paleta. Clara por padrão, escura quando o aparelho pede.
+   *
+   * Parte do público é aposentada, lê no celular e muitas vezes à noite, com
+   * o telefone em modo escuro. Entregar branco estourado nessa situação é
+   * entregar um formulário que a pessoa não consegue ler — e um formulário
+   * de vinte campos que cansa a vista é um formulário abandonado.
+   *
+   * O contraste de cada par foi escolhido para passar de 4.5:1 nos dois
+   * modos; o acento escurece no claro e clareia no escuro por isso.
+   */
+  :root {
+    --tinta: 21 32 43;
+    --papel: 246 247 249;
+    --carta: 255 255 255;
+    --borda: 214 219 227;
+    --acento: 31 95 168;
+    --alerta: 180 52 31;
+    --bom: 28 122 74;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tema="claro"]) {
+      --tinta: 229 233 238;
+      --papel: 17 23 30;
+      --carta: 25 32 41;
+      --borda: 56 66 79;
+      --acento: 125 179 240;
+      --alerta: 248 150 130;
+      --bom: 110 206 155;
+    }
+  }
+
+  :root[data-tema="escuro"] {
+    --tinta: 229 233 238;
+    --papel: 17 23 30;
+    --carta: 25 32 41;
+    --borda: 56 66 79;
+    --acento: 125 179 240;
+    --alerta: 248 150 130;
+    --bom: 110 206 155;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-papel text-tinta antialiased;
+  }
+
+  /* Foco sempre visível. Parte do público usa teclado e zoom grande. */
+  :focus-visible {
+    @apply outline outline-2 outline-offset-2 outline-acento;
+  }
+
+  /* Campos de formulário não devem herdar o esquema do sistema sem querer:
+     no modo escuro, um `input` sem cor declarada vira branco em cima de
+     branco em alguns navegadores. */
+  input,
+  select,
+  textarea,
+  button {
+    color-scheme: light dark;
+  }
+}

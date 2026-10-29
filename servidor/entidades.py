@@ -1,0 +1,160 @@
+"""
+As entidades (sindicatos) atendidas pelo portal, e o isolamento entre elas.
+
+POR QUE ISTO É UM MÓDULO E NÃO UM `if`: cada entidade tem a sua pasta de
+entrega, e um pedido de uma entidade nunca pode escrever na pasta de outra.
+Isso não é conforto de arquitetura — é o requisito central. Os documentos de um
+filiado do sindicato A não podem aparecer na entrega que o escritório do
+sindicato B abre.
+
+Duas regras seguram isso, e as duas são verificadas:
+
+1. o apelido da entidade NÃO vem do pedido: vem do cadastro. O pedido manda um
+   apelido, nós procuramos no cadastro, e só o que está cadastrado existe. Um
+   apelido como `../outra` não está cadastrado e portanto não existe;
+2. o caminho montado é conferido contra a raiz depois de resolvido. Se não
+   estiver dentro, levanta. É cinto e suspensório de propósito: a regra 1 já
+   bastaria, e é justamente por isso que a 2 nunca deveria disparar — se
+   disparar, alguém mexeu na 1.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import pathlib
+import re
+from dataclasses import dataclass
+
+ARQUIVO = "entidades.json"
+# Minúsculas, dígitos e hífen. Sem ponto, sem barra, sem maiúscula: não é
+# economia de caracteres, é que nenhum deles pode virar caminho.
+APELIDO = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")
+
+
+class EntidadeDesconhecida(LookupError):
+    """O apelido não está cadastrado. Fim: não há caminho a montar."""
+
+
+class EntidadeSuspensa(PermissionError):
+    """Cadastrada, mas não recebendo. Devolve 403, não 404."""
+
+
+class CaminhoForaDaRaiz(RuntimeError):
+    """A rede de segurança da regra 2. Só dispara se a regra 1 foi burlada."""
+
+
+@dataclass(frozen=True)
+class Entidade:
+    apelido: str
+    nome: str
+    ativa: bool
+    escritorio: str
+    criada_em: str
+
+    def pasta(self, raiz: pathlib.Path) -> pathlib.Path:
+        raiz_abs = raiz.resolve()
+        destino = (raiz_abs / self.apelido).resolve()
+        if destino != raiz_abs and raiz_abs not in destino.parents:
+            raise CaminhoForaDaRaiz(
+                f"{destino} não está dentro de {raiz_abs}"
+            )
+        return destino
+
+    def entrega(self, raiz: pathlib.Path) -> pathlib.Path:
+        """A pasta que `ferramentas/conferir_entrega.py` abre, sem adaptação."""
+        return self.pasta(raiz) / "entrega"
+
+
+def _normalizar(bruto: dict) -> dict[str, Entidade]:
+    saida: dict[str, Entidade] = {}
+    for apelido, dados in bruto.items():
+        if not APELIDO.match(apelido):
+            # Não ignoramos em silêncio: um apelido inválido no cadastro é um
+            # erro de quem cadastrou, e o sindicato ia ficar sem atendimento
+            # sem ninguém entender por quê.
+            raise ValueError(
+                f"apelido {apelido!r} inválido: use minúsculas, dígitos e "
+                f"hífen, de 1 a 40 caracteres"
+            )
+        if not isinstance(dados, dict) or not str(dados.get("nome", "")).strip():
+            raise ValueError(f"entidade {apelido!r} está sem nome")
+        saida[apelido] = Entidade(
+            apelido=apelido,
+            nome=str(dados["nome"]).strip(),
+            ativa=bool(dados.get("ativa", True)),
+            escritorio=str(dados.get("escritorio", "")).strip(),
+            criada_em=str(dados.get("criada_em", "")).strip(),
+        )
+    return saida
+
+
+class Cadastro:
+    """Lê `<raiz>/entidades.json`. Recarrega quando o arquivo muda."""
+
+    def __init__(self, raiz: pathlib.Path) -> None:
+        self.raiz = raiz
+        self._arquivo = raiz / ARQUIVO
+        self._entidades: dict[str, Entidade] = {}
+        self._assinatura: tuple[float, int] | None = None
+
+    def _carregar_se_mudou(self) -> None:
+        try:
+            st = self._arquivo.stat()
+        except FileNotFoundError:
+            self._entidades = {}
+            self._assinatura = None
+            return
+        assinatura = (st.st_mtime, st.st_size)
+        if assinatura == self._assinatura:
+            return
+        bruto = json.loads(self._arquivo.read_text(encoding="utf-8"))
+        self._entidades = _normalizar(bruto)
+        self._assinatura = assinatura
+
+    def todas(self) -> list[Entidade]:
+        self._carregar_se_mudou()
+        return sorted(self._entidades.values(), key=lambda e: e.nome)
+
+    def resolver(self, apelido: str) -> Entidade:
+        """O único caminho para uma Entidade. Não existe atalho."""
+        self._carregar_se_mudou()
+        chave = (apelido or "").strip().lower()
+        ent = self._entidades.get(chave)
+        if ent is None:
+            raise EntidadeDesconhecida(chave)
+        if not ent.ativa:
+            raise EntidadeSuspensa(chave)
+        return ent
+
+    def criar(self, apelido: str, nome: str, escritorio: str = "") -> Entidade:
+        self._carregar_se_mudou()
+        chave = (apelido or "").strip().lower()
+        if not APELIDO.match(chave):
+            raise ValueError(f"apelido {chave!r} inválido")
+        if chave in self._entidades:
+            raise ValueError(f"{chave} já existe")
+        bruto = {
+            a: {
+                "nome": e.nome,
+                "ativa": e.ativa,
+                "escritorio": e.escritorio,
+                "criada_em": e.criada_em,
+            }
+            for a, e in self._entidades.items()
+        }
+        bruto[chave] = {
+            "nome": nome.strip(),
+            "ativa": True,
+            "escritorio": escritorio.strip(),
+            "criada_em": dt.date.today().isoformat(),
+        }
+        self.raiz.mkdir(parents=True, exist_ok=True)
+        tmp = self._arquivo.with_suffix(".json.parcial")
+        tmp.write_text(
+            json.dumps(bruto, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(self._arquivo)
+        self._assinatura = None
+        return self.resolver(chave)

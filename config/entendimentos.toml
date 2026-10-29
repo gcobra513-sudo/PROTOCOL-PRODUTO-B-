@@ -1,0 +1,278 @@
+# =====================================================================
+# CATÁLOGO DE ENTENDIMENTOS
+#
+# O que é: os entendimentos firmados nos tribunais superiores que mudam
+# QUEM PODE FAZER O QUÊ. Não é uma lista de leitura — cada entrada declara
+# um EFEITO que o motor aplica, e é isso que separa um catálogo de um
+# fichário.
+#
+# NÃO É O MESMO QUE `titulos.toml`. Aquele é o catálogo de TÍTULOS
+# EXECUTIVOS: o que já foi decidido em favor de alguém, e de onde sai a
+# competência da execução. Este é o catálogo de ENTENDIMENTOS: o que os
+# tribunais superiores fixaram, e que muda as regras para todo mundo.
+# Confundi-los faria o sistema dizer "você pode executar" para quem tem
+# tese favorável e nenhum título.
+#
+# DUAS TRILHAS, E A DIFERENÇA É O PRODUTO:
+#
+#   EXECUTAR  exige TÍTULO — sentença transitada em nome da pessoa, ou
+#             coletiva em que ela é substituída. Sem título não há o que
+#             executar, por melhor que seja a tese.
+#   AJUIZAR   não exige título. Exige que a pessoa se enquadre nos
+#             critérios do entendimento e que não tenha ação própria sobre
+#             o mesmo objeto.
+#
+# `homologado = "N"` em TUDO que ainda não passou por advogado. Nada
+# nominal sai daqui sem isso — mesma trava de `titulos.toml`.
+#
+# LEVANTADO POR PESQUISA EM 29/10/2026. As fontes estão em cada entrada.
+# O que está aqui é ponto de partida conferível, não parecer.
+# =====================================================================
+
+[catalogo]
+versao = 1
+levantado_em = "2026-10-29"
+categoria = "Auditores-Fiscais da Receita Federal do Brasil"
+
+
+# ---------------------------------------------------------------------
+# O QUE DECIDE SE PRECISA LIQUIDAR ANTES DE EXECUTAR
+#
+# Responde a pergunta 10 de PERGUNTAS_JURIDICO.md, aberta desde o começo
+# do projeto, e destrava `exige_liquidacao` em titulos.toml, hoje
+# "a_definir".
+# ---------------------------------------------------------------------
+[[entendimentos]]
+id              = "STJ-T1169"
+tribunal        = "STJ"
+tema            = "1169"
+# Referência humana, como o tribunal publica.
+recursos        = ["REsp 1.978.629/RJ", "REsp 1.985.037", "REsp 1.985.491"]
+# Número CNJ, que é o que o DataJud aceita. VAZIO = não monitorável, e o
+# motor diz isso em voz alta em vez de fingir que acompanha.
+numero_cnj      = ""
+relator         = "Min. Benedito Gonçalves"
+orgao           = "Primeira Seção"
+situacao        = "julgado"
+julgado_em      = "2026-05-07"
+suspensao_nacional = false
+questao = """
+Na execução individual de título formado em processo coletivo em favor de
+servidores públicos, é necessária a prévia liquidação do julgado?
+"""
+tese = """
+1. Na execução individual do título formado em processo coletivo em favor
+de servidores públicos, sempre que demonstrado documentalmente que o
+exequente legitimado se encontre na situação descrita genericamente na
+sentença, a execução pode ocorrer sem a necessidade de prévia liquidação
+do julgado, quando for possível a apuração do crédito por simples cálculos
+aritméticos.
+
+2. Cabe ao juízo da execução, assegurado o contraditório ao executado em
+sede de impugnação ao cumprimento de sentença, analisar de forma concreta
+se é necessária a prévia liquidação do julgado.
+"""
+trilha          = "executar"
+# O EFEITO. É isto que o motor lê.
+efeito          = "dispensa_liquidacao_se_calculo_aritmetico"
+criterios = [
+  "o exequente comprova DOCUMENTALMENTE enquadrar-se na situação descrita na sentença",
+  "o crédito é apurável por simples cálculos aritméticos",
+]
+fonte = "https://www.stj.jus.br/sites/portalp/Paginas/Comunicacao/Noticias/2026/10062026-Repetitivo-fixa-teses-sobre-dispensa-de-liquidacao-previa-na-execucao-individual-de-sentenca-coletiva-de-servidores.aspx"
+observacoes = """
+A tese foi restrita a SERVIDOR PÚBLICO e direito público, de propósito,
+para evitar leitura ampliativa — a Segunda Seção mantém entendimento
+diverso no direito privado. Não estender a outras categorias.
+"""
+homologado      = "N"
+
+
+# ---------------------------------------------------------------------
+# O QUE DECIDE QUEM PODE EXECUTAR — E ESTÁ PENDENTE, COM SUSPENSÃO
+#
+# É o entendimento mais importante deste catálogo, e o mais perigoso:
+# enquanto ele não é julgado, afirmar que alguém fora do rol pode executar
+# é apostar. O motor trata isso como INDETERMINADO, não como permissão.
+# ---------------------------------------------------------------------
+[[entendimentos]]
+id              = "STJ-T1302"
+tribunal        = "STJ"
+tema            = "1302"
+recursos        = ["REsp 2.146.834/AP", "REsp 2.146.839/AP"]
+numero_cnj      = ""
+relator         = "Min. Teodoro Silva Santos"
+orgao           = "Primeira Seção"
+situacao        = "afetado"
+afetado_em      = "2024-12-18"
+suspensao_nacional = true
+questao = """
+Definir, caso não limitado expressamente na sentença, se todos os
+servidores da categoria são legitimados para propor o cumprimento
+individual de sentença decorrente de ação coletiva proposta por sindicato,
+independentemente de filiação ou de constar em lista.
+"""
+tese = ""        # ainda não há
+trilha          = "executar"
+efeito          = "legitimidade_fora_do_rol_indeterminada"
+criterios = [
+  "a sentença coletiva NÃO delimita expressamente os beneficiários",
+  "a pessoa não é filiada OU não consta do rol de substituídos",
+]
+fonte = "https://www.stj.jus.br/sites/portalp/Paginas/Comunicacao/Noticias/2024/31122024-Repetitivo-definira-se-servidor-nao-filiado-pode-executar-sentenca-coletiva-obtida-por-sindicato.aspx"
+observacoes = """
+SUSPENSÃO: a Primeira Seção determinou a suspensão dos processos, individuais
+ou coletivos, que versem sobre a mesma matéria e nos quais tenha havido
+interposição de recurso especial ou de agravo em recurso especial na segunda
+instância, ou que tramitem no STJ.
+
+CONSEQUÊNCIA PARA NÓS, e é a razão de esta entrada existir: `elegibilidade.py`
+já pergunta se a pessoa consta do rol e devolve INDETERMINADO quando não se
+sabe. Este entendimento diz que, para quem está FORA do rol, a dúvida não é
+nossa — é do STJ, e está pendente. Protocolar nesse estado é apostar com o
+processo de outra pessoa.
+"""
+homologado      = "N"
+
+
+# ---------------------------------------------------------------------
+# O QUE DECIDE O ALCANCE DA COISA JULGADA COLETIVA
+#
+# O STF NÃO ESTÁ NO DATAJUD (medido em 29/10/2026: api_publica_stf devolve
+# index_not_found, e a lista oficial de 65 endpoints não o cita). Logo este
+# entendimento NÃO é monitorável pela nossa coleta, e isso fica escrito.
+# ---------------------------------------------------------------------
+[[entendimentos]]
+id              = "STF-T1119"
+tribunal        = "STF"
+tema            = "1119"
+recursos        = []
+numero_cnj      = ""
+situacao        = "julgado"
+suspensao_nacional = false
+questao = """
+Alcance subjetivo da coisa julgada em ação coletiva quando a sentença não
+delimita expressamente os beneficiários.
+"""
+tese = """
+PREENCHER — transcrever do acórdão. O que se apurou na pesquisa é que, quando
+a sentença coletiva não delimita expressamente seus beneficiários, a coisa
+julgada alcança toda a categoria, e não apenas os filiados. NÃO CITAR sem
+conferir o inteiro teor.
+"""
+trilha          = "executar"
+efeito          = "coisa_julgada_alcanca_a_categoria"
+criterios = [
+  "a sentença coletiva não delimita expressamente os beneficiários",
+]
+fonte = "PREENCHER — acórdão do STF"
+observacoes = """
+NÃO MONITORÁVEL pela nossa coleta: o STF está fora do DataJud. Qualquer
+acompanhamento deste tema é leitura humana, e o motor não deve sugerir o
+contrário.
+
+Relacionado e a conferir: RE 573.232, sobre legitimidade do associado para
+executar sentença de ação coletiva de ASSOCIAÇÃO — regime diferente do de
+sindicato, e confundir os dois é erro que extingue execução.
+"""
+homologado      = "N"
+
+
+# ---------------------------------------------------------------------
+# PRESCRIÇÃO — o relógio de tudo
+# ---------------------------------------------------------------------
+[[entendimentos]]
+id              = "STJ-T1410"
+tribunal        = "STJ"
+tema            = "1410"
+recursos        = []
+numero_cnj      = ""
+situacao        = "a_conferir"
+suspensao_nacional = false
+questao = """
+Prescrição do fundo de direito nas relações de trato sucessivo em que a
+Fazenda Pública figura como devedora.
+"""
+tese            = "PREENCHER — conferir no portal de repetitivos do STJ."
+trilha          = "ambas"
+efeito          = "prazo_prescricional"
+criterios       = []
+fonte = "https://www.stj.jus.br/sites/portalp/Paginas/Comunicacao/Noticias/2026/26052026-Pagina-de-Repetitivos-destaca-prescricao-do-fundo-de-direito-nas-relacoes-de-trato-sucessivo-em-que-a-Fazenda-e-.aspx"
+observacoes = """
+Já citado em CAMINHO.md desde antes desta rodada. `elegibilidade._p7_prescricao`
+trata o prazo como PARÂMETRO e não como constante no código, exatamente para
+este entendimento poder mudá-lo sem mexer no motor.
+"""
+homologado      = "N"
+
+
+# ---------------------------------------------------------------------
+# RESCISÓRIA E O 28,86% DA CARREIRA — diretamente sobre esta categoria
+# ---------------------------------------------------------------------
+[[entendimentos]]
+id              = "STJ-T1299"
+tribunal        = "STJ"
+tema            = "1299"
+recursos        = ["EREsp 1.431.163/AL", "EREsp 1.910.729/AL"]
+numero_cnj      = ""
+orgao           = "Primeira Seção"
+situacao        = "julgado"
+afetado_em      = "2024-12-10"
+suspensao_nacional = false
+questao = """
+Possibilidade de afastar a Súmula 343/STF para admitir ação rescisória por
+violação literal de lei quando, após o trânsito em julgado, a Corte passa a
+adotar entendimento contrário ao do título executado — no contexto do
+reajuste de 28,86% sobre a Retribuição Adicional Variável (RAV) e do
+reposicionamento funcional da Lei 8.627/1993.
+"""
+tese            = "PREENCHER — conferir a redação oficial no portal de repetitivos."
+trilha          = "executar"
+efeito          = "limite_a_rescisoria_contra_titulo"
+criterios = [
+  "título transitado antes do Tema 548/STJ (11/09/2013)",
+  "reconhecimento de compensação do percentual com reposicionamentos posteriores",
+  "carreira de Auditor-Fiscal da Receita Federal",
+]
+fonte = "https://www.stj.jus.br/docs_internet/processo/precedentes/2024/126_boletim_precedentes_stj_20241219.pdf"
+observacoes = """
+É sobre ESTA categoria, nominalmente: 28,86% sobre a RAV e o reposicionamento
+da carreira de Auditor-Fiscal. Protege o título já transitado contra
+rescisória — ou seja, joga A FAVOR de quem já tem título.
+
+Há crítica doutrinária sobre a ausência de modulação. Não é questão para o
+motor; é questão para o jurídico, e está registrada para não se perder.
+"""
+homologado      = "N"
+
+
+# =====================================================================
+# TÍTULOS CONHECIDOS DESTA CATEGORIA
+#
+# Entram aqui como REFERÊNCIA a conferir, não como catálogo de títulos —
+# aquele é `titulos.toml`. O que importa deste bloco é que o número é
+# real, confere o dígito verificador, e é monitorável.
+# =====================================================================
+
+[[acoes_coletivas]]
+id              = "GIFA-2006"
+descricao       = "Gratificação de Incremento da Fiscalização e Arrecadação (GIFA)"
+numero_cnj      = "0010391-24.2006.4.01.3400"
+numeracao_antiga = "2006.34.00.010510-0"
+jurisdicao      = "3400"          # Seção Judiciária do Distrito Federal
+autor           = "Unafisco Sindical (hoje Sindifisco Nacional)"
+situacao        = "transitado_em_julgado"
+fonte = "https://www.sindifisconacional.org.br/gifa-juridico-orienta-egressos-da-srp-sobre-documentacao/"
+observacoes = """
+CONFERIDO EM 29/10/2026, por requisição real ao DataJud: o número é íntegro
+(dígito verificador fecha, TRF1, jurisdição 3400) e devolveu 600 movimentos,
+em G1, com movimentação ainda em 2026. É monitorável hoje, sem depender de
+nada.
+
+Limite temporal a conferir com o jurídico: há decisão restringindo os cálculos
+à implantação do subsídio pela Lei 11.890/2008, aplicando a Súmula 629/STF.
+
+Pendência registrada: a ADI 7873 questiona emenda relacionada à GIFA e, pelo
+que se apurou, não foi julgada. Não confirmado em fonte primária.
+"""
+homologado      = "N"

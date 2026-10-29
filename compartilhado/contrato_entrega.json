@@ -1,0 +1,139 @@
+{
+ "_versao": 2,
+ "_sobre": [
+  "O CONTRATO DE DADOS entre o portal e o motor. Lido pelos dois lados.",
+  "",
+  "Por que existe: o portal nomeava os arquivos como 'residencia.pdf',",
+  "'transito.pdf' e 'fichas.pdf'; o verificador de entrega esperava",
+  "'comprovante_residencia.pdf', 'certidao_transito.pdf' e",
+  "'fichas_financeiras.pdf'. Três dos seis nomes divergiam, e a divergência",
+  "só apareceria quando a primeira entrega de verdade chegasse — com todas",
+  "as pastas reprovando por arquivo faltando.",
+  "",
+  "É o mesmo erro que o ensaio geral achou no motor (o manifesto dizia",
+  "'Seção Judiciária da Bahia (Salvador)' e o PJe diz sem o sufixo). Duas",
+  "pontas combinando de cabeça não combinam.",
+  "",
+  "Agora as duas leem este arquivo, e um teste reprova se discordarem.",
+  "",
+  "VERSAO: mudar a FORMA deste arquivo exige subir `_versao`. A trava está",
+  "em tests/testes_contrato_entrega.py e reprova a mudança que esquecer o",
+  "incremento — porque os dois produtos leem este arquivo, e uma divergência",
+  "de forma só apareceria na primeira entrega real. Texto explicativo",
+  "(`_sobre`, `_notas`) não conta como forma e não exige incremento."
+ ],
+ "_gerado_em": "2026-10-27",
+ "arquivos": {
+  "procuracao": "procuracao.pdf",
+  "identidade": "identidade.pdf",
+  "residencia": "comprovante_residencia.pdf",
+  "sentenca": "sentenca.pdf",
+  "transito": "certidao_transito.pdf",
+  "fichas": "fichas_financeiras.pdf"
+ },
+ "obrigatorios": [
+  "procuracao.pdf",
+  "identidade.pdf",
+  "comprovante_residencia.pdf"
+ ],
+ "se_tem_processo": [
+  "sentenca.pdf",
+  "certidao_transito.pdf"
+ ],
+ "desejaveis": [
+  "fichas_financeiras.pdf"
+ ],
+ "colunas_manifesto": [
+  "id_externo",
+  "cpf",
+  "nome_completo",
+  "matricula",
+  "rg",
+  "email",
+  "telefone",
+  "cep",
+  "logradouro",
+  "numero",
+  "complemento",
+  "bairro",
+  "municipio",
+  "uf",
+  "cargo",
+  "situacao",
+  "unidade",
+  "data_nascimento",
+  "data_ingresso",
+  "data_aposentadoria",
+  "tem_processo",
+  "numero_processo",
+  "observacao_processo",
+  "ja_tem_execucao",
+  "ja_recebeu_acordo",
+  "outro_advogado",
+  "ciencia_e_iniciativa"
+ ],
+ "valores": {
+  "situacao": [
+   "ativo",
+   "aposentado",
+   "pensionista"
+  ],
+  "tem_processo": [
+   "sim",
+   "nao",
+   "nao_sei"
+  ],
+  "resposta": [
+   "sim",
+   "nao",
+   "nao_sei"
+  ],
+  "quer_aviso": [
+   "",
+   "sim"
+  ]
+ },
+ "_notas": {
+  "pasta": "uma pasta por filiado, nomeada com os 11 dígitos do CPF, sem pontuação",
+  "tem_processo": [
+   "'sim' exige numero_processo íntegro e do TRF1;",
+   "'nao_sei' é resposta legítima — entra na lista de busca do escritório;",
+   "'nao' significa que a pessoa declara não ter sentença. Sem título não",
+   "há o que executar, e isso é aviso, não erro: é melhor saber agora."
+  ],
+  "ciencia_e_iniciativa": "preenchido = declarou; vazio = não declarou, e aí reprova",
+  "data_nascimento": [
+   "OBRIGATORIA. E dela que sai a prioridade de tramitacao: a aba",
+   "CARACTERISTICAS do PJe tem 'Idoso(a)' e 'Idoso(a) maior de 80 anos', e",
+   "o lote e de servidores aposentados.",
+   "",
+   "Ate 27/10/2026 o cadastro nao tinha idade nenhuma. Em cinco mil",
+   "execucoes de aposentados nao teriamos pedido prioridade para ninguem,",
+   "nao por decisao: por cegueira. Prioridade numa fila de cinco mil e",
+   "tempo de vida de quem espera.",
+   "",
+   "Formato AAAA-MM-DD."
+  ],
+  "acompanhamento": [
+   "O Produto B acompanha movimentacao por NUMERO de processo. Os numeros que",
+   "o filiado quer acompanhar vao em `acompanhar`, separados por ponto e",
+   "virgula, e aceitam qualquer um dos 65 tribunais do DataJud.",
+   "",
+   "POR QUE NAO E O MESMO CAMPO QUE `numero_processo`: aquele e o processo da",
+   "SENTENCA DE ORIGEM, e e dele que sai o juizo da execucao (CPC, art. 516,",
+   "II). O Produto A protocola no TRF1, logo `numero_processo` exige TRF1 --",
+   "sentenca do TRF5 se executa no TRF5. Sao campos diferentes porque sao",
+   "perguntas diferentes, e e por isso que `colunas_manifesto` nao mudou: o",
+   "manifesto e do Produto A e nao sabe do acompanhamento."
+  ]
+ },
+ "acompanhamento": {
+  "campo": "acompanhar",
+  "maximo": 20,
+  "separador": ";"
+ },
+ "campos_do_portal": [
+  "acompanhar",
+  "quer_aviso"
+ ]
+}

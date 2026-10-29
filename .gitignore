@@ -1,0 +1,15 @@
+# Ambiente
+__pycache__/
+*.pyc
+.venv/
+
+# Dados: NUNCA versionar cadastro de gente
+dados/
+*.jsonl
+
+# Front
+node_modules/
+dist/
+
+# Área de trabalho das skills: rascunho, não entrega
+.superpowers/
