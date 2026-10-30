@@ -18,7 +18,7 @@
 | 5 | Ação coletiva como entidade: categoria + período | **pronto** | `6fd78d6` |
 | 6 | Cruzamento: de quais ações a pessoa participa | **pronto** | `adc96a2` |
 | 7 | Portal do filiado pedindo o que o B pede | **pronto** | `73df604` |
-| 7b | Catálogo por categoria: atender vários sindicatos | **pronto** | `9e60e6f` |
+| 7b | Catálogo por categoria: atender vários sindicatos | **pronto** | `0afa698` |
 | 7c | **Mostrar ao filiado de quais ações ele participa** | **agora** | — |
 | 8 | Painel do sindicato sobre o novo cadastro | a fazer | — |
 | 9 | Banco ligado à aplicação (hoje lê de arquivo) | a fazer | — |
