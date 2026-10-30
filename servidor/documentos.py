@@ -121,8 +121,12 @@ def fatos_para_o_motor(
 
     O que os PDFs da pessoa NÃO podem dizer, e por isso entra por fora:
 
+      `filiado_desde`    vem dos comprovantes de CONTRIBUIÇÃO e do cadastro,
+      `filiado_ate`      não da sentença. É o que decide de quais ações ela
+                         faz parte, e sem isso o motor se recusa a dizer que
+                         ela pode executar — corretamente;
       `no_rol`           está na ação coletiva, não no documento dela;
-      `ja_executou`      está na base de execuções do escritório;
+      `ja_executou`      está na base de execuções já ajuizadas;
       `tem_acao_propria` idem.
 
     Passar `None` nesses é o estado honesto antes de o escritório fornecer as
@@ -136,6 +140,8 @@ def fatos_para_o_motor(
         situacao=cadastro.get("situacao", ""),
         data_ingresso=cadastro.get("data_ingresso", ""),
         data_aposentadoria=cadastro.get("data_aposentadoria", ""),
+        filiado_desde=cadastro.get("filiado_desde", ""),
+        filiado_ate=cadastro.get("filiado_ate", ""),
         tem_titulo=tem_titulo(fatos_lidos),
         no_rol=no_rol,
         ja_executou=ja_executou,

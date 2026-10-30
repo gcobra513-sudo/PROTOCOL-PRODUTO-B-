@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import entendimentos as ent
+from . import participacao as part
 
 EXECUTAR = ent.EXECUTAR
 AJUIZAR = ent.AJUIZAR
@@ -58,6 +59,12 @@ class Fatos:
     data_ingresso: str = ""
     data_aposentadoria: str = ""
 
+    #: O período de filiação, em AAAA-MM. Vem dos comprovantes de
+    #: contribuição, e é ele que decide DE QUAIS AÇÕES a pessoa faz parte.
+    #: `filiado_ate` vazio é resposta: ainda filiada.
+    filiado_desde: str = ""
+    filiado_ate: str = ""
+
     #: Tem sentença transitada em nome dela, ou é substituída em coletiva?
     tem_titulo: bool | None = None
     #: Consta do rol de substituídos da ação coletiva?
@@ -78,12 +85,25 @@ class Oportunidade:
     veredicto: str
     motivos: tuple[str, ...] = ()
     falta: tuple[str, ...] = ()
+    #: A interseção entre a filiação e o período da ação. É dela que o valor
+    #: sai depois — sem ela, quem for calcular refaz a conta do zero.
+    periodo_inicio: str = ""
+    periodo_fim: str = ""
     fonte: str = ""
     #: Observações que não decidem nada mas o escritório precisa ler.
     notas: tuple[str, ...] = ()
 
     def __bool__(self) -> bool:
         return self.veredicto == PODE
+
+    @property
+    def meses(self) -> int:
+        """Meses de participação. A base do cálculo, quando ele existir."""
+        if not (self.periodo_inicio and self.periodo_fim):
+            return 0
+        ai, mi = (int(x) for x in self.periodo_inicio.split("-"))
+        af, mf = (int(x) for x in self.periodo_fim.split("-"))
+        return (af - ai) * 12 + (mf - mi) + 1
 
 
 @dataclass
@@ -129,8 +149,42 @@ def _homologacao(item, juizo: _Juizo) -> None:
 def _avaliar_executar(
     fatos: Fatos, acao: ent.AcaoColetiva, catalogo: ent.Catalogo
 ) -> Oportunidade:
-    """Pode executar esta ação coletiva?"""
+    """Pode executar esta ação coletiva?
+
+    A PRIMEIRA PERGUNTA NÃO É "TEM TÍTULO?", É "FAZ PARTE DESTA AÇÃO?".
+    Antes o motor perguntava pelo título a todo mundo, para toda ação do
+    catálogo — e um Analista Tributário com sentença na mão apareceria como
+    apto a executar uma ação de Auditores-Fiscais. Participação vem antes, e
+    quem não participa não executa por mais título que tenha.
+    """
     j = _Juizo()
+
+    quem = part.Filiado(
+        cpf=fatos.cpf,
+        cargo=fatos.cargo,
+        situacao=fatos.situacao,
+        filiado_desde=fatos.filiado_desde,
+        filiado_ate=fatos.filiado_ate,
+        no_rol=fatos.no_rol,
+    )
+    faz_parte = part.cruzar(quem, acao)
+
+    if faz_parte.estado == part.NAO_PARTICIPA:
+        # Resposta, não lacuna: não adianta perguntar o resto.
+        return Oportunidade(
+            trilha=EXECUTAR,
+            referencia=acao.id,
+            rotulo=f"Executar: {acao.rotulo}",
+            veredicto=NAO_PODE,
+            motivos=faz_parte.motivos,
+            fonte=acao.fonte,
+        )
+
+    if faz_parte.estado == part.INDETERMINADO:
+        for falta in faz_parte.falta:
+            j.falta.append(falta)
+        j.motivos.extend(faz_parte.motivos)
+
     _homologacao(acao, j)
 
     # 1. O TÍTULO, e ele vem antes de tudo. Sem título não há execução, e
@@ -154,7 +208,10 @@ def _avaliar_executar(
             f"julgado",
         )
 
-    # 2. O ROL, e aqui entra o entendimento que está VIVO.
+    # 2. O ROL. `participacao` já barrou quem está fora do rol de uma ação
+    #    que o EXIGE. O que resta aqui é o Tema 1.302, que pende sobre a
+    #    legitimidade de quem está fora do rol mesmo quando a ação não o
+    #    exige expressamente.
     pendentes = [
         e for e in catalogo.por_efeito("legitimidade_fora_do_rol_indeterminada")
         if e.esta_homologado and e.pendente
@@ -214,6 +271,8 @@ def _avaliar_executar(
         veredicto=j.veredicto,
         motivos=tuple(j.motivos),
         falta=tuple(j.falta),
+        periodo_inicio=faz_parte.inicio,
+        periodo_fim=faz_parte.fim,
         fonte=acao.fonte,
         notas=tuple(j.notas),
     )

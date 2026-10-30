@@ -24,6 +24,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 SUITES = [
     "tests/testes_motor.py",
     "tests/testes_cadastro.py",
+    "tests/testes_participacao.py",
     "tests/testes_leitura.py",
     "tests/testes_documentos.py",
     "tests/testes_acervo.py",

@@ -26,11 +26,19 @@ Tudo neste produto é uma destas três, e só estas três.
 ```
    1. ENTRADA              2. ENTENDIMENTO            3. VEREDICTO
    ----------              ---------------            ------------
-   a lista do sindicato    ler o que os documentos    cruzar com as regras
-   + o que o filiado  -->  dizem: cargo, período, --> e dizer, nome por nome:
-     manda no site         verba, trânsito            pode executar? ajuizar?
-                                                      quanto?
+   a lista do sindicato    ler o que os documentos    de quais ações ela
+   + o que o filiado  -->  dizem: trânsito,       --> PARTICIPA, e o que
+     manda no site         dispositivo, período       pode fazer em cada uma
 ```
+
+**O cruzamento é o miolo.** A ação coletiva alcança uma categoria, num
+período. Os comprovantes de contribuição provam o período de filiação.
+Cruzar os dois responde a pergunta que o filiado faz primeiro — *de quais
+ações eu faço parte?* — e só então vem *e o que posso fazer nelas?*.
+
+E filiação parcial é participação parcial: quem foi filiada de 2005 a 2006
+participa de uma ação que cobre 2003 a 2008, **mas só por aqueles 20 meses**.
+É dessa interseção que o valor sai depois.
 
 | Caixa | Estado | O que falta |
 |---|---|---|

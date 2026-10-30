@@ -64,6 +64,8 @@ def fatos(**trocas) -> motor.Fatos:
         situacao="aposentado",
         data_ingresso="1992-04-01",
         data_aposentadoria="2018-06-30",
+        filiado_desde="1992-05",
+        filiado_ate="",
         tem_titulo=None,
         no_rol=None,
         ja_executou=None,
@@ -271,6 +273,73 @@ def teste_acao_diz_se_exige_rol():
 
 
 
+# ----------------------------------- participação antes do veredicto (etapa 3)
+
+def teste_quem_nao_participa_da_acao_nao_pode_executar_mesmo_com_titulo():
+    """A etapa 3 ligada ao motor, e a ordem importa.
+
+    Antes, o motor perguntava "tem título?" para toda ação do catálogo, de
+    todo mundo. Agora pergunta primeiro se a pessoa FAZ PARTE daquela ação —
+    e quem não faz não executa, por mais título que tenha. Um Analista
+    Tributário com sentença na mão não executa uma ação de Auditores-Fiscais.
+    """
+    secao("participação antes do veredicto")
+    cat = catalogo(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
+    f = fatos(tem_titulo=True, no_rol=True, ja_executou=False,
+              cargo="Analista Tributário da Receita Federal",
+              filiado_desde="1995-01")
+    executar = [o for o in motor.avaliar(f, cat) if o.trilha == motor.EXECUTAR]
+    checa(all(o.veredicto != motor.PODE for o in executar),
+          "deixou executar ação de outra categoria")
+    texto = " ".join(m for o in executar for m in o.motivos).lower()
+    checa("categoria" in texto or "carreira" in texto,
+          f"o motivo não explica que é de outra categoria: {texto[:200]}")
+    print("  ok     outra categoria não executa, nem com título")
+
+
+def teste_quem_saiu_antes_da_acao_nao_executa():
+    cat = catalogo(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
+    f = fatos(tem_titulo=True, no_rol=True, ja_executou=False,
+              filiado_desde="1995-01", filiado_ate="2002-12")
+    executar = [o for o in motor.avaliar(f, cat) if o.trilha == motor.EXECUTAR]
+    checa(all(o.veredicto != motor.PODE for o in executar),
+          "deixou executar ação cujo período não alcança a filiação")
+    print("  ok     filiação fora do período da ação não executa")
+
+
+def teste_sem_saber_a_filiacao_a_resposta_e_falta():
+    """Não saber não é não ter direito."""
+    cat = catalogo(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
+    f = fatos(tem_titulo=True, no_rol=True, ja_executou=False,
+              filiado_desde="")
+    executar = [o for o in motor.avaliar(f, cat) if o.trilha == motor.EXECUTAR]
+    checa(all(o.veredicto == motor.FALTA for o in executar),
+          f"{[(o.referencia, o.veredicto) for o in executar]}")
+    checa(any("contribui" in f.lower() for o in executar for f in o.falta),
+          f"não pediu os comprovantes de contribuição: "
+          f"{[o.falta for o in executar]}")
+    print("  ok     sem filiação conhecida: FALTA, pedindo a contribuição")
+
+
+def teste_a_oportunidade_diz_de_que_periodo_ela_e():
+    """A interseção chega ao veredicto. É dela que o valor sai depois, e sem
+    ela o escritório teria de refazer a conta a partir do zero."""
+    cat = catalogo(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
+    f = fatos(tem_titulo=True, no_rol=True, ja_executou=False,
+              filiado_desde="2005-04", filiado_ate="2006-11")
+    pode = [o for o in motor.avaliar(f, cat)
+            if o.trilha == motor.EXECUTAR and o.veredicto == motor.PODE]
+    checa(pode != [], "não chegou a PODE com filiação parcial")
+    if pode:
+        checa((pode[0].periodo_inicio, pode[0].periodo_fim)
+              == ("2005-04", "2006-11"),
+              f"período da oportunidade: {pode[0].periodo_inicio} a "
+              f"{pode[0].periodo_fim}")
+        checa(pode[0].meses == 20, f"meses: {pode[0].meses}")
+    print("  ok     a oportunidade carrega o período e os 20 meses")
+
+
+
 TESTES.extend([
     teste_sem_titulo_ninguem_executa_nunca,
     teste_quem_tem_titulo_e_esta_no_rol_pode_executar,
@@ -285,6 +354,10 @@ TESTES.extend([
     teste_acao_coletiva_declara_quem_ela_cobre,
     teste_acao_sem_periodo_nao_homologa,
     teste_acao_diz_se_exige_rol,
+    teste_quem_nao_participa_da_acao_nao_pode_executar_mesmo_com_titulo,
+    teste_quem_saiu_antes_da_acao_nao_executa,
+    teste_sem_saber_a_filiacao_a_resposta_e_falta,
+    teste_a_oportunidade_diz_de_que_periodo_ela_e,
 ])
 
 

@@ -188,7 +188,12 @@ def teste_do_pdf_ao_veredicto_sem_ninguem_digitar():
     # substituídos está na ação coletiva, não no PDF da pessoa.
     fatos = documentos.fatos_para_o_motor(
         fatos_lidos,
-        cadastro={"cpf": "11144477735", "nome": "FULANA DE TAL (EXEMPLO)"},
+        # A filiação NÃO está na sentença: vem dos comprovantes de
+        # contribuição, pelo cadastro. Sem ela o motor recusa dizer PODE, e
+        # é o comportamento certo.
+        cadastro={"cpf": "11144477735", "nome": "FULANA DE TAL (EXEMPLO)",
+                  "cargo": "Auditor-Fiscal da Receita Federal do Brasil",
+                  "filiado_desde": "1992-05", "filiado_ate": ""},
         no_rol=True,
         ja_executou=False,
     )
@@ -213,7 +218,10 @@ def teste_sentenca_improcedente_nao_vira_titulo():
     achados = documentos.ler_pdf(pdf_com(ruim)) + documentos.ler_pdf(pdf_com(CERTIDAO))
     fatos = documentos.fatos_para_o_motor(
         leitura.fatos_confiaveis(achados),
-        cadastro={"cpf": "11144477735"}, no_rol=True, ja_executou=False,
+        cadastro={"cpf": "11144477735",
+                  "cargo": "Auditor-Fiscal da Receita Federal do Brasil",
+                  "filiado_desde": "1992-05"},
+        no_rol=True, ja_executou=False,
     )
     checa(fatos.tem_titulo is False,
           f"sentença IMPROCEDENTE virou título: tem_titulo={fatos.tem_titulo}")
@@ -234,7 +242,10 @@ def teste_sem_transito_nao_ha_titulo_ainda():
     achados = documentos.ler_pdf(pdf_com(SENTENCA))      # só a sentença
     fatos = documentos.fatos_para_o_motor(
         leitura.fatos_confiaveis(achados),
-        cadastro={"cpf": "11144477735"}, no_rol=True, ja_executou=False,
+        cadastro={"cpf": "11144477735",
+                  "cargo": "Auditor-Fiscal da Receita Federal do Brasil",
+                  "filiado_desde": "1992-05"},
+        no_rol=True, ja_executou=False,
     )
     checa(fatos.tem_titulo is None,
           f"sem certidão de trânsito, tem_titulo devia ser desconhecido "
