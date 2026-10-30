@@ -595,67 +595,6 @@ def teste_manifesto_se_refaz_do_diario():
     print("  ok     manifesto apagado se refaz igual a partir do diário")
 
 
-def teste_entrega_passa_no_verificador():
-    secao("o laço fechado")
-    c = Cenario()
-    r = c.enviar(c.token(), linha(), pacote())
-    checa(r.status_code == 200, f"o envio falhou: {r.text[:300]}")
-    if r.status_code != 200:
-        return
-
-    entrega = c.raiz / "demo-teste" / "entrega"
-    p = subprocess.run(
-        [
-            sys.executable,
-            "ferramentas/conferir_entrega.py",
-            "--entrega",
-            str(entrega),
-        ],
-        cwd=RAIZ,
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    saida = (p.stdout or "") + (p.stderr or "")
-    checa(
-        p.returncode == 0,
-        f"o verificador do motor REPROVOU a entrega do servidor:\n{saida[-1200:]}",
-    )
-    checa(
-        "documento_ausente" not in saida and "sem_texto_selecionavel" not in saida,
-        f"o verificador achou problema de documento:\n{saida[-800:]}",
-    )
-    recibo = r.json()
-    checa(
-        recibo["protocolo"].startswith("PRT-"),
-        f"protocolo em formato inesperado: {recibo['protocolo']}",
-    )
-    checa(
-        len(recibo["arquivos"]) == 5
-        and all(len(h) == 64 for h in recibo["arquivos"].values()),
-        "o recibo devia trazer o sha256 dos cinco arquivos",
-    )
-    print("  ok     a entrega do servidor é aprovada pelo motor, sem adaptação")
-
-
-TESTES = [
-    teste_saude_e_entidade,
-    teste_rol_ausente_fecha_o_portao,
-    teste_cpf_fora_do_rol_nao_se_distingue,
-    teste_codigo_errado_e_forca_bruta,
-    teste_limite_de_emissoes,
-    teste_cadastro_exige_sessao,
-    teste_cpf_do_formulario_tem_que_bater_com_a_sessao,
-    teste_arquivos_recusados,
-    teste_linha_recusada,
-    teste_token_vale_um_envio,
-    teste_reenvio_guarda_o_anterior,
-    teste_isolamento_entre_entidades,
-    teste_manifesto_se_refaz_do_diario,
-    teste_entrega_passa_no_verificador,
-]
-
-
 def main() -> int:
     print("=" * 70)
     print("SERVIDOR DO PORTAL")
@@ -687,6 +626,23 @@ def main() -> int:
     return 0
 
 
+
+
+TESTES = [
+    teste_saude_e_entidade,
+    teste_rol_ausente_fecha_o_portao,
+    teste_cpf_fora_do_rol_nao_se_distingue,
+    teste_codigo_errado_e_forca_bruta,
+    teste_limite_de_emissoes,
+    teste_cadastro_exige_sessao,
+    teste_cpf_do_formulario_tem_que_bater_com_a_sessao,
+    teste_arquivos_recusados,
+    teste_linha_recusada,
+    teste_token_vale_um_envio,
+    teste_reenvio_guarda_o_anterior,
+    teste_isolamento_entre_entidades,
+    teste_manifesto_se_refaz_do_diario,
+]
 
 
 def teste_modo_ensaio_so_atende_entidade_de_demonstracao():

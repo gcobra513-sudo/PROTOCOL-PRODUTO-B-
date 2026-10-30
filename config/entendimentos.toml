@@ -260,8 +260,20 @@ descricao       = "Gratificação de Incremento da Fiscalização e Arrecadaçã
 numero_cnj      = "0010391-24.2006.4.01.3400"
 numeracao_antiga = "2006.34.00.010510-0"
 jurisdicao      = "3400"          # Seção Judiciária do Distrito Federal
+juizo           = "5ª Vara Federal Cível da SJDF"
 autor           = "Unafisco Sindical (hoje Sindifisco Nacional)"
 situacao        = "transitado_em_julgado"
+
+# QUEM ESTA AÇÃO COBRE. É daqui que sai "em quais ações esta pessoa
+# participa": o período de filiação da pessoa é cruzado contra este período,
+# e a categoria dela contra esta categoria.
+categoria       = "Auditor-Fiscal da Receita Federal do Brasil"
+periodo_inicio  = "2003-01"
+periodo_fim     = "2008-12"
+# A ação foi proposta pelo sindicato como substituto processual. Se há rol de
+# substituídos, quem está fora depende do STJ Tema 1.302 — afetado, com
+# suspensão nacional. PREENCHER depois de conferir os autos.
+exige_rol       = false
 fonte = "https://www.sindifisconacional.org.br/gifa-juridico-orienta-egressos-da-srp-sobre-documentacao/"
 observacoes = """
 CONFERIDO EM 29/10/2026, por requisição real ao DataJud: o número é íntegro

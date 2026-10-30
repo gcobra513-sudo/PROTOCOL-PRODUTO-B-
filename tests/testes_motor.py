@@ -22,6 +22,7 @@ apostar com o processo de outra pessoa. O motor devolve FALTA, nunca PODE.
 """
 from __future__ import annotations
 
+import pathlib
 import sys
 from pathlib import Path
 
@@ -215,6 +216,61 @@ def teste_nada_e_devolvido_sem_referencia_e_rotulo():
     print("  ok     toda oportunidade tem referência, rótulo e fonte")
 
 
+# ------------------------------------- a ação coletiva como entidade (etapa 2)
+
+def teste_acao_coletiva_declara_quem_ela_cobre():
+    """Uma ação coletiva não é só um número. Ela cobre UMA CATEGORIA, num
+    PERÍODO — e é disso que sai "em quais ações esta pessoa participa".
+
+    Sem o período declarado não há como responder a pergunta, e a ação não
+    pode ser homologada: homologar sem período é afirmar que sabemos quem
+    ela alcança quando não sabemos.
+    """
+    secao("a ação coletiva")
+    cat = entendimentos.carregar(CATALOGO)
+    gifa = cat.de("GIFA-2006")
+    checa(gifa.categoria.strip() != "",
+          "a ação não declara qual categoria ela cobre")
+    checa(gifa.periodo_inicio and gifa.periodo_fim,
+          f"a ação não declara o período coberto: "
+          f"{gifa.periodo_inicio!r} a {gifa.periodo_fim!r}")
+    checa(gifa.periodo_inicio < gifa.periodo_fim,
+          f"período invertido: {gifa.periodo_inicio} a {gifa.periodo_fim}")
+    print(f"  ok     {gifa.id}: {gifa.categoria[:28]}... "
+          f"{gifa.periodo_inicio} a {gifa.periodo_fim}")
+
+
+def teste_acao_sem_periodo_nao_homologa():
+    """A autópsia. Uma ação homologada sem período diria a quem participa
+    com base em nada."""
+    import tempfile
+
+    torta = pathlib.Path(tempfile.mkdtemp()) / "c.toml"
+    torta.write_text(
+        '[catalogo]\nversao = 1\ncategoria = "x"\n\n'
+        '[[acoes_coletivas]]\nid = "SEM-PERIODO"\n'
+        'descricao = "Ação sem período"\nhomologado = "S"\n',
+        encoding="utf-8",
+    )
+    try:
+        entendimentos.carregar(torta)
+        checa(False, "aceitou ação homologada sem período coberto")
+    except entendimentos.ErroDeCatalogo as e:
+        checa("período" in str(e) or "periodo" in str(e),
+              f"a mensagem não diz que falta o período: {e}")
+    print("  ok     ação homologada sem período é recusada")
+
+
+def teste_acao_diz_se_exige_rol():
+    """Exigir rol muda tudo: com rol, quem não está nele depende do Tema
+    1.302, que está pendente. Sem rol, a coisa julgada alcança a categoria."""
+    gifa = entendimentos.carregar(CATALOGO).de("GIFA-2006")
+    checa(isinstance(gifa.exige_rol, bool),
+          f"exige_rol devia ser booleano, é {type(gifa.exige_rol).__name__}")
+    print(f"  ok     exige_rol declarado: {gifa.exige_rol}")
+
+
+
 TESTES.extend([
     teste_sem_titulo_ninguem_executa_nunca,
     teste_quem_tem_titulo_e_esta_no_rol_pode_executar,
@@ -226,6 +282,9 @@ TESTES.extend([
     teste_as_duas_trilhas_nao_se_misturam,
     teste_a_duvida_e_nominal_e_diz_o_que_falta,
     teste_nada_e_devolvido_sem_referencia_e_rotulo,
+    teste_acao_coletiva_declara_quem_ela_cobre,
+    teste_acao_sem_periodo_nao_homologa,
+    teste_acao_diz_se_exige_rol,
 ])
 
 

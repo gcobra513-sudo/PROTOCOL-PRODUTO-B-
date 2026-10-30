@@ -1,0 +1,109 @@
+{
+ "_sobre": [
+  "O CONTRATO DA CONTA DO FILIADO, no Produto B. Lido pelo portal e pelo",
+  "servidor, para que não existam duas listas de campos divergindo em",
+  "silêncio.",
+  "",
+  "O QUE O PRODUTO B PEDE, E POR QUE:",
+  "",
+  "  contribuicao   comprova o PERÍODO DE FILIAÇÃO, e é o cruzamento desse",
+  "                 período contra o período da ação coletiva que responde",
+  "                 'em quais ações esta pessoa participa'. É o único",
+  "                 documento obrigatório, e aceita vários arquivos — um",
+  "                 comprovante por ano é o normal",
+  "  cargo/situacao definem a CATEGORIA alcançada pela ação",
+  "  sentenca,      só se a pessoa tiver. Decidem se ela EXECUTA (tem",
+  "  certidao       título) ou AJUÍZA (não tem)",
+  "",
+  "O QUE ELE NÃO PEDE, E ISTO É DELIBERADO: procuração, identidade e",
+  "comprovante de residência. São documentos para LITIGAR — hipótese do",
+  "Produto A, que monta petição. Exigi-los de quem só quer saber se tem",
+  "direito derruba a conclusão do cadastro e não melhora resposta nenhuma.",
+  "Procuração aparece quando houver ação a propor, e aí é outra conversa.",
+  "",
+  "VERSÃO: mudar a forma deste arquivo exige subir `_versao`."
+ ],
+ "_versao": 1,
+ "_gerado_em": "2026-10-30",
+
+ "campos": [
+  "cpf",
+  "nome_completo",
+  "email",
+  "telefone",
+  "cargo",
+  "situacao",
+  "unidade",
+  "data_nascimento",
+  "data_ingresso",
+  "data_aposentadoria",
+  "filiado_desde",
+  "filiado_ate",
+  "tem_processo",
+  "numeros_de_processo",
+  "ja_executou",
+  "tem_acao_propria"
+ ],
+
+ "obrigatorios": [
+  "cpf",
+  "nome_completo",
+  "email",
+  "cargo",
+  "situacao",
+  "filiado_desde"
+ ],
+
+ "documentos": {
+  "contribuicao": {
+   "rotulo": "Comprovantes de contribuição ao sindicato",
+   "obrigatorio": true,
+   "multiplos": true,
+   "ajuda": "Contracheque, ficha financeira ou declaração do sindicato. Quanto mais anos, melhor a resposta."
+  },
+  "sentenca": {
+   "rotulo": "Sentença, se você tiver",
+   "obrigatorio": false,
+   "multiplos": false,
+   "ajuda": "A decisão que julgou a sua ação. Se você não tem, siga assim mesmo."
+  },
+  "certidao_transito": {
+   "rotulo": "Certidão de trânsito em julgado, se você tiver",
+   "obrigatorio": false,
+   "multiplos": false,
+   "ajuda": "O papel que diz que a sentença não cabe mais recurso."
+  }
+ },
+
+ "valores": {
+  "situacao": ["ativo", "aposentado", "pensionista"],
+  "resposta": ["sim", "nao", "nao_sei"]
+ },
+
+ "tetos": {
+  "nome_completo": 180,
+  "email": 254,
+  "cargo": 120,
+  "unidade": 180,
+  "numeros_de_processo": 520
+ },
+ "teto_padrao": 80,
+
+ "_notas": {
+  "filiado_ate": [
+   "VAZIO SIGNIFICA 'AINDA FILIADO'. É resposta, não omissão — e tratá-la",
+   "como omissão faria o sistema reprovar justamente quem está filiado hoje."
+  ],
+  "numeros_de_processo": [
+   "Separados por ponto e vírgula, de QUALQUER um dos 65 tribunais do",
+   "DataJud. Acompanhar não é protocolar: o número da sentença de alguém",
+   "pode ser de tribunal estadual, e recusá-lo seria pôr a nossa suposição",
+   "acima do fato dela."
+  ],
+  "judicial": [
+   "Declarar que tem processo NÃO passa a exigir documento. A pessoa pode",
+   "saber o número e não ter os papéis em mãos, e bloquear o cadastro por",
+   "isso a deixaria sem resposta nenhuma."
+  ]
+ }
+}

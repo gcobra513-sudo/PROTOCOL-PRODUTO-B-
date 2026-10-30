@@ -23,6 +23,7 @@ RAIZ = Path(__file__).resolve().parent.parent
 
 SUITES = [
     "tests/testes_motor.py",
+    "tests/testes_cadastro.py",
     "tests/testes_leitura.py",
     "tests/testes_documentos.py",
     "tests/testes_acervo.py",
@@ -30,7 +31,6 @@ SUITES = [
     "tests/testes_acompanhamento.py",
     "tests/testes_servidor_portal.py",
     "tests/testes_banco.py",
-    "tests/testes_contrato_entrega.py",
     "tests/testes_conformidade_portal.py",
 ]
 

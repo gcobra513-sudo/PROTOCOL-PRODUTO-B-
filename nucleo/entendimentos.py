@@ -98,8 +98,14 @@ class Entendimento:
 
 @dataclass(frozen=True)
 class AcaoColetiva:
-    """Um título coletivo conhecido. Referência, não catálogo de títulos —
-    aquele é `titulos.py`."""
+    """Uma ação coletiva, e **quem ela cobre**.
+
+    Não é só um número. Ela alcança UMA CATEGORIA, num PERÍODO — e é disso
+    que sai a resposta para "em quais ações esta pessoa participa". Sem
+    categoria e período declarados, a pergunta não tem como ser respondida, e
+    por isso a autópsia recusa ação homologada sem eles: homologar seria
+    afirmar que sabemos quem ela alcança.
+    """
 
     id: str
     descricao: str = ""
@@ -108,6 +114,20 @@ class AcaoColetiva:
     jurisdicao: str = ""
     autor: str = ""
     situacao: str = ""
+
+    #: A categoria alcançada. Quem não é dela não participa, por mais tempo
+    #: de filiação que tenha.
+    categoria: str = ""
+    #: O período coberto, em AAAA-MM. É contra ele que o período de filiação
+    #: da pessoa é cruzado.
+    periodo_inicio: str = ""
+    periodo_fim: str = ""
+    #: Há rol de substituídos? Muda tudo: com rol, quem está fora depende do
+    #: STJ Tema 1.302, que está pendente com suspensão nacional. Sem rol, a
+    #: coisa julgada alcança a categoria.
+    exige_rol: bool = False
+    juizo: str = ""
+
     fonte: str = ""
     observacoes: str = ""
     homologado: str = "N"
@@ -199,6 +219,34 @@ def _conferir(e: Entendimento) -> list[str]:
     return erros
 
 
+def _conferir_acao(a: AcaoColetiva) -> list[str]:
+    """A autópsia da ação coletiva.
+
+    Homologar sem período coberto seria afirmar que sabemos quem a ação
+    alcança quando não sabemos — e é desse período que sai "em quais ações
+    esta pessoa participa".
+    """
+    erros: list[str] = []
+    if not a.id.strip():
+        erros.append("ação coletiva sem id")
+    if a.periodo_inicio and a.periodo_fim and a.periodo_inicio > a.periodo_fim:
+        erros.append(
+            f"{a.id}: período coberto invertido "
+            f"({a.periodo_inicio} a {a.periodo_fim})"
+        )
+    if a.esta_homologado:
+        if not (a.periodo_inicio.strip() and a.periodo_fim.strip()):
+            erros.append(
+                f"{a.id}: homologada sem o período coberto — sem ele não há "
+                f"como dizer quem participa"
+            )
+        if not a.categoria.strip():
+            erros.append(f"{a.id}: homologada sem a categoria alcançada")
+        if not a.fonte.strip() or a.fonte.strip().startswith("PREENCHER"):
+            erros.append(f"{a.id}: homologada sem fonte citada")
+    return erros
+
+
 def carregar(caminho: Path | str) -> Catalogo:
     caminho = Path(caminho)
     try:
@@ -243,12 +291,18 @@ def carregar(caminho: Path | str) -> Catalogo:
             jurisdicao=str(bruto.get("jurisdicao", "")),
             autor=str(bruto.get("autor", "")),
             situacao=str(bruto.get("situacao", "")),
+            categoria=str(bruto.get("categoria", "")),
+            periodo_inicio=str(bruto.get("periodo_inicio", "")),
+            periodo_fim=str(bruto.get("periodo_fim", "")),
+            exige_rol=bool(bruto.get("exige_rol", False)),
+            juizo=str(bruto.get("juizo", "")),
             fonte=str(bruto.get("fonte", "")),
             observacoes=str(bruto.get("observacoes", "")),
             homologado=str(bruto.get("homologado", "N")),
         ))
 
     erros = [p for e in entradas for p in _conferir(e)]
+    erros += [p for a in acoes for p in _conferir_acao(a)]
     vistos = [e.id for e in entradas] + [a.id for a in acoes]
     repetidos = sorted({i for i in vistos if vistos.count(i) > 1})
     if repetidos:
