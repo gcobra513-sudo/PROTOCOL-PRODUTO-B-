@@ -10,3 +10,6 @@ pypdf>=4.0          # leitura/validação do PDF gerado
 # tests/testes_mapeador.py. Sem ela a suíte é PULADA, e suíte pulada não está
 # testada — tests/rodar_todos.py avisa quando isso acontece.
 playwright>=1.47
+
+# Só para a suíte: gera os PDFs sintéticos de teste.
+reportlab

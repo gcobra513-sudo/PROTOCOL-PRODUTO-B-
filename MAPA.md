@@ -35,16 +35,28 @@ Tudo neste produto é uma destas três, e só estas três.
 | Caixa | Estado | O que falta |
 |---|---|---|
 | **1. Entrada** | **PRONTA** | nada |
-| **2. Entendimento** | **não existe** | ler a sentença e as fichas e extrair os fatos |
-| **3. Veredicto** | **não existe** | o motor que cruza fatos × regras |
+| **2. Entendimento** | **PRONTA, sem as fichas** | ler as fichas financeiras (é a caixa 4) |
+| **3. Veredicto** | **PRONTA, sem o valor** | o valor é a caixa 4 |
+| **4. Valor** | **não existe** | quanto, com humano assinando |
 
 A caixa 1 está pronta de verdade: o portal recebe e confere documento no
 aparelho da pessoa, o servidor valida e grava, a ingestão engole a planilha
 suja do sindicato sem perder linha, e o acompanhamento de processo por número
-funciona contra o DataJud. Tudo testado.
+funciona contra o DataJud.
 
-**As caixas 2 e 3 são o produto, e nenhuma das duas existe.** É aí que vai
-todo o trabalho a partir de agora.
+A caixa 2 lê o PDF e tira dele número do processo, trânsito em julgado,
+dispositivo, órgão julgador, período, valores e CPF — **cada achado com o
+trecho de onde saiu**, para um humano conferir sem abrir o documento. Nada
+que não tenha conferência própria (dígito verificador, frase inequívoca)
+alimenta o motor sozinho.
+
+A caixa 3 cruza isso com o catálogo de entendimentos e devolve, por pessoa, o
+que ela pode executar e o que pode ajuizar — com o motivo de cada "não".
+
+**Dois PDFs entram e "PODE executar" sai, sem ninguém digitar nada.** É o
+teste `teste_do_pdf_ao_veredicto_sem_ninguem_digitar`.
+
+**Falta a caixa 4: o valor.** É a parte perigosa, e por isso é a última.
 
 ---
 

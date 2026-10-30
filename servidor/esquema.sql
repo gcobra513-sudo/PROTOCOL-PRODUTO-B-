@@ -92,6 +92,46 @@ CREATE TABLE IF NOT EXISTS pessoa (
 );
 
 
+-- O DOCUMENTO e o que se leu dele.
+--
+-- `documento` guarda o METADADO, nunca os bytes: o PDF fica no disco ou no
+-- object storage, e o banco guarda a impressão digital. Pôr PDF em coluna
+-- faz o banco inchar, o backup demorar e a consulta arrastar — e nenhuma
+-- dessas três coisas melhora o produto.
+CREATE TABLE IF NOT EXISTS documento (
+    entidade    text NOT NULL,
+    cpf         text NOT NULL,
+    tipo        text NOT NULL,         -- sentenca, certidao_transito, fichas...
+    sha256      text NOT NULL,
+    paginas     integer NOT NULL DEFAULT 0,
+    caracteres  integer NOT NULL DEFAULT 0,
+    tem_texto   boolean NOT NULL DEFAULT false,
+    recebido_em timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (entidade, cpf, tipo, sha256)
+);
+
+-- CADA ACHADO GUARDA O TRECHO DE ONDE SAIU, e essa coluna é a razão de o
+-- produto poder afirmar o que afirma: um humano confere a extração lendo uma
+-- linha, sem abrir o PDF. Extração sem trecho é palpite com cara de dado.
+CREATE TABLE IF NOT EXISTS achado (
+    entidade    text NOT NULL,
+    cpf         text NOT NULL,
+    documento   text NOT NULL,         -- o sha256 do documento de origem
+    tipo        text NOT NULL,         -- numero_processo, transito_em_julgado...
+    valor       text NOT NULL,
+    confianca   text NOT NULL CHECK (confianca IN ('CERTO','PROVAVEL','SUSPEITO')),
+    trecho      text NOT NULL,
+    posicao     integer NOT NULL DEFAULT 0,
+    metodo      text NOT NULL DEFAULT '',
+    -- Humano conferiu? Só o CERTO dispensa; PROVAVEL e SUSPEITO esperam aqui.
+    conferido   boolean NOT NULL DEFAULT false,
+    extraido_em timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (entidade, cpf, documento, tipo, valor, posicao)
+);
+CREATE INDEX IF NOT EXISTS achado_a_conferir
+    ON achado (entidade, conferido) WHERE NOT conferido;
+
+
 -- ---------------------------------------------------------------------
 -- CAMADA 3 — CONSULTA
 -- ---------------------------------------------------------------------
@@ -183,8 +223,9 @@ DO $$
 DECLARE t text;
 BEGIN
     FOREACH t IN ARRAY ARRAY[
-        'recebimento', 'pessoa_afirmacao', 'pessoa', 'processo', 'vinculo',
-        'movimento', 'oportunidade', 'leitura', 'tombstone'
+        'recebimento', 'pessoa_afirmacao', 'pessoa', 'documento', 'achado',
+        'processo', 'vinculo', 'movimento', 'oportunidade', 'leitura',
+        'tombstone'
     ]
     LOOP
         -- O log de leitura e o tombstone são só INSERT e SELECT: a aplicação

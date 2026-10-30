@@ -394,6 +394,53 @@ def teste_toda_tabela_tem_politica():
 
 
 
+def teste_o_achado_guarda_o_trecho_e_espera_conferencia():
+    """A caixa 2 no banco: cada achado carrega de onde saiu, e o que não é
+    CERTO fica marcado como pendente de conferência humana."""
+    secao("documentos e achados")
+    from servidor import banco
+
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("DELETE FROM achado")
+        cur.execute("DELETE FROM documento")
+        cur.execute(
+            "INSERT INTO documento (entidade, cpf, tipo, sha256, paginas, "
+            "caracteres, tem_texto) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            ("demo-a", "11144477735", "sentenca", "sha-sintetico", 1, 800, True),
+        )
+        for tipo, valor, confianca in (
+            ("numero_processo", "00103912420064013400", "CERTO"),
+            ("orgao_julgador", "5ª Vara Federal Cível", "PROVAVEL"),
+        ):
+            cur.execute(
+                "INSERT INTO achado (entidade, cpf, documento, tipo, valor, "
+                "confianca, trecho, metodo, conferido) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                ("demo-a", "11144477735", "sha-sintetico", tipo, valor,
+                 confianca, f"...{valor}...", "teste", confianca == "CERTO"),
+            )
+        cur.execute("SELECT count(*) FROM achado WHERE NOT conferido")
+        pendentes = cur.fetchone()[0]
+        cur.execute("SELECT trecho FROM achado WHERE tipo = 'numero_processo'")
+        trecho = cur.fetchone()[0]
+        try:
+            cur.execute(
+                "INSERT INTO achado (entidade, cpf, documento, tipo, valor, "
+                "confianca, trecho) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                ("demo-a", "x", "y", "z", "w", "TALVEZ", "t"),
+            )
+            checa(False, "o banco aceitou uma confiança que não existe")
+        except Exception:
+            pass
+
+    checa(pendentes == 1,
+          f"esperava 1 achado pendente de conferência, há {pendentes}")
+    checa(trecho and "0010391" in trecho,
+          f"o achado foi gravado sem o trecho de origem: {trecho!r}")
+    print("  ok     achado guarda trecho, e só o CERTO nasce conferido")
+
+
+
 TESTES.extend([
     teste_sem_declarar_a_entidade_nao_le_nada,
     teste_uma_entidade_nao_le_a_outra,
@@ -405,6 +452,7 @@ TESTES.extend([
     teste_apagar_pessoa_deixa_tombstone,
     teste_a_auditoria_nao_pode_ser_reescrita,
     teste_toda_tabela_tem_politica,
+    teste_o_achado_guarda_o_trecho_e_espera_conferencia,
 ])
 
 #: A trava de região não precisa de banco: roda sempre.
