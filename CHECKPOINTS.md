@@ -19,7 +19,7 @@
 | 6 | Cruzamento: de quais ações a pessoa participa | **pronto** | `adc96a2` |
 | 7 | Portal do filiado pedindo o que o B pede | **pronto** | `73df604` |
 | 7b | Catálogo por categoria: atender vários sindicatos | **pronto** | `0afa698` |
-| 7c | Mostrar ao filiado de quais ações ele participa | **pronto** | `HEAD` |
+| 7c | Mostrar ao filiado de quais ações ele participa | **pronto** | `09af14c` |
 | 8 | **Painel do sindicato sobre o novo cadastro** | **agora** | — |
 | 9 | Banco ligado à aplicação (hoje lê de arquivo) | a fazer | — |
 | 10 | Migração para região brasileira | a fazer | — |
