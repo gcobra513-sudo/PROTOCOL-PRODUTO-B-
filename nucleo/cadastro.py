@@ -77,6 +77,21 @@ def numeros_de_processo(bruto: str) -> list[str]:
     return vistos
 
 
+def resposta_booleana(valor: str) -> bool | None:
+    """`sim` / `nao` / `nao_sei` do contrato -> True / False / None.
+
+    `nao_sei` TEM de virar None, e não False: são respostas diferentes.
+    Tratá-las igual faria o sistema afirmar coisas sobre quem não respondeu —
+    a mesma assimetria que separa FALTA de NAO_PODE no motor.
+    """
+    texto = str(valor or "").strip().lower()
+    if texto == "sim":
+        return True
+    if texto == "nao":
+        return False
+    return None
+
+
 def documentos_exigidos(linha: dict) -> tuple[str, ...]:
     """Quais documentos esta conta precisa ter.
 

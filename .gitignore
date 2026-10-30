@@ -13,3 +13,6 @@ dist/
 
 # Área de trabalho das skills: rascunho, não entrega
 .superpowers/
+
+# Artefato do tsc: muda a cada compilação e sujava a árvore em todo build.
+portal/tsconfig.tsbuildinfo

@@ -7,7 +7,7 @@
  * - **com** `VITE_API` configurada, o cadastro é enviado e a pessoa recebe um
  *   protocolo. É o fluxo final;
  * - **sem** ela, o portal confere tudo no aparelho e a pessoa baixa o pacote
- *   para entregar ao escritório por fora. É o que já existia, e continua
+ *   para entregar ao sindicato por fora. É o que já existia, e continua
  *   servindo para demonstração e para sindicato que ainda não tem servidor.
  *
  * O que não existe é um terceiro caminho que finge enviar. A tela diz qual dos
@@ -290,16 +290,121 @@ export async function verCompletude(
   };
 }
 
-/** Qual tela o link pede: o cadastro, a consulta do filiado ou o painel. */
-export type Tela = "cadastro" | "consulta" | "painel";
+/** As áreas do portal.
+ *
+ *  TRÊS DELAS EXISTIAM COMO ARQUIVO E NENHUMA ERA ALCANÇÁVEL: `main.tsx`
+ *  renderiza só `App`, `App` só conhecia o cadastro, e esta própria função
+ *  nunca era chamada por ninguém. Tela que não se consegue abrir é tela que
+ *  não existe — e o pior é que ela passa por pronta na contagem.
+ */
+export const TELAS = ["cadastro", "acoes", "processos", "painel"] as const;
+export type Tela = (typeof TELAS)[number];
 
-export function telaDoLink(): Tela {
+/** A área que o link pede, ou `cadastro`.
+ *
+ *  `?tela=` é a forma canônica. `?painel` e `?consulta` continuam valendo
+ *  porque podem estar em links já enviados a alguém, e quebrar o link de
+ *  quem já o tem é mandar a pessoa ligar.
+ *
+ *  Valor desconhecido cai no cadastro: errar o endereço não pode levar a uma
+ *  página em branco.
+ *
+ *  `busca` existe para o TESTE: a suíte roda sem `window`, e uma função que
+ *  só se exercita com navegador é uma função que ninguém exercita. Em
+ *  produção ninguém passa o argumento.
+ */
+export function telaDoLink(busca?: string): Tela {
   try {
-    const q = new URLSearchParams(window.location.search);
+    const q = new URLSearchParams(busca ?? window.location.search);
+    const pedida = (q.get("tela") ?? "").trim().toLowerCase();
+    if ((TELAS as readonly string[]).includes(pedida)) return pedida as Tela;
     if (q.has("painel")) return "painel";
-    if (q.has("consulta")) return "consulta";
+    if (q.has("consulta")) return "processos";
   } catch {
     /* sem window: cai no cadastro, que é o padrão */
   }
   return "cadastro";
+}
+
+// ------------------------------------------------- minhas ações (checkpoint 7c)
+
+export interface FaltaDoFiliado {
+  /** VOCE | CONFERENCIA | TRIBUNAL — ver `nucleo/pendencia.py`. */
+  quem: string;
+  o_que: string;
+}
+
+export interface AcaoDoFiliado {
+  id: string;
+  rotulo: string;
+  /** PARTICIPA | INDETERMINADO | NAO_PARTICIPA */
+  estado: string;
+  inicio: string;
+  fim: string;
+  meses: number;
+  motivos: string[];
+}
+
+export interface OportunidadeDoFiliado {
+  trilha: string;
+  referencia: string;
+  rotulo: string;
+  categoria: string;
+  /** PODE | FALTA | NAO_PODE */
+  veredicto: string;
+  periodo_inicio: string;
+  periodo_fim: string;
+  meses: number;
+  motivos: string[];
+  notas: string[];
+  fonte: string;
+  falta: FaltaDoFiliado[];
+}
+
+export interface GrupoDePendencia {
+  quem: string;
+  titulo: string;
+  explicacao: string;
+  itens: string[];
+}
+
+export interface MinhasAcoes {
+  entidade: string;
+  nome: string;
+  filiado: string;
+  categorias: string[];
+  catalogo: string;
+  acoes: AcaoDoFiliado[];
+  oportunidades: OportunidadeDoFiliado[];
+  pendencias: GrupoDePendencia[];
+  aviso: string;
+}
+
+/** De quais ações o filiado logado faz parte, e o que cabe em cada uma.
+ *
+ *  O CPF NÃO VIAJA: o servidor filtra pela sessão. Mandar CPF aqui
+ *  transformaria a consulta em pesquisa de filiação — exatamente o que o
+ *  portão foi desenhado para não ser. */
+export async function minhasAcoes(token: string): Promise<MinhasAcoes> {
+  const r = await fetch(`${BASE}/api/minhas-acoes`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      corpo?.detail?.erro ?? "não foi possível consultar",
+      r.status,
+    );
+  }
+  return {
+    entidade: corpo.entidade ?? "",
+    nome: corpo.nome ?? "",
+    filiado: corpo.filiado ?? "",
+    categorias: corpo.categorias ?? [],
+    catalogo: corpo.catalogo ?? "",
+    acoes: corpo.acoes ?? [],
+    oportunidades: corpo.oportunidades ?? [],
+    pendencias: corpo.pendencias ?? [],
+    aviso: corpo.aviso ?? "",
+  };
 }

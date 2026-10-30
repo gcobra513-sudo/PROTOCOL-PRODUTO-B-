@@ -270,7 +270,7 @@ def teste_cargo_nao_reconhecido_nunca_vira_permissao():
         checa(o.veredicto == motor.FALTA,
               f"{o.referencia}: cargo desconhecido deu {o.veredicto}, e "
               f"devia ser FALTA")
-        checa(any("carreira" in f for f in o.falta),
+        checa(any("carreira" in f.o_que for f in o.falta),
               f"{o.referencia}: a falta não pede confirmar a carreira: "
               f"{o.falta}")
     print(f"  ok     cargo desconhecido: {len(das_teses)} teses em FALTA, "
@@ -460,6 +460,52 @@ def teste_categoria_declarada_que_nao_existe_e_erro():
         print("  ok     categoria declarada sem arquivo é recusada")
 
 
+def teste_criar_outra_entidade_nao_apaga_as_categorias_da_primeira():
+    """`criar` reescreve o arquivo inteiro a partir do que tem em memória. Se
+    ele não carregar as categorias junto, cadastrar o SEGUNDO sindicato apaga
+    em silêncio a declaração do primeiro — e o primeiro para de receber
+    veredicto sem que ninguém mexa nele."""
+    import json
+
+    from servidor import entidades
+
+    raiz = Path(tempfile.mkdtemp())
+    cadastro = entidades.Cadastro(raiz)
+    cadastro.criar("demo-a", "Primeiro", categorias=("exemplo-a",))
+    cadastro.criar("demo-b", "Segundo", categorias=("exemplo-b",))
+
+    # Relido do disco, não da memória: é no arquivo que a perda aconteceria.
+    de_novo = entidades.Cadastro(raiz)
+    checa(de_novo.resolver("demo-a").categorias == ("exemplo-a",),
+          f"cadastrar o segundo apagou o primeiro: "
+          f"{de_novo.resolver('demo-a').categorias}")
+    checa(de_novo.resolver("demo-b").categorias == ("exemplo-b",),
+          f"veio {de_novo.resolver('demo-b').categorias}")
+    gravado = json.loads((raiz / "entidades.json").read_text("utf-8"))
+    checa(gravado["demo-a"].get("categorias") == ["exemplo-a"],
+          f"o arquivo perdeu a declaração: {gravado['demo-a']}")
+    print("  ok     cadastrar o segundo sindicato não apaga o primeiro")
+
+
+def teste_categoria_invalida_no_cadastro_e_erro():
+    """Um slug torto deixaria o sindicato sem catálogo e ninguém saberia por
+    quê — e, pior, `exemplo/../outra` é tentativa de caminho."""
+    import json
+
+    from servidor import entidades
+
+    raiz = Path(tempfile.mkdtemp())
+    (raiz / "entidades.json").write_text(json.dumps({
+        "demo-a": {"nome": "Primeiro", "categorias": ["../outra"]},
+    }), encoding="utf-8")
+    try:
+        entidades.Cadastro(raiz).resolver("demo-a")
+        checa(False, "aceitou slug de categoria com caminho dentro")
+    except ValueError as e:
+        checa("categoria" in str(e).lower(), f"mensagem obscura: {e}")
+        print("  ok     slug de categoria inválido é recusado")
+
+
 TESTES = [
     teste_o_catalogo_global_nao_existe_mais,
     teste_cada_arquivo_declara_a_sua_categoria_e_os_cargos,
@@ -479,6 +525,8 @@ TESTES = [
     teste_entidade_declara_as_categorias_que_contratou,
     teste_entidade_sem_categoria_nao_recebe_todas,
     teste_categoria_declarada_que_nao_existe_e_erro,
+    teste_criar_outra_entidade_nao_apaga_as_categorias_da_primeira,
+    teste_categoria_invalida_no_cadastro_e_erro,
 ]
 
 

@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import entendimentos as ent
+from . import pendencia
 from . import participacao as part
 
 EXECUTAR = ent.EXECUTAR
@@ -71,6 +72,12 @@ class Fatos:
     no_rol: bool | None = None
     #: Já executou este título antes, por nós ou por terceiro?
     ja_executou: bool | None = None
+    #: `ja_executou` veio de base conferida, ou da resposta da própria
+    #: pessoa? Importa porque "não executei" dito por ela não é a base: se
+    #: estiver errado, executar de novo cria dois processos para a mesma
+    #: dívida. A resposta dela conta, e vai junto uma nota dizendo que foi
+    #: declarada — aceitar calado transformaria autodeclaração em fato.
+    ja_executou_conferido: bool = False
     #: Já tem ação própria sobre o mesmo objeto?
     tem_acao_propria: bool | None = None
 
@@ -88,7 +95,10 @@ class Oportunidade:
     #: entidade representa mais de uma.
     categoria: str = ""
     motivos: tuple[str, ...] = ()
-    falta: tuple[str, ...] = ()
+    #: O que falta, e DE QUEM é cada coisa — `nucleo/pendencia.py`. Sem o
+    #: dono, a tela do filiado volta a ser um saco único de pendências, e um
+    #: saco único é o que gera a ligação.
+    falta: tuple[pendencia.Falta, ...] = ()
     #: A interseção entre a filiação e o período da ação. É dela que o valor
     #: sai depois — sem ela, quem for calcular refaz a conta do zero.
     periodo_inicio: str = ""
@@ -115,20 +125,33 @@ class _Juizo:
     """Acumula motivos e decide pelo pior estado encontrado."""
 
     motivos: list[str] = field(default_factory=list)
-    falta: list[str] = field(default_factory=list)
+    falta: list[pendencia.Falta] = field(default_factory=list)
     notas: list[str] = field(default_factory=list)
     impedido: bool = False
 
     def impede(self, motivo: str) -> None:
         self.impedido = True
-        self.motivos.append(motivo)
+        self.motivo(motivo)
 
-    def falta_saber(self, o_que: str, motivo: str) -> None:
-        self.falta.append(o_que)
-        self.motivos.append(motivo)
+    def motivo(self, texto: str) -> None:
+        """NÃO REPETE. `participacao` e `_homologacao` conferem a mesma
+        homologação, de propósito — cinto e suspensório. Mas a pessoa não tem
+        de ler a mesma pendência duas vezes, e lista com item repetido parece
+        defeito de quem escreveu, não zelo."""
+        if texto not in self.motivos:
+            self.motivos.append(texto)
+
+    def falta_saber(self, quem: str, o_que: str, motivo: str) -> None:
+        """`quem` não tem padrão de propósito: quem escreve a falta sabe de
+        quem ela é, e um padrão silencioso poria tudo no mesmo dono."""
+        nova = pendencia.Falta(quem, o_que)
+        if nova not in self.falta:
+            self.falta.append(nova)
+        self.motivo(motivo)
 
     def nota(self, texto: str) -> None:
-        self.notas.append(texto)
+        if texto not in self.notas:
+            self.notas.append(texto)
 
     @property
     def veredicto(self) -> str:
@@ -143,10 +166,12 @@ class _Juizo:
 
 def _homologacao(item, juizo: _Juizo) -> None:
     if not item.esta_homologado:
+        rotulo = getattr(item, "rotulo", item.id)
         juizo.falta_saber(
-            "homologação por advogado",
-            f"{getattr(item, 'rotulo', item.id)}: ainda não homologado — o "
-            f"motor prepara, quem assina é gente",
+            pendencia.CONFERENCIA,
+            f"a homologação de {rotulo} por advogado",
+            f"{rotulo}: ainda não homologado — o motor prepara, quem assina "
+            f"é gente",
         )
 
 
@@ -187,8 +212,10 @@ def _avaliar_executar(
 
     if faz_parte.estado == part.INDETERMINADO:
         for falta in faz_parte.falta:
-            j.falta.append(falta)
-        j.motivos.extend(faz_parte.motivos)
+            if falta not in j.falta:
+                j.falta.append(falta)
+        for motivo in faz_parte.motivos:
+            j.motivo(motivo)
 
     _homologacao(acao, j)
 
@@ -201,14 +228,16 @@ def _avaliar_executar(
         )
     elif fatos.tem_titulo is None:
         j.falta_saber(
-            "saber se existe sentença transitada em nome desta pessoa",
+            pendencia.VOCE,
+            "a sentença e a certidão de trânsito em julgado",
             "não se sabe se há título. Sem essa resposta não dá para dizer "
             "que pode executar",
         )
 
     if not acao.transitada:
         j.falta_saber(
-            f"trânsito em julgado de {acao.rotulo}",
+            pendencia.CONFERENCIA,
+            f"o trânsito em julgado de {acao.rotulo}",
             f"{acao.rotulo}: a ação coletiva não consta como transitada em "
             f"julgado",
         )
@@ -229,7 +258,10 @@ def _avaliar_executar(
                 if tema.suspensao_nacional else ""
             )
             j.falta_saber(
-                f"julgamento do {tema.rotulo}",
+                # Nem nós podemos nada: é o STJ que decide. Dizer isso é
+                # resposta completa, e nenhum telefonema a melhora.
+                pendencia.TRIBUNAL,
+                f"o julgamento do {tema.rotulo}",
                 f"esta pessoa está FORA do rol de substituídos, e o "
                 f"{tema.rotulo} — que decide exatamente se quem está fora do "
                 f"rol pode executar — ainda não foi julgado.{suspensao} "
@@ -243,7 +275,8 @@ def _avaliar_executar(
             )
     elif fatos.no_rol is None:
         j.falta_saber(
-            "a lista de substituídos da ação coletiva",
+            pendencia.CONFERENCIA,
+            "o rol de substituídos da ação coletiva",
             f"{acao.rotulo}: não se sabe se esta pessoa consta do rol",
         )
 
@@ -254,8 +287,17 @@ def _avaliar_executar(
             "esta pessoa já executou este título — executar de novo criaria "
             "dois processos para a mesma dívida"
         )
+    elif fatos.ja_executou is False and not fatos.ja_executou_conferido:
+        # A resposta conta, e a nota diz de onde ela veio. Sem a nota, a
+        # autodeclaração entra no lugar da base — e quem assina depois não
+        # tem como saber que entrou.
+        j.nota(
+            "a resposta de que não houve execução anterior foi DECLARADA "
+            "pela pessoa, não conferida contra base de execuções"
+        )
     elif fatos.ja_executou is None:
         j.falta_saber(
+            pendencia.CONFERENCIA,
             "a base de execuções já ajuizadas",
             "não é possível afirmar que não há execução em curso para este CPF",
         )
@@ -319,19 +361,29 @@ def _avaliar_ajuizar(
             fonte=e.fonte,
         )
     if da_pessoa is None:
-        j.falta_saber(
-            "confirmar a carreira desta pessoa",
-            f"o cargo {fatos.cargo!r} não foi reconhecido, e é ele que diz "
-            f"se este entendimento é da carreira dela"
-            if fatos.cargo.strip() else
-            "a pessoa não informou o cargo, e é ele que define a categoria",
-        )
+        # A mesma assimetria de `participacao`: cargo em branco é tarefa da
+        # pessoa; cargo que a nossa tabela não conhece é tarefa nossa.
+        if fatos.cargo.strip():
+            j.falta_saber(
+                pendencia.CONFERENCIA,
+                "a conferência da carreira informada",
+                f"o cargo {fatos.cargo!r} não foi reconhecido, e é ele que "
+                f"diz se este entendimento é da carreira dela",
+            )
+        else:
+            j.falta_saber(
+                pendencia.VOCE,
+                "o cargo, que é o que define a categoria",
+                "a pessoa não informou o cargo, e é ele que define a "
+                "categoria",
+            )
 
     _homologacao(e, j)
 
     if e.pendente:
         j.falta_saber(
-            f"julgamento do {e.rotulo}",
+            pendencia.TRIBUNAL,
+            f"o julgamento do {e.rotulo}",
             f"{e.rotulo} ainda não tem tese fixada — não há entendimento "
             f"firmado em que apoiar a ação",
         )
@@ -344,7 +396,8 @@ def _avaliar_ajuizar(
         )
     elif fatos.tem_acao_propria is None:
         j.falta_saber(
-            "saber se esta pessoa já tem ação própria sobre o mesmo objeto",
+            pendencia.VOCE,
+            "saber se já existe ação própria sobre o mesmo assunto",
             "não se sabe se já existe ação própria",
         )
 
@@ -352,7 +405,8 @@ def _avaliar_ajuizar(
     # traz, não há como afirmar enquadramento — e não afirmar é o certo.
     if not e.criterios:
         j.falta_saber(
-            f"critérios objetivos de enquadramento no {e.rotulo}",
+            pendencia.CONFERENCIA,
+            f"os critérios objetivos de enquadramento no {e.rotulo}",
             f"{e.rotulo}: o catálogo não traz critério algum, então não há "
             f"como dizer que esta pessoa se enquadra",
         )

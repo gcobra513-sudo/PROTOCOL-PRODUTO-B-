@@ -203,7 +203,7 @@ def teste_acao_que_exige_rol_sem_saber_e_indeterminado():
     p = participacao.cruzar(
         filiado(no_rol=None), gifa(exige_rol=True), acervo(), hoje=HOJE)
     checa(p.estado == participacao.INDETERMINADO, f"{p.estado}")
-    checa(any("rol" in f.lower() for f in p.falta),
+    checa(any("rol" in f.o_que.lower() for f in p.falta),
           f"não disse que falta o rol: {p.falta}")
     print("  ok     ação exige rol e não sabemos: INDETERMINADO")
 
@@ -213,7 +213,7 @@ def teste_acao_sem_rol_nao_pergunta_pelo_rol():
     atrás de uma lista que ninguém precisa."""
     p = participacao.cruzar(filiado(no_rol=None), gifa(), acervo(), hoje=HOJE)
     checa(p.estado == participacao.PARTICIPA, f"{p.estado}: {p.motivos}")
-    checa(not any("rol" in f.lower() for f in p.falta),
+    checa(not any("rol" in f.o_que.lower() for f in p.falta),
           f"pediu o rol de uma ação que não o exige: {p.falta}")
     print("  ok     ação sem rol não pede rol")
 
@@ -225,7 +225,7 @@ def teste_acao_nao_homologada_nao_decide_nada():
     crua = acervo().de("GIFA-2006")   # homologado = N
     p = participacao.cruzar(filiado(), crua, acervo(), hoje=HOJE)
     checa(p.estado == participacao.INDETERMINADO, f"{p.estado}")
-    checa(any("homolog" in f.lower() for f in p.falta),
+    checa(any("homolog" in f.o_que.lower() for f in p.falta),
           f"não disse que falta homologação: {p.falta}")
     print("  ok     ação não homologada não afirma participação")
 

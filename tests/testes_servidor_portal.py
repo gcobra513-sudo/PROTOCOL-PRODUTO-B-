@@ -213,6 +213,7 @@ class Cenario:
         entidades_extra: tuple = (),
         limite_de_emissoes: int = 0,
         origens: tuple[str, ...] = (),
+        categorias: tuple[str, ...] = ("auditor-fiscal-receita-federal",),
     ) -> None:
         from fastapi.testclient import TestClient
 
@@ -235,7 +236,8 @@ class Cenario:
             ambiente["PROTOCOL_ORIGENS"] = ",".join(origens)
         self.cfg = carregar(ambiente)
         cadastro = mod_entidades.Cadastro(self.raiz)
-        self.ent = cadastro.criar("demo-teste", "Sindicato de Teste")
+        self.ent = cadastro.criar("demo-teste", "Sindicato de Teste",
+                                  categorias=categorias)
         for apelido, nome in entidades_extra:
             cadastro.criar(apelido, nome)
         if com_rol:
@@ -1143,6 +1145,178 @@ TESTES.extend([
     teste_pedir_codigo_responde_igual_dentro_e_fora_do_rol,
     teste_rol_em_latin1_nao_fecha_o_portao,
     teste_acompanhar_aceita_20_numeros_formatados,
+])
+
+
+# ======================================================= minhas ações (7c)
+#
+# A TELA QUE O CADASTRO PROMETE. O último aviso de `Confirmar.tsx` diz: "a
+# gente lê os seus documentos e mostra de quais ações você faz parte e o que
+# pode ser feito em cada uma". Até aqui o motor calculava isso e ninguém via.
+#
+# E o que esta rota NÃO pode fazer é tão importante quanto o que ela faz:
+# nenhuma das travas do portão pode ser frouxa por ser "só consulta". É
+# consulta de dado sensível de uma pessoa nomeada.
+
+
+def teste_minhas_acoes_exige_sessao():
+    secao("minhas ações")
+    c = Cenario()
+    for cabecalho in ({}, {"Authorization": "Bearer invalido"}):
+        r = c.cliente.get("/api/minhas-acoes", headers=cabecalho)
+        checa(r.status_code == 401,
+              f"consulta aberta sem sessão válida: {r.status_code}")
+    print("  ok     sem sessão válida, 401")
+
+
+def teste_minhas_acoes_nao_aceita_cpf_por_parametro():
+    """Mesma trava de `/api/meus-processos`: aceitar CPF de fora
+    transformaria a consulta na pesquisa de filiação que o portão se recusa a
+    ser."""
+    c = Cenario()
+    c.escrever_rol("demo-teste", [(CPF, "fulano@exemplo.org"),
+                                  (OUTRO_CPF, "outro@exemplo.org")])
+    c.cadastrar(OUTRO_CPF)
+    r = c.cliente.get(f"/api/minhas-acoes?cpf={OUTRO_CPF}",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    checa(r.status_code == 200, f"não respondeu: {r.status_code} {r.text[:200]}")
+    corpo = r.json()
+    checa(corpo["oportunidades"] == [],
+          f"o parâmetro cpf foi obedecido e vazou: {corpo}")
+    checa(corpo["filiado"] == "",
+          f"vazou o nome de quem não abriu a sessão: {corpo['filiado']!r}")
+    print("  ok     parâmetro cpf é ignorado, não obedecido")
+
+
+def teste_entidade_sem_categoria_nao_recebe_veredicto_nem_erro():
+    """FAIL-CLOSED, e sem parecer defeito. Um sindicato cuja categoria não
+    foi declarada não pode receber o catálogo dos outros — e também não pode
+    receber erro 500, que mandaria a pessoa ligar."""
+    c = Cenario(categorias=())
+    c.cadastrar(CPF)
+    r = c.cliente.get("/api/minhas-acoes",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    checa(r.status_code == 200, f"deu erro em vez de resposta: {r.status_code}")
+    corpo = r.json()
+    checa(corpo["oportunidades"] == [] and corpo["acoes"] == [],
+          f"entidade sem categoria recebeu veredicto: {corpo}")
+    checa(corpo["categorias"] == [], f"veio {corpo['categorias']}")
+    checa(bool(corpo.get("aviso", "").strip()),
+          "não explicou por que a lista está vazia")
+    print("  ok     sem categoria contratada: lista vazia, com explicação")
+
+
+def teste_o_filiado_ve_as_acoes_da_categoria_contratada():
+    c = Cenario()
+    c.cadastrar(CPF)
+    r = c.cliente.get("/api/minhas-acoes",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    checa(r.status_code == 200, f"não respondeu: {r.status_code} {r.text[:300]}")
+    corpo = r.json()
+    checa("GIFA-2006" in [a["id"] for a in corpo["acoes"]],
+          f"a ação da categoria contratada não apareceu: {corpo['acoes']}")
+    checa("GIFA-2006" in [o["referencia"] for o in corpo["oportunidades"]],
+          "a oportunidade da ação não apareceu")
+    checa(corpo["filiado"].startswith("FULANA"),
+          f"o nome do filiado não veio: {corpo['filiado']!r}")
+    checa("auditor-fiscal-receita-federal@" in corpo["catalogo"],
+          f"a assinatura do catálogo não veio: {corpo['catalogo']!r}")
+    print(f"  ok     {len(corpo['acoes'])} ação(ões), "
+          f"{len(corpo['oportunidades'])} oportunidade(s)")
+
+
+def teste_outra_categoria_nao_ve_a_acao():
+    """O isolamento que o exemplo da PFDF/PMDF exige: a ação da GIFA é da
+    carreira de Auditor-Fiscal, e um sindicato de outra categoria não a vê."""
+    c = Cenario(categorias=("analista-tributario-receita-federal",))
+    c.cadastrar(CPF)
+    r = c.cliente.get("/api/minhas-acoes",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    checa(r.status_code == 200, f"não respondeu: {r.status_code}")
+    corpo = r.json()
+    checa("GIFA-2006" not in [a["id"] for a in corpo["acoes"]],
+          f"VAZOU a ação de outra categoria: {corpo['acoes']}")
+    print("  ok     a ação de outra categoria não aparece")
+
+
+def teste_nada_homologado_nada_de_PODE():
+    """A trava que vem de fora do código: nada nominal sai sem advogado. O
+    catálogo em disco tem `homologado = "N"` em tudo, e nenhuma resposta pode
+    dizer PODE enquanto for assim."""
+    c = Cenario()
+    c.cadastrar(CPF)
+    r = c.cliente.get("/api/minhas-acoes",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    pode = [o for o in r.json()["oportunidades"] if o["veredicto"] == "PODE"]
+    checa(pode == [],
+          f"disse PODE com o catálogo não homologado: {pode}")
+    print("  ok     catálogo não homologado: nenhum PODE")
+
+
+def teste_toda_pendencia_chega_com_dono_e_as_tres_chaves():
+    """O que faz a tela cortar telefonema. Saco único de pendências é o que
+    faz a pessoa ligar para descobrir o que é tarefa dela."""
+    from nucleo import pendencia
+
+    c = Cenario()
+    c.cadastrar(CPF)
+    r = c.cliente.get("/api/minhas-acoes",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    corpo = r.json()
+    grupos = corpo["pendencias"]
+    checa([g["quem"] for g in grupos] == list(pendencia.DONOS),
+          f"as três chaves não vieram na ordem: {[g['quem'] for g in grupos]}")
+    for g in grupos:
+        checa(bool(g["titulo"]) and bool(g["explicacao"]),
+              f"{g['quem']} sem texto para a pessoa ler")
+    for o in corpo["oportunidades"]:
+        for f in o["falta"]:
+            checa(f["quem"] in pendencia.DONOS,
+                  f"falta sem dono conhecido na resposta: {f}")
+    com_itens = [g["quem"] for g in grupos if g["itens"]]
+    checa(bool(com_itens), "nenhuma pendência veio, e o catálogo não está "
+                           "homologado — devia haver pelo menos a conferência")
+    print(f"  ok     pendências por dono: {', '.join(com_itens)}")
+
+
+def teste_a_resposta_diz_que_nao_e_parecer():
+    """Nada nominal sai sem homologação humana, e a pessoa tem de ler isso na
+    própria resposta — não no rodapé de uma página que ela não abriu."""
+    c = Cenario()
+    c.cadastrar(CPF)
+    r = c.cliente.get("/api/minhas-acoes",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    aviso = r.json().get("aviso", "").lower()
+    checa("parecer" in aviso, f"a resposta não diz que não é parecer: {aviso!r}")
+    checa("escritório" not in aviso and "escritorio" not in aviso,
+          f"REGRA ZERO: o aviso do filiado fala de escritório: {aviso!r}")
+    print("  ok     a resposta diz que não é parecer")
+
+
+def teste_quem_nao_tem_cadastro_recebe_lista_vazia_e_nao_erro():
+    """Quem passou pelo portão mas ainda não cadastrou existe: é a pessoa que
+    entrou para ver antes de enviar. Erro aqui a manda ligar."""
+    c = Cenario()
+    r = c.cliente.get("/api/minhas-acoes",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    checa(r.status_code == 200, f"deu erro: {r.status_code} {r.text[:200]}")
+    corpo = r.json()
+    checa(corpo["oportunidades"] == [] and corpo["filiado"] == "",
+          f"inventou resposta para quem não cadastrou: {corpo}")
+    checa(bool(corpo.get("aviso", "").strip()), "não explicou o vazio")
+    print("  ok     sem cadastro: vazio com explicação, não erro")
+
+
+TESTES.extend([
+    teste_minhas_acoes_exige_sessao,
+    teste_minhas_acoes_nao_aceita_cpf_por_parametro,
+    teste_entidade_sem_categoria_nao_recebe_veredicto_nem_erro,
+    teste_o_filiado_ve_as_acoes_da_categoria_contratada,
+    teste_outra_categoria_nao_ve_a_acao,
+    teste_nada_homologado_nada_de_PODE,
+    teste_toda_pendencia_chega_com_dono_e_as_tres_chaves,
+    teste_a_resposta_diz_que_nao_e_parecer,
+    teste_quem_nao_tem_cadastro_recebe_lista_vazia_e_nao_erro,
 ])
 
 

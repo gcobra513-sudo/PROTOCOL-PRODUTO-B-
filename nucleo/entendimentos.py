@@ -58,6 +58,12 @@ EFEITOS = (
 SITUACOES = ("afetado", "julgado", "transitado", "a_conferir")
 
 
+#: Onde os catálogos de categoria moram. Mesma postura de
+#: `cadastro.CONTRATO`: o caminho é do repositório, não de configuração —
+#: catálogo é código revisado, não ajuste de ambiente.
+PASTA_PADRAO = Path(__file__).resolve().parent.parent / "config" / "categorias"
+
+
 class ErroDeCatalogo(ValueError):
     """Defeito no catálogo. Nominal, para virar motivo legível."""
 

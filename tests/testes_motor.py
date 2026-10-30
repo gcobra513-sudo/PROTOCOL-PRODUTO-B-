@@ -315,7 +315,7 @@ def teste_sem_saber_a_filiacao_a_resposta_e_falta():
     executar = [o for o in motor.avaliar(f, cat) if o.trilha == motor.EXECUTAR]
     checa(all(o.veredicto == motor.FALTA for o in executar),
           f"{[(o.referencia, o.veredicto) for o in executar]}")
-    checa(any("contribui" in f.lower() for o in executar for f in o.falta),
+    checa(any("contribui" in f.o_que.lower() for o in executar for f in o.falta),
           f"não pediu os comprovantes de contribuição: "
           f"{[o.falta for o in executar]}")
     print("  ok     sem filiação conhecida: FALTA, pedindo a contribuição")

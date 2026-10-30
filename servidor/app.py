@@ -29,9 +29,11 @@ from fastapi.responses import JSONResponse
 # `conta` e não `cadastro`: `entidades.Cadastro` já ocupa esse nome aqui,
 # e a colisão deixava o módulo do contrato invisível em silêncio.
 from nucleo import cadastro as conta
+from nucleo import entendimentos, leitura, motor, participacao, pendencia
 
 from . import (
     acervo,
+    documentos,
     acesso,
     banco,
     acompanhamento,
@@ -51,6 +53,20 @@ from .config import (
 )
 
 log = logging.getLogger("protocol.portal")
+
+
+def _pendencias_vazias() -> list[dict]:
+    """As três chaves, vazias. A tela não deve ter de adivinhar a diferença
+    entre "nada aqui" e "não calculado"."""
+    return [
+        {
+            "quem": dono,
+            "titulo": pendencia.TITULOS[dono],
+            "explicacao": pendencia.EXPLICACOES[dono],
+            "itens": [],
+        }
+        for dono in pendencia.DONOS
+    ]
 
 PEDACO = 64 * 1024
 
@@ -464,6 +480,174 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "limite": (
                 "Movimentação registrada pelo tribunal, com cerca de um dia "
                 "de atraso. NÃO é intimação e não serve para contar prazo."
+            ),
+        }
+
+    def _fatos_lidos_do_cpf(ent: entidades.Entidade, cpf: str) -> dict:
+        """Os fatos que os PDFs da pessoa dizem, lidos agora.
+
+        LÊ OS ARQUIVOS A CADA PEDIDO, e isto é dívida declarada: o lugar
+        certo é a tabela `achado`, que existe no esquema e ainda não é
+        escrita por ninguém (checkpoint 9). São poucos arquivos por pessoa, e
+        a alternativa — guardar o resultado numa variável de módulo — daria
+        resposta velha justamente no dia em que alguém corrigir um documento.
+
+        PDF ilegível NÃO vira erro: vira ausência de fato, e o motor devolve
+        FALTA. Quebrar a consulta inteira por causa de um arquivo manda a
+        pessoa ligar para o sindicato por algo que ela já resolveu enviando.
+        """
+        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
+        achados: list[leitura.Achado] = []
+        for arquivo in sorted(pasta.glob("*.pdf")) if pasta.is_dir() else []:
+            try:
+                achados += documentos.ler_pdf(arquivo.read_bytes())
+            except Exception:  # noqa: BLE001
+                log.warning("documento ilegível em %s", arquivo.name)
+        return leitura.fatos_confiaveis(achados)
+
+    @app.get("/api/minhas-acoes")
+    def minhas_acoes(pedido: Request) -> dict:
+        """De quais ações o filiado participa, e o que pode ser feito em cada.
+
+        É O QUE O CADASTRO PROMETE no último passo: "a gente lê os seus
+        documentos e mostra de quais ações você faz parte e o que pode ser
+        feito em cada uma". Até agora o motor calculava e ninguém via.
+
+        ESTA ROTA NÃO ACEITA CPF, pela mesma razão de `/api/meus-processos`:
+        aceitar um CPF de fora transformaria a consulta na pesquisa de
+        filiação que o portão se recusa a ser.
+
+        E SÓ O CATÁLOGO DAS CATEGORIAS QUE ESTA ENTIDADE CONTRATOU. Entidade
+        sem declaração recebe lista VAZIA, nunca o catálogo das outras —
+        `entendimentos.carregar_categorias` trata tupla vazia como "nenhuma",
+        e é a diferença entre atender um sindicato e entregar a ele o acervo
+        de outro.
+
+        TRÊS VAZIOS QUE NÃO SÃO ERRO, e todos os três respondem com `aviso`
+        em vez de status 4xx ou 5xx: quem não cadastrou ainda, a entidade sem
+        categoria declarada, e o catálogo sem nada homologado. Erro aqui
+        manda a pessoa ligar justamente para ouvir o que a tela já poderia
+        ter dito.
+        """
+        sessao = _sessao_de(pedido)
+        ent = _entidade(sessao.entidade)
+        linhas = _linhas_do_cpf_da_sessao(ent, sessao)
+
+        # Recarrega a cada pedido de propósito: homologar é ato de advogado
+        # que acontece no arquivo, e catálogo guardado em memória continuaria
+        # recusando depois de alguém assinar.
+        catalogo = entendimentos.carregar_categorias(
+            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        )
+
+        comum = {
+            "entidade": ent.apelido,
+            "nome": ent.nome,
+            "categorias": list(catalogo.categorias),
+            "catalogo": catalogo.assinatura,
+            "filiado": "",
+            "acoes": [],
+            "oportunidades": [],
+            "pendencias": _pendencias_vazias(),
+        }
+
+        if not linhas:
+            return {**comum, "aviso": (
+                "Você ainda não enviou o seu cadastro, então não há o que "
+                "analisar. Faça o cadastro e volte aqui — nada é apresentado "
+                "em juízo com base nele, e isto não é parecer."
+            )}
+        if not catalogo.categorias:
+            return {**comum, "aviso": (
+                "O seu sindicato ainda não tem categoria declarada no "
+                "sistema, então não há ação a cruzar com os seus dados. "
+                "Isto não é parecer: nada foi analisado."
+            )}
+
+        # O último envio vence: é o que a pessoa corrigiu por último, e o
+        # anterior está no histórico, não perdido.
+        linha = conta.normalizar(linhas[-1])
+        # O QUE A PESSOA RESPONDEU NO CADASTRO É LIDO, e não era: a tela
+        # devolvia "saber se já existe ação própria" como tarefa dela depois
+        # de ela ter respondido exatamente isso três telas antes. Perguntar
+        # de novo o que ela acabou de responder é o telefonema que esta tela
+        # existe para evitar.
+        #
+        # `ja_executou_conferido=False` porque a resposta é DELA, não da base
+        # de execuções: o motor conta com ela e deixa nota dizendo de onde
+        # veio. Quando a base existir, ela entra aqui e a nota desaparece.
+        fatos = documentos.fatos_para_o_motor(
+            _fatos_lidos_do_cpf(ent, linha["cpf"]),
+            linha,
+            ja_executou=conta.resposta_booleana(linha["ja_executou"]),
+            tem_acao_propria=conta.resposta_booleana(
+                linha["tem_acao_propria"]
+            ),
+        )
+        quem = participacao.Filiado(
+            cpf=fatos.cpf,
+            cargo=fatos.cargo,
+            situacao=fatos.situacao,
+            filiado_desde=fatos.filiado_desde,
+            filiado_ate=fatos.filiado_ate,
+            no_rol=fatos.no_rol,
+        )
+        acoes = participacao.participacoes(quem, catalogo)
+        oportunidades = motor.avaliar(fatos, catalogo)
+        grupos = pendencia.agrupar(
+            [f for p in acoes for f in p.falta]
+            + [f for o in oportunidades for f in o.falta]
+        )
+
+        return {
+            **comum,
+            "filiado": linha["nome_completo"],
+            "acoes": [
+                {
+                    "id": p.acao,
+                    "rotulo": p.rotulo,
+                    "estado": p.estado,
+                    "inicio": p.inicio,
+                    "fim": p.fim,
+                    "meses": p.meses,
+                    "motivos": list(p.motivos),
+                }
+                for p in acoes
+            ],
+            "oportunidades": [
+                {
+                    "trilha": o.trilha,
+                    "referencia": o.referencia,
+                    "rotulo": o.rotulo,
+                    "categoria": o.categoria,
+                    "veredicto": o.veredicto,
+                    "periodo_inicio": o.periodo_inicio,
+                    "periodo_fim": o.periodo_fim,
+                    "meses": o.meses,
+                    "motivos": list(o.motivos),
+                    "notas": list(o.notas),
+                    "fonte": o.fonte,
+                    "falta": [
+                        {"quem": f.quem, "o_que": f.o_que} for f in o.falta
+                    ],
+                }
+                for o in oportunidades
+            ],
+            "pendencias": [
+                {
+                    "quem": dono,
+                    "titulo": pendencia.TITULOS[dono],
+                    "explicacao": pendencia.EXPLICACOES[dono],
+                    "itens": list(grupos[dono]),
+                }
+                for dono in pendencia.DONOS
+            ],
+            # DITO NA RESPOSTA, não só na tela: quem consumir esta API por
+            # fora tem de receber o limite junto com o dado.
+            "aviso": (
+                "Isto NÃO é parecer. É o que os seus documentos e o seu "
+                "cadastro permitem apurar hoje, e nada é apresentado em "
+                "juízo sem um advogado conferir e assinar."
             ),
         }
 

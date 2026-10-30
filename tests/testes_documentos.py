@@ -253,6 +253,19 @@ def teste_sem_transito_nao_ha_titulo_ainda():
     print("  ok     sem trânsito, a resposta é 'não sei', não 'sim'")
 
 
+def teste_o_nome_do_cadastro_chega_ao_motor():
+    """O contrato do B chama o campo `nome_completo`. `fatos_para_o_motor`
+    lia `nome`, que não existe — e `Fatos.nome` vinha vazio sempre, calado.
+    A tela do filiado mostra esse nome."""
+    f = documentos.fatos_para_o_motor(
+        {}, {"cpf": "11144477735",
+             "nome_completo": "FULANA DE TAL (CADASTRO DE EXEMPLO)"}
+    )
+    checa(f.nome.startswith("FULANA"),
+          f"o nome do cadastro não chegou ao motor: {f.nome!r}")
+    print("  ok     nome_completo chega ao motor")
+
+
 TESTES.extend([
     teste_extrai_texto_de_pdf_com_camada_de_texto,
     teste_pdf_so_imagem_nao_vira_texto_inventado,
@@ -262,6 +275,7 @@ TESTES.extend([
     teste_os_dois_documentos_juntos_concordam,
     teste_do_pdf_ao_veredicto_sem_ninguem_digitar,
     teste_sentenca_improcedente_nao_vira_titulo,
+    teste_o_nome_do_cadastro_chega_ao_motor,
     teste_sem_transito_nao_ha_titulo_ainda,
 ])
 

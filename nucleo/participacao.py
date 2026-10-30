@@ -37,6 +37,7 @@ import re
 from dataclasses import dataclass
 
 from . import entendimentos as ent
+from . import pendencia
 
 PARTICIPA = "PARTICIPA"
 NAO_PARTICIPA = "NAO_PARTICIPA"
@@ -71,7 +72,11 @@ class Participacao:
     inicio: str = ""
     fim: str = ""
     motivos: tuple[str, ...] = ()
-    falta: tuple[str, ...] = ()
+    #: O que falta, e DE QUEM é cada coisa. O dono é declarado aqui, na
+    #: origem, e não deduzido do texto depois: deduzir por palavra na frase
+    #: erra calado quando alguém reescreve a frase, e errar aqui é mandar uma
+    #: pessoa providenciar o que ela não tem como providenciar.
+    falta: tuple[pendencia.Falta, ...] = ()
 
     def __bool__(self) -> bool:
         return self.estado == PARTICIPA
@@ -114,10 +119,14 @@ def cruzar(
     rotulo = acao.rotulo
 
     if not acao.esta_homologado:
-        falta.append("homologação da ação por advogado")
+        falta.append(pendencia.Falta(
+            pendencia.CONFERENCIA, f"a homologação de {rotulo} por advogado"))
+        # MESMO TEXTO de `motor._homologacao`, de propósito: as duas
+        # conferências são cinto e suspensório, e com textos diferentes a
+        # pessoa lia a mesma pendência duas vezes, com duas redações.
         motivos.append(
-            f"{rotulo}: a ação ainda não foi homologada — o catálogo prepara, "
-            f"quem assina é gente"
+            f"{rotulo}: ainda não homologado — o motor prepara, quem assina "
+            f"é gente"
         )
         return Participacao(acao.id, rotulo, INDETERMINADO, falta=tuple(falta),
                             motivos=tuple(motivos))
@@ -129,7 +138,18 @@ def cruzar(
     da_acao = acao.categoria
     da_pessoa = catalogo.categoria_do_cargo(filiado.cargo)
     if da_pessoa is None:
-        falta.append("confirmar a carreira desta pessoa")
+        # DOIS DONOS DIFERENTES, e a diferença importa. Cargo em branco a
+        # pessoa pode preencher. Cargo preenchido que a nossa tabela não
+        # conhece NÃO é tarefa dela: ela já respondeu, e mandá-la "confirmar a
+        # carreira" que informou é justamente o telefonema que a tela existe
+        # para evitar.
+        falta.append(
+            pendencia.Falta(pendencia.CONFERENCIA,
+                            "a conferência da carreira informada")
+            if filiado.cargo.strip() else
+            pendencia.Falta(pendencia.VOCE,
+                            "o cargo, que é o que define a categoria")
+        )
         motivos.append(
             f"o cargo {filiado.cargo!r} não foi reconhecido. Pode ser a mesma "
             f"carreira escrita de outro jeito — e recusar por causa disso "
@@ -150,15 +170,16 @@ def cruzar(
     inicio_acao = _competencia(acao.periodo_inicio)
     fim_acao = _competencia(acao.periodo_fim)
     if not (inicio_acao and fim_acao):
-        falta.append(f"o período coberto por {rotulo}")
+        falta.append(pendencia.Falta(
+            pendencia.CONFERENCIA, f"o período coberto por {rotulo}"))
         motivos.append(f"{rotulo}: a ação não declara o período que cobre")
         return Participacao(acao.id, rotulo, INDETERMINADO,
                             motivos=tuple(motivos), falta=tuple(falta))
 
     desde = _competencia(filiado.filiado_desde)
     if desde is None:
-        falta.append("os comprovantes de contribuição, que provam desde "
-                     "quando a pessoa é filiada")
+        falta.append(pendencia.Falta(
+            pendencia.VOCE, "os comprovantes de contribuição ao sindicato"))
         motivos.append(
             "não se sabe desde quando esta pessoa é filiada, e é isso que "
             "decide de quais ações ela faz parte"
@@ -196,7 +217,8 @@ def cruzar(
                 ),
             )
         if filiado.no_rol is None:
-            falta.append(f"o rol de substituídos de {rotulo}")
+            falta.append(pendencia.Falta(
+                pendencia.CONFERENCIA, f"o rol de substituídos de {rotulo}"))
             motivos.append(
                 f"{rotulo} tem rol de substituídos, e não se sabe se esta "
                 f"pessoa consta dele"

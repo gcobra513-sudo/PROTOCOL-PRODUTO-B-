@@ -153,19 +153,31 @@ class Cadastro:
             raise EntidadeSuspensa(chave)
         return ent
 
-    def criar(self, apelido: str, nome: str, escritorio: str = "") -> Entidade:
+    def criar(
+        self,
+        apelido: str,
+        nome: str,
+        escritorio: str = "",
+        categorias: tuple[str, ...] = (),
+    ) -> Entidade:
         self._carregar_se_mudou()
         chave = (apelido or "").strip().lower()
         if not APELIDO.match(chave):
             raise ValueError(f"apelido {chave!r} inválido")
         if chave in self._entidades:
             raise ValueError(f"{chave} já existe")
+        # REESCREVE O ARQUIVO INTEIRO a partir do que está em memória, e por
+        # isso TODO campo de Entidade tem de aparecer aqui. `categorias`
+        # ficava de fora: cadastrar o segundo sindicato apagava em silêncio a
+        # declaração do primeiro, e o primeiro parava de receber veredicto
+        # sem que ninguém tivesse mexido nele.
         bruto = {
             a: {
                 "nome": e.nome,
                 "ativa": e.ativa,
                 "escritorio": e.escritorio,
                 "criada_em": e.criada_em,
+                "categorias": list(e.categorias),
             }
             for a, e in self._entidades.items()
         }
@@ -174,6 +186,7 @@ class Cadastro:
             "ativa": True,
             "escritorio": escritorio.strip(),
             "criada_em": dt.date.today().isoformat(),
+            "categorias": [str(c) for c in categorias],
         }
         self.raiz.mkdir(parents=True, exist_ok=True)
         tmp = self._arquivo.with_suffix(".json.parcial")

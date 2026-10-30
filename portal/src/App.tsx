@@ -27,6 +27,9 @@ import { Entrar } from "./etapas/Entrar";
 import { Inicio } from "./etapas/Inicio";
 import { Processos } from "./etapas/Processos";
 import { Voce } from "./etapas/Voce";
+import { MeusProcessos } from "./paginas/MeusProcessos";
+import { MinhasAcoes } from "./paginas/MinhasAcoes";
+import { Painel } from "./paginas/Painel";
 import * as arquivos from "./lib/arquivos";
 import * as armazenamento from "./lib/armazenamento";
 import * as api from "./lib/envio";
@@ -111,8 +114,25 @@ function pendencias(r: Rascunho, etapa: number, temToken: boolean): string[] {
   return [];
 }
 
+/** Os links entre as áreas. Sem eles, cada uma só se alcança digitando o
+ *  endereço — e ninguém digita. */
+const AREAS: { tela: api.Tela; rotulo: string }[] = [
+  { tela: "cadastro", rotulo: "Meu cadastro" },
+  { tela: "acoes", rotulo: "Minhas ações" },
+  { tela: "processos", rotulo: "Meus processos" },
+];
+
+function linkDaArea(tela: api.Tela, apelido: string): string {
+  const q = new URLSearchParams();
+  if (apelido) q.set("entidade", apelido);
+  if (tela !== "cadastro") q.set("tela", tela);
+  const busca = q.toString();
+  return busca ? `?${busca}` : "./";
+}
+
 export function App() {
   const apelido = useMemo(() => api.entidadeDoLink(), []);
+  const tela = useMemo(() => api.telaDoLink(), []);
   const [entidade, setEntidade] = useState<string | undefined>(undefined);
   const [avisoDemo, setAvisoDemo] = useState("");
   const [comecou, setComecou] = useState(false);
@@ -186,6 +206,24 @@ export function App() {
           <p className="mt-0.5 text-lg font-semibold text-tinta">
             {entidade ?? "Seus direitos, organizados"}
           </p>
+          {api.servidorLigado() ? (
+            <nav className="mt-2 flex flex-wrap gap-4 text-sm">
+              {AREAS.map((a) => (
+                <a
+                  key={a.tela}
+                  href={linkDaArea(a.tela, apelido)}
+                  aria-current={a.tela === tela ? "page" : undefined}
+                  className={
+                    a.tela === tela
+                      ? "font-semibold text-tinta"
+                      : "text-acento underline"
+                  }
+                >
+                  {a.rotulo}
+                </a>
+              ))}
+            </nav>
+          ) : null}
         </div>
       </header>
 
@@ -196,7 +234,20 @@ export function App() {
           </Aviso>
         ) : null}
 
-        {recibo ? (
+        {tela !== "cadastro" && !api.servidorLigado() ? (
+          <Aviso tom="alerta">
+            <strong>Esta área precisa do servidor do sindicato.</strong> Esta
+            página está em modo de demonstração, sem servidor: ela confere
+            tudo no seu aparelho e não consulta nada. Peça ao sindicato o
+            endereço do portal.
+          </Aviso>
+        ) : tela === "acoes" ? (
+          <MinhasAcoes entidade={apelido} />
+        ) : tela === "processos" ? (
+          <MeusProcessos entidade={apelido} />
+        ) : tela === "painel" ? (
+          <Painel entidade={apelido} />
+        ) : recibo ? (
           <div className="space-y-5">
             <Aviso tom="bom">
               <span className="block font-medium">Cadastro enviado.</span>
@@ -222,6 +273,14 @@ export function App() {
                 de quais ações faz parte e o que pode ser feito em cada uma.
               </p>
             </div>
+            {api.servidorLigado() ? (
+              <a
+                href={linkDaArea("acoes", apelido)}
+                className="block rounded-md border border-borda bg-carta p-4 text-[15px] font-medium text-tinta underline"
+              >
+                Ver de quais ações eu faço parte
+              </a>
+            ) : null}
             <Botao
               tipo="secundario"
               onClick={() =>

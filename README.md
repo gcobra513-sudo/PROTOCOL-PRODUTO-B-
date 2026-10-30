@@ -29,6 +29,7 @@ Se algum arquivo contradisser o `MAPA.md`, o mapa vence.
 nucleo/         o veredicto: processo_cnj, entendimentos, motor
 servidor/       a API: portão, cadastro, acervo, completude, acompanhamento
 portal/         o site do filiado (React + Vite + TypeScript)
+                quatro áreas, por `?tela=`: cadastro, acoes, processos, painel
 config/         categorias/ — um catálogo de teses POR CATEGORIA
 compartilhado/  o contrato de dados entre o portal e o resto
 ferramentas/    linha de comando: ingerir acervo, coletar movimentação

@@ -19,8 +19,8 @@
 | 6 | Cruzamento: de quais ações a pessoa participa | **pronto** | `adc96a2` |
 | 7 | Portal do filiado pedindo o que o B pede | **pronto** | `73df604` |
 | 7b | Catálogo por categoria: atender vários sindicatos | **pronto** | `0afa698` |
-| 7c | **Mostrar ao filiado de quais ações ele participa** | **agora** | — |
-| 8 | Painel do sindicato sobre o novo cadastro | a fazer | — |
+| 7c | Mostrar ao filiado de quais ações ele participa | **pronto** | `HEAD` |
+| 8 | **Painel do sindicato sobre o novo cadastro** | **agora** | — |
 | 9 | Banco ligado à aplicação (hoje lê de arquivo) | a fazer | — |
 | 10 | Migração para região brasileira | a fazer | — |
 | 11 | O valor: quanto, com assinatura humana | a fazer | — |
@@ -36,6 +36,8 @@
 | **T3** | `exige_rol = false` na GIFA porque não tenho os autos. Se houver rol, muda quem participa | conferir nos autos |
 | **T4** | Nenhuma exportação real de sindicato foi vista. A ingestão foi construída contra planilha que eu sujei imitando Excel brasileiro | o sindicato manda um arquivo |
 | **T5** | Retenção e apagamento não têm prazo aprovado | parecer |
+| **T7** | Os motivos do motor são escritos na TERCEIRA pessoa ("esta pessoa consta do rol"), porque o mesmo texto serve o painel do sindicato. Na tela do próprio filiado isso lê como dossiê sobre outra pessoa. Trocar por "você" com substituição cega gera concordância errada — "esta pessoa é filiada" concorda com *pessoa*, e viraria "você é filiada" para um homem | decidir se o motor passa a emitir dois registros, um por público |
+| **T8** | `ja_executou` vem da RESPOSTA DA PRÓPRIA PESSOA, não de base de execuções — essa base não existe. O motor conta com a resposta e deixa nota dizendo que foi declarada. Enquanto for assim, "não executei" errado só é pego pelo advogado na homologação | o sindicato fornecer a base de execuções já ajuizadas |
 | **T6** | Só duas categorias existem em `config/categorias/`, e uma delas está lá sem entrada nenhuma, só para ser reconhecida como outra carreira. Nenhuma ação de nenhuma outra carreira foi pesquisada | o jurídico diz quais categorias e quais ações, por contrato |
 
 ---

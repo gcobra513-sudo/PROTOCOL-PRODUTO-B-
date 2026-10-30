@@ -135,7 +135,10 @@ def fatos_para_o_motor(
     cadastro = cadastro or {}
     return motor.Fatos(
         cpf=cadastro.get("cpf", ""),
-        nome=cadastro.get("nome", ""),
+        # `nome_completo` é o nome do campo NO CONTRATO. Era `nome`, que o
+        # contrato não tem: `Fatos.nome` vinha vazio sempre, calado, e é esse
+        # nome que a tela do filiado mostra.
+        nome=cadastro.get("nome_completo", ""),
         cargo=cadastro.get("cargo", ""),
         situacao=cadastro.get("situacao", ""),
         data_ingresso=cadastro.get("data_ingresso", ""),
