@@ -19,11 +19,16 @@ import dataclasses
 import json
 import logging
 import pathlib
+import re
 from typing import Annotated
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+
+# `conta` e não `cadastro`: `entidades.Cadastro` já ocupa esse nome aqui,
+# e a colisão deixava o módulo do contrato invisível em silêncio.
+from nucleo import cadastro as conta
 
 from . import (
     acervo,
@@ -48,6 +53,10 @@ from .config import (
 log = logging.getLogger("protocol.portal")
 
 PEDACO = 64 * 1024
+
+#: `contribuicao-3.pdf` ou `sentenca.pdf`. Nada de barra, nada de ponto-ponto:
+#: o nome vem do cliente e não pode virar caminho.
+_NOME_DE_DOCUMENTO = re.compile(r"^[a-z_]+(-\d{1,2})?\.pdf$")
 
 #: Em MODO ENSAIO o servidor devolve o código de acesso na própria resposta
 #: HTTP. Isso é o certo para teste e inaceitável com gente real — e um
@@ -352,6 +361,18 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
     # ------------------------------------------------------------- consulta
 
+    def _nome_de_documento_valido(nome: str) -> bool:
+        """O nome vindo do cliente NUNCA vira caminho.
+
+        Ou é um dos tipos do contrato — com índice, quando o tipo aceita
+        vários, porque três anos de contracheque são três arquivos —, ou o
+        pedido morre aqui.
+        """
+        return bool(_NOME_DE_DOCUMENTO.match(nome)) and (
+            nome.split("-")[0].removesuffix(".pdf") in conta.DOCUMENTOS
+            or nome.removesuffix(".pdf") in conta.DOCUMENTOS
+        )
+
     def _sessao_de(pedido: Request) -> acesso.Sessao:
         """A sessão do cabeçalho Authorization, ou 401.
 
@@ -379,7 +400,10 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             linha = registro.get("linha")
             if not isinstance(linha, dict):
                 continue
-            cpf = linha.get("id_externo") or ""
+            # `cpf` e não `id_externo`: o contrato do B identifica pelo
+            # próprio CPF. `id_externo` era do manifesto do Produto A, e com
+            # ele aqui a consulta do filiado devolvia lista vazia — sem erro.
+            cpf = conta.so_digitos(linha.get("cpf") or "")
             if cpf and portao.marcar_cpf(cpf) == sessao.cpf_hash:
                 achadas.append(linha)
         return achadas
@@ -404,8 +428,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
         numeros: list[str] = []
         for linha in linhas:
-            for numero in validacao.numeros_de_acompanhamento(
-                linha.get("acompanhar", "")
+            for numero in conta.numeros_de_processo(
+                linha.get("numeros_de_processo", "")
             ):
                 if numero not in numeros:
                     numeros.append(numero)
@@ -544,11 +568,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         except json.JSONDecodeError:
             raise _problema(400, "o cadastro não veio em JSON válido") from None
 
-        problemas = validacao.conferir_linha(bruta)
+        # O CONTRATO É O DO PRODUTO B (`nucleo.cadastro`), não o do A. O que
+        # se pede aqui é contribuição, carreira e filiação — não procuração,
+        # identidade e endereço, que são documentos para litigar.
+        problemas = conta.conferir(bruta)
         if problemas:
             raise _problema(422, "cadastro incompleto", problemas=problemas)
 
-        limpa = validacao.normalizar_linha(bruta)
+        limpa = conta.normalizar(bruta)
 
         # O token diz quem é; o formulário diz de quem é o cadastro. Se não
         # baterem, alguém entrou com o próprio código e está cadastrando
@@ -566,7 +593,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         total = 0
         for arquivo in arquivos:
             nome = (arquivo.filename or "").strip()
-            if nome not in validacao.NOMES_DE_ARQUIVO:
+            if not _nome_de_documento_valido(nome):
                 # O nome vindo do cliente NUNCA vira caminho: ou é um dos
                 # nomes do contrato, ou o pedido morre aqui.
                 raise _problema(422, f"arquivo fora do contrato: {nome!r}")
@@ -588,16 +615,21 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 raise _problema(
                     422,
                     f"o arquivo {nome} não tem texto selecionável — é uma "
-                    f"imagem digitalizada. O escritório recusa documento "
-                    f"assim. Gere o PDF a partir do arquivo original, ou "
-                    f"digitalize com reconhecimento de texto (OCR).",
+                    f"imagem digitalizada, e sem texto não há o que ler. "
+                    f"Gere o PDF a partir do arquivo original, ou digitalize "
+                    f"com reconhecimento de texto (OCR).",
                     caracteres=caracteres,
                 )
             recebidos[nome] = corpo
 
-        faltas = validacao.conferir_pacote(
-            list(recebidos), limpa["tem_processo"]
-        )
+        # O que falta NÃO depende do que a pessoa declarou sobre processo:
+        # ela pode saber o número e não ter o papel em mãos, e bloquear por
+        # isso a deixaria sem resposta — justamente ela, que mais precisa.
+        faltas = [
+            f"falta o documento obrigatório: {tipo}"
+            for tipo in conta.documentos_exigidos(limpa)
+            if not any(n.startswith(tipo) for n in recebidos)
+        ]
         if faltas:
             raise _problema(422, "pacote incompleto", problemas=faltas)
 

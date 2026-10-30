@@ -63,11 +63,11 @@ def pessoas() -> list[acervo.Pessoa]:
 def registro(cpf: str, **trocas) -> dict:
     """Uma linha do diário de cadastro, como `deposito.depositar` a grava."""
     linha = {
-        "id_externo": cpf,
+        "cpf": cpf,
         "cpf": cpf,
         "tem_processo": "sim",
         "numero_processo": "00012347020194013400",
-        "acompanhar": "",
+        "numeros_de_processo": "",
         "quer_aviso": "",
     }
     linha.update(trocas)
@@ -155,9 +155,9 @@ def teste_o_que_a_pessoa_respondeu_sobre_processo():
 
 def teste_acompanhamento_e_opt_in_sao_contados():
     diario = [
-        registro(MARIA, acompanhar="00012347020194013400;00076540520198070001",
+        registro(MARIA, numeros_de_processo="00012347020194013400;00076540520198070001",
                  quer_aviso="sim"),
-        registro(JOAO, acompanhar="00012347020194013400"),
+        registro(JOAO, numeros_de_processo="00012347020194013400"),
     ]
     r = completude.retratar(pessoas(), diario)
     checa(r.acompanhando == 2, f"acompanhando={r.acompanhando}")

@@ -1,61 +1,52 @@
 /**
- * O que o portal coleta. Um tipo só, usado pelas sete etapas e pela
- * exportação — se um campo entra aqui, entra no manifesto.
+ * O que a conta do filiado guarda.
  *
- * Três decisões que a especificação exige e que o tipo deixa explícitas:
+ * A FORMA VEM DO CONTRATO, não daqui: `compartilhado/contrato_cadastro.json`
+ * é lido pelo portal e pelo servidor, porque duas listas de campos mantidas
+ * à mão divergem — e a divergência só aparece na primeira conta de verdade.
  *
- * 1. `naoSei` existe em processo e nas declarações. É deliberado: a pessoa
- *    admitir que não sabe é MUITO melhor que chutar. Obrigar a preencher só
- *    produz dado falso, e dado falso num lote de 15 mil é pior que campo
- *    vazio — porque ninguém sabe que está errado.
- * 2. o portal NÃO pergunta "você tem direito?". Quem decide elegibilidade é
- *    o jurídico, com base nos dados. Perguntar criaria expectativa indevida
- *    e resposta sem valor.
- * 3. nada de senha. Acesso por CPF + código. Senha é a principal causa de
- *    abandono nesse tipo de cadastro.
+ * O QUE O PRODUTO B PEDE, E O QUE ELE RECUSA PEDIR:
+ *
+ *   contribuição   prova o PERÍODO DE FILIAÇÃO, e é o cruzamento desse
+ *                  período contra o da ação coletiva que responde "de quais
+ *                  ações eu faço parte". É o único documento obrigatório
+ *   carreira       cargo e situação definem a CATEGORIA alcançada
+ *   sentença e     só se a pessoa tiver. Decidem se ela EXECUTA (tem
+ *   certidão       título) ou AJUÍZA (não tem)
+ *
+ * Não se pede procuração, identidade nem comprovante de residência. São
+ * documentos para LITIGAR, e exigi-los de quem só quer saber se tem direito
+ * derruba a conclusão do cadastro sem melhorar resposta nenhuma.
+ *
+ * E duas coisas que o tipo deixa explícitas:
+ *
+ * 1. `nao_sei` é resposta completa em tudo que é judicial. A pessoa admitir
+ *    que não sabe é muito melhor que chutar — número chutado é pior que
+ *    campo vazio, porque ninguém sabe que está errado.
+ * 2. nada de senha. Entra-se por CPF e código no e-mail que o SINDICATO
+ *    cadastrou. Senha é a principal causa de abandono nesse tipo de conta, e
+ *    é o que mais vaza.
  */
 
-import contrato from "../../../compartilhado/contrato_entrega.json";
+import contrato from "../../../compartilhado/contrato_cadastro.json";
 
-/**
- * O CONTRATO DE DADOS com o motor, lido do arquivo compartilhado.
- *
- * Não repita nome de arquivo aqui. O portal nomeava "residencia.pdf" e o
- * verificador esperava "comprovante_residencia.pdf" — três dos seis nomes
- * divergiam, e isso só apareceria quando a primeira entrega de verdade
- * chegasse, com todas as pastas reprovando por arquivo faltando.
- */
 export const CONTRATO = contrato;
 
 export type Resposta = "sim" | "nao" | "nao_sei" | "";
 
 export type SituacaoFuncional = "ativo" | "aposentado" | "pensionista" | "";
 
-export interface DadosPessoais {
+export interface Identificacao {
   nome: string;
   cpf: string;
-  matricula: string;
-  rg: string;
-  /** OBRIGATÓRIA. É dela que sai a prioridade de tramitação: o PJe tem
-   *  "Idoso(a)" e "Idoso(a) maior de 80 anos" na aba Características, e este
-   *  lote é de servidores aposentados. Sem ela, ninguém pede prioridade —
-   *  e numa fila de cinco mil execuções isso é tempo de vida de quem espera. */
-  dataNascimento: string;
-  /** Campos de endereço. Pendente de confirmação: o PJe pode exigi-los para
-   *  distribuir (ver pergunta 23 em PERGUNTAS_JURIDICO.md). Ficam no
-   *  formulário porque pedir e não usar é barato; usar e não ter é caro. */
-  cep: string;
-  logradouro: string;
-  numero: string;
-  complemento: string;
-  bairro: string;
-  municipio: string;
-  uf: string;
   email: string;
   telefone: string;
+  dataNascimento: string;
 }
 
-export interface Funcional {
+export interface Carreira {
+  /** Define a CATEGORIA alcançada pelas ações coletivas. Sem ele não há
+   *  cruzamento, e sem cruzamento não há resposta. */
   cargo: string;
   situacao: SituacaoFuncional;
   unidade: string;
@@ -63,156 +54,122 @@ export interface Funcional {
   dataAposentadoria: string;
 }
 
-export interface ProcessoOrigem {
-  /** "sim" = informou o número; "nao_sei" = não sabe, e o escritório
-   *  procura; "nao" = declara não ter sentença. O terceiro caso faltava, e
-   *  obrigar quem não tem título a dizer "não sei" produziria uma lista de
-   *  busca cheia de gente que não tem nada a procurar. */
-  temProcesso: Resposta;
-  numero: string;
-  /** Observação livre de quem não sabe o número — "a ação foi pelo
-   *  sindicato em 2015", por exemplo. Ajuda o escritório a procurar. */
-  observacao: string;
-  /** Os processos que a pessoa quer ACOMPANHAR. Campo separado de `numero`
-   *  porque são perguntas diferentes: `numero` é a sentença de origem, que
-   *  decide o juízo da execução e por isso exige TRF1; estes são qualquer
-   *  um dos 65 tribunais do DataJud, porque acompanhar não é protocolar. */
-  acompanhar: string[];
+export interface Filiacao {
+  /** AAAA-MM. Vem dos comprovantes de contribuição, e é o campo mais
+   *  importante da conta: é ele que decide de quais ações a pessoa faz
+   *  parte. */
+  desde: string;
+  /** AAAA-MM, ou VAZIO para "ainda sou filiado". Vazio é resposta, não
+   *  omissão — tratá-lo como omissão reprovaria quem está filiado hoje. */
+  ate: string;
 }
 
-export type TipoDocumento =
-  | "procuracao"
-  | "identidade"
-  | "residencia"
-  | "sentenca"
-  | "transito"
-  | "fichas";
+export interface Judicial {
+  temProcesso: Resposta;
+  /** De qualquer tribunal. Acompanhar não é protocolar. */
+  numeros: string[];
+  jaExecutou: Resposta;
+  temAcaoPropria: Resposta;
+}
 
-/** Nome fixo com que cada tipo é guardado — DO CONTRATO. */
-export const NOME_DE_ARQUIVO = CONTRATO.arquivos as Record<TipoDocumento, string>;
+export type TipoDocumento = "contribuicao" | "sentenca" | "certidao_transito";
+
+export interface EspecDocumento {
+  tipo: TipoDocumento;
+  rotulo: string;
+  obrigatorio: boolean;
+  multiplos: boolean;
+  ajuda: string;
+}
+
+/** Os documentos pedidos, direto do contrato. Acrescentar um é editar o
+ *  JSON; o portal e o servidor passam a conhecê-lo juntos. */
+export const DOCUMENTOS: EspecDocumento[] = Object.entries(
+  CONTRATO.documentos as Record<
+    string,
+    { rotulo: string; obrigatorio: boolean; multiplos: boolean; ajuda: string }
+  >,
+).map(([tipo, d]) => ({ tipo: tipo as TipoDocumento, ...d }));
 
 export interface DocumentoEnviado {
+  /** Onde os bytes estão, em `lib/arquivos.ts`. Um NÚMERO e não o tipo,
+   *  porque a contribuição aceita vários e uma chave por tipo faria o
+   *  segundo comprovante apagar o primeiro. */
+  chave: number;
   tipo: TipoDocumento;
   nomeOriginal: string;
-  /** Nome fixo com que o arquivo é guardado. Com 15 mil pastas,
-   *  "Documento (1).pdf" é inútil. */
   nomeFinal: string;
   tamanho: number;
   sha256: string;
-  /** Resultado da leitura do conteúdo. Ver `lib/leitura.ts`. */
-  legivel: boolean;
+  /** PDF de scanner não tem camada de texto, e sem texto não há o que ler.
+   *  Avisar aqui poupa a pessoa de descobrir depois que o documento dela não
+   *  serviu para nada. */
+  temTexto: boolean;
   cpfEncontrado: boolean;
-  motivoRecusa: string;
 }
 
-export interface Declaracoes {
-  jaExecutou: Resposta;
-  jaRecebeu: Resposta;
-  outroAdvogado: Resposta;
-  /** A quarta não é pergunta, é declaração: protege o escritório contra a
-   *  exigência de demonstrar que o autor sabia da ação e quis entrar com
-   *  ela (Recomendação CNJ 159/2024). */
-  cienciaEIniciativa: boolean;
-  /** O opt-in de aviso por e-mail. Não vem marcado: opt-in pré-marcado não
-   *  é opt-in. É também o que sustenta o tratamento depois — cadastro
-   *  colhido sem ele não dá para acompanhar sem reconvocar a pessoa. */
-  querAviso: boolean;
+/** O nome com que o arquivo é guardado. Com índice quando o tipo aceita
+ *  vários — três anos de contracheque são três arquivos do mesmo tipo. */
+export function nomeDeArquivo(tipo: TipoDocumento, indice = 0): string {
+  const espec = DOCUMENTOS.find((d) => d.tipo === tipo);
+  return espec?.multiplos ? `${tipo}-${indice + 1}.pdf` : `${tipo}.pdf`;
 }
 
 export interface Rascunho {
-  versao: 1;
+  /** 2: a conta do Produto B. A 1 era o cadastro do Produto A, com
+   *  procuração e endereço, e um rascunho velho no navegador de alguém não
+   *  pode ser lido como se fosse desta versão. */
+  versao: 2;
   atualizadoEm: string;
   etapa: number;
-  pessoais: DadosPessoais;
-  funcional: Funcional;
-  processo: ProcessoOrigem;
+  identificacao: Identificacao;
+  carreira: Carreira;
+  filiacao: Filiacao;
+  judicial: Judicial;
   documentos: DocumentoEnviado[];
-  declaracoes: Declaracoes;
+  /** A declaração final: os dados são meus e são verdadeiros. */
+  confirmou: boolean;
+  /** Opcional, e não vem marcado. Opt-in pré-marcado não é opt-in. */
+  querAviso: boolean;
 }
 
 export const RASCUNHO_VAZIO: Rascunho = {
-  versao: 1,
+  versao: 2,
   atualizadoEm: "",
   etapa: 0,
-  pessoais: {
-    nome: "", cpf: "", matricula: "", rg: "", dataNascimento: "",
-    cep: "", logradouro: "",
-    numero: "", complemento: "", bairro: "", municipio: "", uf: "",
-    email: "", telefone: "",
+  identificacao: {
+    nome: "",
+    cpf: "",
+    email: "",
+    telefone: "",
+    dataNascimento: "",
   },
-  funcional: {
-    cargo: "", situacao: "", unidade: "", dataIngresso: "",
+  carreira: {
+    cargo: "",
+    situacao: "",
+    unidade: "",
+    dataIngresso: "",
     dataAposentadoria: "",
   },
-  processo: { temProcesso: "", numero: "", observacao: "", acompanhar: [] },
-  documentos: [],
-  declaracoes: {
-    jaExecutou: "", jaRecebeu: "", outroAdvogado: "",
-    cienciaEIniciativa: false,
-    querAviso: false,
+  filiacao: { desde: "", ate: "" },
+  judicial: {
+    temProcesso: "",
+    numeros: [],
+    jaExecutou: "",
+    temAcaoPropria: "",
   },
+  documentos: [],
+  confirmou: false,
+  querAviso: false,
 };
 
-/** Quais nomes de arquivo o motor exige só de quem TEM processo. */
-const SO_COM_PROCESSO = new Set(CONTRATO.se_tem_processo);
-
-const _DOCUMENTOS_BASE: {
-  tipo: TipoDocumento;
-  rotulo: string;
-  porque: string;
-  obrigatorio: boolean;
-  /** Derivado do contrato: `true` quando o motor só exige este arquivo de
-   *  quem declarou ter processo. Não é regra do portal — é a regra do
-   *  verificador de entrega, lida de lá. */
-  soComProcesso?: boolean;
-}[] = [
-  {
-    tipo: "procuracao",
-    rotulo: "Procuração",
-    porque: "é o que autoriza o advogado a agir por você",
-    obrigatorio: true,
-  },
-  {
-    tipo: "identidade",
-    rotulo: "Documento de identidade",
-    porque: "qualificação na petição",
-    obrigatorio: true,
-  },
-  {
-    tipo: "residencia",
-    rotulo: "Comprovante de residência",
-    porque: "endereço, e é item que os tribunais conferem em ações em massa",
-    obrigatorio: true,
-  },
-  {
-    tipo: "sentenca",
-    soComProcesso: true,
-    rotulo: "Sentença do seu processo",
-    porque: "é o que vai ser executado",
-    obrigatorio: true,
-  },
-  {
-    tipo: "transito",
-    soComProcesso: true,
-    rotulo: "Certidão de trânsito em julgado",
-    porque: "diz a partir de quando o prazo conta",
-    obrigatorio: true,
-  },
-  {
-    tipo: "fichas",
-    rotulo: "Fichas financeiras ou contracheques",
-    porque: "base para calcular o valor devido",
-    obrigatorio: false,
-  },
-];
-
-
-/**
- * A lista final, com `soComProcesso` **derivado do contrato** em vez de
- * escrito à mão. Se o contrato mudar de ideia sobre quais arquivos dependem
- * de ter processo, o portal acompanha sem ninguém lembrar de editar aqui.
- */
-export const DOCUMENTOS = _DOCUMENTOS_BASE.map((d) => ({
-  ...d,
-  soComProcesso: SO_COM_PROCESSO.has(NOME_DE_ARQUIVO[d.tipo]),
-}));
+/** Quais documentos esta conta ainda precisa.
+ *
+ *  NÃO DEPENDE DO QUE A PESSOA DISSE SOBRE PROCESSO. Declarar "tenho
+ *  processo" não passa a exigir sentença: ela pode saber o número e não ter
+ *  o papel em mãos, e bloquear por isso a deixaria sem resposta — justamente
+ *  ela, que é quem mais precisa. */
+export function documentosFaltando(r: Rascunho): EspecDocumento[] {
+  const enviados = new Set(r.documentos.map((d) => d.tipo));
+  return DOCUMENTOS.filter((d) => d.obrigatorio && !enviados.has(d.tipo));
+}

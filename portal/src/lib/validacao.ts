@@ -155,28 +155,6 @@ export function conferirProcesso(
   return problemas;
 }
 
-/** Para onde o número que a pessoa digitou pertence.
- *
- * Existe porque a tela e o servidor discordavam: a tela AVISAVA que o
- * processo não era do TRF1 e deixava enviar; o servidor RECUSAVA. A pessoa
- * com sentença de outro tribunal preenchia, era avisada, enviava e era
- * reprovada — descobrindo no fim o que dava para saber no começo.
- *
- * E a recusa do servidor está certa: `numero_processo` é o processo da
- * SENTENÇA DE ORIGEM, e a execução corre no juízo que decidiu (CPC, art.
- * 516, II). O Produto A protocola no TRF1. O que faltava não era afrouxar a
- * validação, era a tela dizer para onde o número vai.
- */
-export type DestinoDoNumero = "vazio" | "invalido" | "sentenca" | "acompanhar";
-
-export function destinoDoNumero(valor: string): DestinoDoNumero {
-  if (!soDigitos(valor)) return "vazio";
-  if (conferirProcesso(valor).length > 0) return "invalido";
-  return conferirProcesso(valor, { exigirTrf1: true }).length > 0
-    ? "acompanhar"
-    : "sentenca";
-}
-
 export function formatarProcesso(valor: string): string {
   const d = soDigitos(valor).slice(0, 20);
   const p = [

@@ -25,7 +25,6 @@
  ],
  "_versao": 1,
  "_gerado_em": "2026-10-30",
-
  "campos": [
   "cpf",
   "nome_completo",
@@ -42,9 +41,9 @@
   "tem_processo",
   "numeros_de_processo",
   "ja_executou",
-  "tem_acao_propria"
+  "tem_acao_propria",
+  "quer_aviso"
  ],
-
  "obrigatorios": [
   "cpf",
   "nome_completo",
@@ -53,7 +52,6 @@
   "situacao",
   "filiado_desde"
  ],
-
  "documentos": {
   "contribuicao": {
    "rotulo": "Comprovantes de contribuição ao sindicato",
@@ -74,12 +72,22 @@
    "ajuda": "O papel que diz que a sentença não cabe mais recurso."
   }
  },
-
  "valores": {
-  "situacao": ["ativo", "aposentado", "pensionista"],
-  "resposta": ["sim", "nao", "nao_sei"]
+  "situacao": [
+   "ativo",
+   "aposentado",
+   "pensionista"
+  ],
+  "resposta": [
+   "sim",
+   "nao",
+   "nao_sei"
+  ],
+  "quer_aviso": [
+   "",
+   "sim"
+  ]
  },
-
  "tetos": {
   "nome_completo": 180,
   "email": 254,
@@ -88,7 +96,6 @@
   "numeros_de_processo": 520
  },
  "teto_padrao": 80,
-
  "_notas": {
   "filiado_ate": [
    "VAZIO SIGNIFICA 'AINDA FILIADO'. É resposta, não omissão — e tratá-la",
@@ -104,6 +111,18 @@
    "Declarar que tem processo NÃO passa a exigir documento. A pessoa pode",
    "saber o número e não ter os papéis em mãos, e bloquear o cadastro por",
    "isso a deixaria sem resposta nenhuma."
+  ],
+  "quer_aviso": [
+   "O opt-in de aviso por e-mail. NAO vem marcado: opt-in pre-marcado nao e",
+   "opt-in. E tambem o que sustenta a gente poder escrever para a pessoa",
+   "depois — cadastro colhido sem ele e cadastro que nao da para avisar sem",
+   "reconvocar a pessoa."
+  ],
+  "maximo_de_processos": [
+   "Teto porque o campo e livre e vem de fora: 200 numeros numa linha e erro",
+   "de digitacao ou abuso, e nos dois casos a coleta seguinte faria 200",
+   "consultas de 30 s por causa de uma linha."
   ]
- }
+ },
+ "maximo_de_processos": 20
 }

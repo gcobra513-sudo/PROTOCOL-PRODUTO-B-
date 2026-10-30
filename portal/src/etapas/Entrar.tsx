@@ -25,7 +25,7 @@ import { Aviso, Botao, Campo, Cartao } from "../componentes/ui";
 import * as api from "../lib/envio";
 import { conferirCpf, formatarCpf } from "../lib/validacao";
 
-export function E1Entrar({
+export function Entrar({
   cpf,
   onCpf,
   entidade,
@@ -115,7 +115,7 @@ export function E1Entrar({
             <span>
               <strong>Este portal está sem servidor configurado.</strong> O
               cadastro é conferido aqui no seu aparelho e, no fim, você baixa
-              um pacote para entregar ao escritório. Nada é transmitido.
+              um pacote para você mesmo guardar. Nada é transmitido.
             </span>
           </span>
         </Aviso>

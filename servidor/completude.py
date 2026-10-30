@@ -36,6 +36,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from nucleo import cadastro as conta
+
 from . import acervo, validacao
 
 #: Campos que só o PORTAL responde. Nunca são atributo do cadastro do
@@ -109,7 +111,7 @@ def _ultimo_envio_por_cpf(diario: list[dict]) -> dict[str, dict]:
         linha = registro.get("linha")
         if not isinstance(linha, dict):
             continue
-        cpf = validacao.so_digitos(linha.get("id_externo") or linha.get("cpf") or "")
+        cpf = conta.so_digitos(linha.get("cpf") or "")
         if cpf:
             por_cpf[cpf] = linha
     return por_cpf
@@ -175,7 +177,7 @@ def retratar(
     divergencias: dict[str, list[dict]] = {}
     for cpf, linha in cadastros.items():
         acumulado = campos_por_cpf.setdefault(cpf, {})
-        for coluna in validacao.COLUNAS:
+        for coluna in conta.CAMPOS:
             valor = (linha.get(coluna) or "").strip()
             if not valor:
                 continue
@@ -224,7 +226,7 @@ def retratar(
         resposta = (linha.get("tem_processo") or "").strip()
         if resposta in respostas:
             respostas[resposta] += 1
-        numeros = validacao.numeros_de_acompanhamento(linha.get("acompanhar", ""))
+        numeros = conta.numeros_de_processo(linha.get("numeros_de_processo", ""))
         if numeros:
             acompanhando += 1
             processos.update(numeros)

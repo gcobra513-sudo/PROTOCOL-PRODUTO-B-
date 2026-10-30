@@ -124,64 +124,46 @@ PROCESSO = numero("0001234", "01", "3400")
 PROCESSO_OUTRO_TRIBUNAL = numero("0001234", "05", "8300")
 
 
-def pacote(cpf: str = CPF, com_processo: bool = True) -> list[tuple]:
-    """Os arquivos do envio, no formato que o httpx manda como multipart."""
+def pacote(cpf: str = CPF, com_judicial: bool = False) -> list[tuple]:
+    """Os arquivos do envio, no formato multipart.
+
+    OBRIGATÓRIO É SÓ A CONTRIBUIÇÃO, e ela aceita vários: é o que prova o
+    período de filiação. Sentença e certidão entram só se a pessoa tiver —
+    quem não tem recebe resposta do mesmo jeito, a dela é sobre ajuizar.
+    """
     base = [
         (
-            "procuracao.pdf",
+            "contribuicao-1.pdf",
             [
-                "PROCURACAO",
-                f"Outorgante: FULANO DE TAL, CPF {cpf}, servidor publico,",
-                "nomeia e constitui seu bastante procurador, conferindo",
-                "poderes para propor execucao de sentenca e promover o",
-                "cumprimento do titulo judicial, substabelecer e dar",
-                "quitacao.",
+                "SINDICATO - COMPROVANTE DE CONTRIBUICAO",
+                f"Filiada: FULANA DE TAL (CADASTRO DE EXEMPLO)  CPF {cpf}",
+                "Competencia: 01/2003 a 12/2003",
+                "Contribuicao mensal descontada em folha, sem interrupcao no",
+                "periodo acima, conforme registros da secretaria.",
             ],
         ),
         (
-            "identidade.pdf",
+            "contribuicao-2.pdf",
             [
-                "REGISTRO GERAL",
-                f"Nome: FULANO DE TAL   CPF: {cpf}",
-                "Filiacao: BELTRANO DE TAL e CICRANA DE TAL",
-                "Data de nascimento: 10/03/1968   Naturalidade: Goiania GO",
-                "Orgao expedidor: SSP GO",
-            ],
-        ),
-        (
-            "comprovante_residencia.pdf",
-            [
-                "FATURA DE ENERGIA ELETRICA",
-                f"Titular: FULANO DE TAL   CPF {cpf}",
-                "Endereco: Rua das Acacias, 100, Setor Central",
-                "Municipio: Goiania   UF: GO   CEP 74000-000",
-                "Referencia: setembro de 2026",
+                "SINDICATO - COMPROVANTE DE CONTRIBUICAO",
+                f"Filiada: FULANA DE TAL (CADASTRO DE EXEMPLO)  CPF {cpf}",
+                "Competencia: 01/2004 a 12/2004",
+                "Contribuicao mensal descontada em folha, sem interrupcao no",
+                "periodo acima, conforme registros da secretaria.",
             ],
         ),
     ]
-    if com_processo:
-        base += [
-            (
-                "sentenca.pdf",
-                [
-                    "SENTENCA",
-                    f"Processo {PROCESSO}",
-                    f"Autor: FULANO DE TAL, CPF {cpf}",
-                    "Reu: UNIAO FEDERAL",
-                    "Julgo procedente o pedido e condeno a re ao pagamento",
-                    "das diferencas remuneratorias apuradas em liquidacao.",
-                ],
-            ),
-            (
-                "certidao_transito.pdf",
-                [
-                    "CERTIDAO DE TRANSITO EM JULGADO",
-                    f"Certifico que a sentenca proferida no processo {PROCESSO}",
-                    f"em que figura FULANO DE TAL, CPF {cpf}, transitou em",
-                    "julgado, nada havendo de recurso pendente de julgamento.",
-                ],
-            ),
-        ]
+    if com_judicial:
+        base.append((
+            "sentenca.pdf",
+            [
+                "PODER JUDICIARIO - JUSTICA FEDERAL",
+                "PROCESSO: 0010391-24.2006.4.01.3400",
+                f"AUTORA: FULANA DE TAL (CADASTRO DE EXEMPLO)  CPF {cpf}",
+                "Ante o exposto, JULGO PROCEDENTE o pedido para condenar a",
+                "Uniao ao pagamento das diferencas devidas.",
+            ],
+        ))
     return [
         ("arquivos", (nome, pdf_com_texto(linhas), "application/pdf"))
         for nome, linhas in base
@@ -189,36 +171,31 @@ def pacote(cpf: str = CPF, com_processo: bool = True) -> list[tuple]:
 
 
 def linha(cpf: str = CPF, **trocas) -> dict:
+    """A conta do filiado, no contrato do Produto B.
+
+    Sem procuração, sem endereço, sem matrícula: o B responde uma pergunta,
+    não distribui processo. O que ele precisa é cargo (define a categoria) e
+    filiação (define o período) — e é o cruzamento dos dois que diz de quais
+    ações a pessoa faz parte.
+    """
     base = {
-        "id_externo": "".join(c for c in cpf if c.isdigit()),
         "cpf": cpf,
-        "nome_completo": "Fulano de Tal",
-        "matricula": "123456",
-        "rg": "1234567",
-        # Obrigatória desde 27/10/2026: é dela que sai a prioridade de
-        # tramitação. 68 anos na data de referência.
-        "data_nascimento": "1958-06-27",
-        "email": "fulano@exemplo.org",
+        "nome_completo": "FULANA DE TAL (CADASTRO DE EXEMPLO)",
+        "email": "fulana@exemplo.org",
         "telefone": "(62) 99999-0000",
-        "cep": "74000-000",
-        "logradouro": "Rua das Acacias",
-        "numero": "100",
-        "complemento": "",
-        "bairro": "Setor Central",
-        "municipio": "Goiania",
-        "uf": "GO",
-        "cargo": "Auditor Fiscal",
+        "cargo": "Auditor-Fiscal da Receita Federal do Brasil",
         "situacao": "aposentado",
-        "unidade": "Delegacia da Receita Federal",
+        "unidade": "Delegacia da Receita Federal em Goiania",
+        "data_nascimento": "1958-06-27",
         "data_ingresso": "1992-04-01",
         "data_aposentadoria": "2018-06-30",
-        "tem_processo": "sim",
-        "numero_processo": PROCESSO,
-        "observacao_processo": "",
-        "ja_tem_execucao": "nao",
-        "ja_recebeu_acordo": "nao",
-        "outro_advogado": "nao",
-        "ciencia_e_iniciativa": "sim",
+        "filiado_desde": "1992-05",
+        # Vazio é resposta: ainda filiada.
+        "filiado_ate": "",
+        "tem_processo": "nao_sei",
+        "numeros_de_processo": "",
+        "ja_executou": "nao",
+        "tem_acao_propria": "nao",
     }
     base.update(trocas)
     return base
@@ -449,14 +426,14 @@ def teste_arquivos_recusados():
 
     token = c.token()
     nao_pdf = [
-        ("arquivos", ("procuracao.pdf", b"GIF89a\x00\x00", "application/pdf"))
+        ("arquivos", ("contribuicao-1.pdf", b"GIF89a\x00\x00", "application/pdf"))
     ]
     r = c.enviar(token, linha(), nao_pdf)
     checa(r.status_code == 422, "arquivo que não é PDF devia dar 422")
 
     token = c.token()
     so_imagem = [
-        ("arquivos", ("procuracao.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf"))
+        ("arquivos", ("contribuicao-1.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf"))
     ]
     r = c.enviar(token, linha(), so_imagem)
     checa(
@@ -464,13 +441,33 @@ def teste_arquivos_recusados():
         "PDF sem camada de texto devia ser recusado AQUI, não no escritório",
     )
 
+    # INVERTIDO EM RELAÇÃO AO PRODUTO A, e de propósito: lá, declarar
+    # "tenho processo" passava a EXIGIR sentença e certidão. No Produto B
+    # não exige — a pessoa pode saber o número e não ter os papéis em mãos, e
+    # bloquear por isso a deixaria sem resposta nenhuma, justamente ela, que
+    # é quem mais precisa.
     token = c.token()
-    r = c.enviar(token, linha(), pacote(com_processo=False))
+    r = c.enviar(token, linha(tem_processo="sim",
+                              numeros_de_processo=PROCESSO), pacote())
     checa(
-        r.status_code == 422,
-        "quem declarou ter processo tem que mandar sentença e trânsito",
+        r.status_code == 200,
+        f"declarar processo passou a exigir documento: "
+        f"{r.status_code} {r.text[:200]}",
     )
-    print("  ok     nome fora do contrato, não-PDF, só-imagem e pacote incompleto")
+
+    # Mas o obrigatório continua obrigatório: sem comprovante de
+    # contribuição não há como saber o período de filiação, e sem ele não há
+    # resposta nenhuma.
+    token = c.token()
+    sem_contribuicao = [
+        ("arquivos", ("sentenca.pdf", pdf_com_texto(["SENTENCA", "x" * 200]),
+                      "application/pdf"))
+    ]
+    r = c.enviar(token, linha(), sem_contribuicao)
+    checa(r.status_code == 422,
+          "sem comprovante de contribuição o cadastro devia reprovar")
+    print("  ok     nome fora do contrato, não-PDF, só-imagem; contribuição "
+          "obrigatória e judicial opcional")
 
 
 def teste_linha_recusada():
@@ -726,16 +723,16 @@ def _numero_estadual(sequencial: str = "0007654", tribunal: str = "07",
 
 def teste_acompanhar_aceita_qualquer_tribunal_e_nao_repete():
     secao("acompanhamento: N processos, 65 tribunais")
-    from servidor import validacao
+    from nucleo import cadastro as conta
 
     estadual = _numero_estadual()
-    base = linha(acompanhar=f"{PROCESSO};{estadual};{PROCESSO}")
-    problemas = validacao.conferir_linha(base)
+    base = linha(numeros_de_processo=f"{PROCESSO};{estadual};{PROCESSO}")
+    problemas = conta.conferir(base)
     checa(problemas == [],
           f"recusou lista legítima de acompanhamento: {problemas}")
 
-    limpa = validacao.normalizar_linha(base)
-    partes = [p for p in limpa["acompanhar"].split(";") if p]
+    limpa = conta.normalizar(base)
+    partes = [p for p in limpa["numeros_de_processo"].split(";") if p]
     checa(len(partes) == 2,
           f"não removeu o número repetido: {partes}")
     checa(all(p.isdigit() and len(p) == 20 for p in partes),
@@ -747,11 +744,11 @@ def teste_acompanhar_aceita_qualquer_tribunal_e_nao_repete():
 
 
 def teste_acompanhar_recusa_numero_que_nao_fecha():
-    from servidor import validacao
+    from nucleo import cadastro as conta
 
     dv = int(PROCESSO.split("-")[1][:2])
     torto = PROCESSO.replace(f"-{dv:02d}.", f"-{(dv + 1) % 100:02d}.", 1)
-    problemas = validacao.conferir_linha(linha(acompanhar=torto))
+    problemas = conta.conferir(linha(numeros_de_processo=torto))
     checa(problemas != [],
           f"aceitou número de acompanhamento com dígito errado ({torto})")
     print("  ok     dígito errado no acompanhamento reprova")
@@ -761,11 +758,11 @@ def teste_acompanhar_tem_teto():
     """Teto porque o campo é livre e vem de fora: 200 números numa linha é
     erro de quem digitou ou abuso de quem testou, e nos dois casos a coleta
     seguinte faria 200 consultas de 30 s por causa de uma linha."""
-    from servidor import validacao
+    from nucleo import cadastro as conta
 
-    maximo = validacao.CONTRATO["acompanhamento"]["maximo"]
+    maximo = conta.MAXIMO_DE_PROCESSOS
     demais = ";".join([PROCESSO] * (maximo + 1))
-    checa(validacao.conferir_linha(linha(acompanhar=demais)) != [],
+    checa(conta.conferir(linha(numeros_de_processo=demais)) != [],
           f"aceitou mais de {maximo} números de acompanhamento")
     print(f"  ok     acompanhamento tem teto de {maximo} números")
 
@@ -781,24 +778,24 @@ def teste_numero_do_processo_continua_exigindo_trf1():
     Quem quer apenas ACOMPANHAR processo de outro tribunal usa `acompanhar`,
     que aceita os 65. São campos diferentes porque são perguntas diferentes.
     """
-    from servidor import validacao
+    from nucleo import cadastro as conta
 
-    checa(validacao.conferir_linha(linha(numero_processo=PROCESSO_OUTRO_TRIBUNAL)) != [],
+    checa(conta.conferir(linha(numero_processo=PROCESSO_OUTRO_TRIBUNAL)) != [],
           "numero_processo deixou de exigir TRF1 — a execução iria para a "
           "vara errada")
-    checa(validacao.conferir_linha(linha(acompanhar=PROCESSO_OUTRO_TRIBUNAL)) == [],
+    checa(conta.conferir(linha(numeros_de_processo=PROCESSO_OUTRO_TRIBUNAL)) == [],
           "acompanhar devia aceitar outro tribunal")
     print("  ok     numero_processo exige TRF1; acompanhar aceita qualquer um")
 
 
 def teste_quer_aviso_so_aceita_sim_ou_vazio():
-    from servidor import validacao
+    from nucleo import cadastro as conta
 
-    checa(validacao.conferir_linha(linha(quer_aviso="sim")) == [],
+    checa(conta.conferir(linha(quer_aviso="sim")) == [],
           "recusou o opt-in marcado")
-    checa(validacao.conferir_linha(linha(quer_aviso="")) == [],
+    checa(conta.conferir(linha(quer_aviso="")) == [],
           "recusou o opt-in não marcado")
-    checa(validacao.conferir_linha(linha(quer_aviso="talvez")) != [],
+    checa(conta.conferir(linha(quer_aviso="talvez")) != [],
           "aceitou valor que não é sim nem vazio")
     print("  ok     opt-in de aviso aceita só sim ou vazio")
 
@@ -830,8 +827,8 @@ def teste_filiado_so_ve_os_processos_dele():
     c = Cenario()
     c.escrever_rol("demo-teste", [(CPF, "fulano@exemplo.org"),
                                   (OUTRO_CPF, "outro@exemplo.org")])
-    c.cadastrar(CPF, acompanhar=PROCESSO)
-    c.cadastrar(OUTRO_CPF, acompanhar=PROCESSO_OUTRO_TRIBUNAL)
+    c.cadastrar(CPF, numeros_de_processo=PROCESSO)
+    c.cadastrar(OUTRO_CPF, numeros_de_processo=PROCESSO_OUTRO_TRIBUNAL)
 
     r = c.cliente.get("/api/meus-processos",
                       headers={"Authorization": f"Bearer {c.token(CPF)}"})
@@ -849,7 +846,7 @@ def teste_consulta_nao_aceita_cpf_por_parametro():
     c = Cenario()
     c.escrever_rol("demo-teste", [(CPF, "fulano@exemplo.org"),
                                   (OUTRO_CPF, "outro@exemplo.org")])
-    c.cadastrar(OUTRO_CPF, acompanhar=PROCESSO_OUTRO_TRIBUNAL)
+    c.cadastrar(OUTRO_CPF, numeros_de_processo=PROCESSO_OUTRO_TRIBUNAL)
     r = c.cliente.get(f"/api/meus-processos?cpf={OUTRO_CPF}",
                       headers={"Authorization": f"Bearer {c.token(CPF)}"})
     checa(r.status_code == 200, f"não respondeu: {r.status_code}")
@@ -890,7 +887,7 @@ def teste_completude_exige_token_de_gestor():
 def teste_gestor_ve_o_retrato_da_propria_entidade():
     c = Cenario()
     c.escrever_gestores("demo-teste", [(OUTRO_CPF, "gestor@exemplo.org")])
-    c.cadastrar(CPF, acompanhar=PROCESSO, quer_aviso="sim")
+    c.cadastrar(CPF, numeros_de_processo=PROCESSO, quer_aviso="sim")
 
     r = c.cliente.get("/api/entidade/demo-teste/completude",
                       headers={"Authorization": f"Bearer {c.token(OUTRO_CPF)}"})
@@ -1124,9 +1121,9 @@ def teste_acompanhar_aceita_20_numeros_formatados():
     parava perto de 16, e a mensagem culpava o tamanho em caracteres em vez
     da causa.
     """
-    from servidor import validacao
+    from nucleo import cadastro as conta
 
-    maximo = validacao.ACOMPANHAMENTO["maximo"]
+    maximo = conta.MAXIMO_DE_PROCESSOS
     formatados = ";".join(
         processo_cnj.normalizar(numero("%07d" % (1000 + i), "01", "3400"))
         for i in range(maximo)
@@ -1136,7 +1133,7 @@ def teste_acompanhar_aceita_20_numeros_formatados():
         processo_cnj.decompor(processo_cnj.so_digitos(n)).formatado
         for n in formatados.split(";")
     )
-    problemas = validacao.conferir_linha(linha(acompanhar=bonitos))
+    problemas = conta.conferir(linha(numeros_de_processo=bonitos))
     checa(problemas == [],
           f"{maximo} números formatados foram recusados: {problemas}")
     print(f"  ok     {maximo} números formatados cabem no campo")

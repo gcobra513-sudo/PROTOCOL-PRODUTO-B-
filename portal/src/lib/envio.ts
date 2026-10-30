@@ -18,8 +18,8 @@
  * transformar um diagnóstico preciso — "falta o arquivo sentenca.pdf" — em
  * suporte por telefone.
  */
-import { CONTRATO, type DocumentoEnviado, type Rascunho } from "./tipos";
-import { linhaDoManifesto } from "./exportar";
+import type { DocumentoEnviado, Rascunho } from "./tipos";
+import { linhaDoCadastro, nomearDocumentos } from "./exportar";
 
 const BASE: string = (import.meta.env.VITE_API ?? "").replace(/\/+$/, "");
 
@@ -142,25 +142,27 @@ export interface Recibo {
 export async function enviarCadastro(
   token: string,
   rascunho: Rascunho,
-  arquivos: Map<string, File>,
+  arquivos: Map<number, File>,
 ): Promise<Recibo> {
   const corpo = new FormData();
   corpo.append("token", token);
-  corpo.append("linha", JSON.stringify(linhaDoManifesto(rascunho)));
+  corpo.append("linha", JSON.stringify(linhaDoCadastro(rascunho)));
 
-  for (const doc of rascunho.documentos) {
-    const arquivo = arquivos.get(doc.tipo);
+  // O nome vem do contrato e leva índice quando o tipo aceita vários — três
+  // anos de contracheque são três arquivos do mesmo tipo, e mandar os três
+  // como "contribuicao.pdf" faria o último apagar os outros no servidor.
+  const nomes = nomearDocumentos(rascunho);
+  rascunho.documentos.forEach((doc, posicao) => {
+    const arquivo = arquivos.get(doc.chave);
     if (!arquivo) {
       throw new ErroDoServidor(
-        `O arquivo de ${doc.tipo} não está mais na memória do navegador. ` +
-          `Anexe de novo antes de enviar.`,
+        `O arquivo "${doc.nomeOriginal}" não está mais na memória do ` +
+          `navegador. Anexe de novo antes de enviar.`,
         0,
       );
     }
-    const nomeNoContrato =
-      (CONTRATO.arquivos as Record<string, string>)[doc.tipo] ?? doc.nomeFinal;
-    corpo.append("arquivos", arquivo, nomeNoContrato);
-  }
+    corpo.append("arquivos", arquivo, nomes.get(posicao) ?? doc.nomeOriginal);
+  });
 
   let resposta: Response;
   try {

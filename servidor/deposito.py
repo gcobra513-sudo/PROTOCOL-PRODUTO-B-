@@ -49,6 +49,8 @@ import secrets
 import shutil
 from dataclasses import dataclass
 
+from nucleo import cadastro as conta
+
 from . import validacao
 from .entidades import Entidade
 
@@ -143,20 +145,23 @@ def _csv_do_diario(registros: list[dict]) -> str:
         linha = reg.get("linha")
         if not isinstance(linha, dict):
             continue
-        cpf = linha.get("id_externo") or ""
+        # `cpf` e não `id_externo`: o contrato do Produto B identifica a
+        # pessoa pelo próprio CPF, já normalizado em dígitos. `id_externo`
+        # era do manifesto do Produto A.
+        cpf = validacao.so_digitos(linha.get("cpf") or "")
         if cpf:
             por_cpf[cpf] = linha
     buffer = io.StringIO(newline="")
     # \r\n porque esta planilha é aberta por gente, no Excel em português.
     escritor = csv.DictWriter(
         buffer,
-        fieldnames=list(validacao.COLUNAS),
+        fieldnames=list(conta.CAMPOS),
         extrasaction="ignore",
         lineterminator="\r\n",
     )
     escritor.writeheader()
     for cpf in sorted(por_cpf):
-        escritor.writerow({c: por_cpf[cpf].get(c, "") for c in validacao.COLUNAS})
+        escritor.writerow({c: por_cpf[cpf].get(c, "") for c in conta.CAMPOS})
     return buffer.getvalue()
 
 
@@ -270,6 +275,7 @@ def ja_cadastrado(
     ultimo = ""
     for reg in ler_diario(entidade.pasta(raiz)):
         linha = reg.get("linha")
-        if isinstance(linha, dict) and linha.get("id_externo") == digitos:
+        if (isinstance(linha, dict)
+                and validacao.so_digitos(linha.get("cpf") or "") == digitos):
             ultimo = str(reg.get("protocolo", ""))
     return ultimo

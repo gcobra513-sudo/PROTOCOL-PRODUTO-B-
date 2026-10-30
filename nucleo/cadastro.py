@@ -42,6 +42,7 @@ DOCUMENTOS: dict[str, dict] = CONTRATO["documentos"]
 VALORES: dict[str, list[str]] = CONTRATO["valores"]
 TETOS: dict[str, int] = CONTRATO["tetos"]
 TETO_PADRAO: int = CONTRATO["teto_padrao"]
+MAXIMO_DE_PROCESSOS: int = CONTRATO["maximo_de_processos"]
 
 EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]+$")
 #: AAAA-MM. Mês fora de 01..12 não casa, de propósito: "1992-13" é erro de
@@ -146,6 +147,13 @@ def conferir(linha: object, hoje: dt.date | None = None) -> list[str]:
             "situacao tem que ser " + " / ".join(VALORES["situacao"])
         )
 
+    if valores["quer_aviso"] not in VALORES["quer_aviso"]:
+        problemas.append(
+            "quer_aviso tem que ser " + " / ".join(
+                repr(v) for v in VALORES["quer_aviso"]
+            )
+        )
+
     for campo in ("tem_processo", "ja_executou", "tem_acao_propria"):
         if valores[campo] and valores[campo] not in VALORES["resposta"]:
             problemas.append(
@@ -178,7 +186,14 @@ def conferir(linha: object, hoje: dt.date | None = None) -> list[str]:
     # ---- os números de processo, de qualquer tribunal ----
     # Acompanhar não é protocolar: a sentença de alguém pode ser de tribunal
     # estadual, e recusá-la seria pôr a nossa suposição acima do fato dela.
-    for numero in numeros_de_processo(valores["numeros_de_processo"]):
+    numeros = numeros_de_processo(valores["numeros_de_processo"])
+    if len(numeros) > MAXIMO_DE_PROCESSOS:
+        problemas.append(
+            f"numeros_de_processo tem {len(numeros)} números e o máximo é "
+            f"{MAXIMO_DE_PROCESSOS}"
+        )
+        numeros = []
+    for numero in numeros:
         problemas += [
             f"número de processo: {p}"
             for p in processo_cnj.conferir(numero, exigir_trf1=False)

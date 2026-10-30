@@ -30,6 +30,7 @@ import sys
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
+from nucleo import cadastro as conta
 from servidor import acompanhamento, deposito, entidades, validacao  # noqa: E402
 
 ARQUIVO = "movimentos.jsonl"
@@ -46,12 +47,12 @@ def numeros_do_diario(registros: list[dict]) -> list[str]:
         linha = registro.get("linha")
         if not isinstance(linha, dict):
             continue
-        cpf = validacao.so_digitos(linha.get("id_externo") or "")
+        cpf = conta.so_digitos(linha.get("cpf") or "")
         if cpf:
-            por_cpf[cpf] = linha.get("acompanhar", "")
+            por_cpf[cpf] = linha.get("numeros_de_processo", "")
     numeros: list[str] = []
     for bruto in por_cpf.values():
-        for numero in validacao.numeros_de_acompanhamento(bruto):
+        for numero in conta.numeros_de_processo(bruto):
             if numero not in numeros:
                 numeros.append(numero)
     return numeros

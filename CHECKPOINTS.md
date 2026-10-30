@@ -17,7 +17,8 @@
 | 4 | Cadastro certo: o que o B pede, não o que o A pedia | **pronto** | `6fd78d6` |
 | 5 | Ação coletiva como entidade: categoria + período | **pronto** | `6fd78d6` |
 | 6 | Cruzamento: de quais ações a pessoa participa | **pronto** | `adc96a2` |
-| 7 | **Portal do filiado: pedir o certo e mostrar a resposta** | **agora** | — |
+| 7 | Portal do filiado pedindo o que o B pede | **pronto** | `76ad635` |
+| 7b | **Mostrar ao filiado de quais ações ele participa** | **agora** | — |
 | 8 | Painel do sindicato sobre o novo cadastro | a fazer | — |
 | 9 | Banco ligado à aplicação (hoje lê de arquivo) | a fazer | — |
 | 10 | Migração para região brasileira | a fazer | — |
@@ -64,3 +65,6 @@ faz o que diz". O que não existe não tem teste, e está na tabela acima.
   período.
 - **6** — Cruzar filiação com período responde "de quais ações eu faço
   parte". Filiação parcial é participação parcial.
+- **7** — O portal pedia procuração, identidade e endereço (do A). Agora pede
+  contribuição, carreira e filiação. Seis etapas em vez de sete, e a da
+  filiação explica por que pergunta.

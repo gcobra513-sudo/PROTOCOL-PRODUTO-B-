@@ -45,18 +45,24 @@ export function carregar(): Rascunho | null {
     const bruto = localStorage.getItem(CHAVE);
     if (!bruto) return null;
     const lido = JSON.parse(bruto) as Partial<Rascunho>;
-    if (lido.versao !== 1) return null;   // formato antigo: começa limpo
+    // Versão diferente começa limpo. A 1 era o cadastro do Produto A, com
+    // procuração e endereço: ler aquilo como se fosse uma conta do B
+    // produziria um rascunho meio preenchido com campos que não existem
+    // mais, e a pessoa descobriria no envio.
+    if (lido.versao !== RASCUNHO_VAZIO.versao) return null;
     return {
       ...RASCUNHO_VAZIO,
       ...lido,
-      pessoais: { ...RASCUNHO_VAZIO.pessoais, ...(lido.pessoais ?? {}) },
-      funcional: { ...RASCUNHO_VAZIO.funcional, ...(lido.funcional ?? {}) },
-      processo: { ...RASCUNHO_VAZIO.processo, ...(lido.processo ?? {}) },
-      declaracoes: {
-        ...RASCUNHO_VAZIO.declaracoes,
-        ...(lido.declaracoes ?? {}),
+      identificacao: {
+        ...RASCUNHO_VAZIO.identificacao,
+        ...(lido.identificacao ?? {}),
       },
-      documentos: Array.isArray(lido.documentos) ? lido.documentos : [],
+      carreira: { ...RASCUNHO_VAZIO.carreira, ...(lido.carreira ?? {}) },
+      filiacao: { ...RASCUNHO_VAZIO.filiacao, ...(lido.filiacao ?? {}) },
+      judicial: { ...RASCUNHO_VAZIO.judicial, ...(lido.judicial ?? {}) },
+      // Os BYTES nunca foram salvos — só a ficha. Recarregar a página perde
+      // os anexos de propósito, e a tela diz isso.
+      documentos: [],
     };
   } catch {
     return null;
