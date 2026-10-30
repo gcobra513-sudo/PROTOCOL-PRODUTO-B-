@@ -83,6 +83,10 @@ class Oportunidade:
     referencia: str
     rotulo: str
     veredicto: str
+    #: A categoria a que esta oportunidade pertence. A tela do filiado e o
+    #: painel do sindicato precisam dela para não misturar carreiras quando a
+    #: entidade representa mais de uma.
+    categoria: str = ""
     motivos: tuple[str, ...] = ()
     falta: tuple[str, ...] = ()
     #: A interseção entre a filiação e o período da ação. É dela que o valor
@@ -167,7 +171,7 @@ def _avaliar_executar(
         filiado_ate=fatos.filiado_ate,
         no_rol=fatos.no_rol,
     )
-    faz_parte = part.cruzar(quem, acao)
+    faz_parte = part.cruzar(quem, acao, catalogo)
 
     if faz_parte.estado == part.NAO_PARTICIPA:
         # Resposta, não lacuna: não adianta perguntar o resto.
@@ -175,6 +179,7 @@ def _avaliar_executar(
             trilha=EXECUTAR,
             referencia=acao.id,
             rotulo=f"Executar: {acao.rotulo}",
+            categoria=acao.categoria,
             veredicto=NAO_PODE,
             motivos=faz_parte.motivos,
             fonte=acao.fonte,
@@ -268,6 +273,7 @@ def _avaliar_executar(
         trilha=EXECUTAR,
         referencia=acao.id,
         rotulo=f"Executar: {acao.rotulo}",
+        categoria=acao.categoria,
         veredicto=j.veredicto,
         motivos=tuple(j.motivos),
         falta=tuple(j.falta),
@@ -278,9 +284,49 @@ def _avaliar_executar(
     )
 
 
-def _avaliar_ajuizar(fatos: Fatos, e: ent.Entendimento) -> Oportunidade:
-    """Pode entrar com ação nova, com base neste entendimento?"""
+def _avaliar_ajuizar(
+    fatos: Fatos, e: ent.Entendimento, catalogo: ent.Catalogo
+) -> Oportunidade:
+    """Pode entrar com ação nova, com base neste entendimento?
+
+    A PRIMEIRA PERGUNTA É A CARREIRA, e não era — este era o buraco que a
+    divisão do catálogo por categoria abriu à vista. Enquanto o catálogo
+    tinha uma categoria só, a categoria era implícita e esta função podia
+    ignorá-la. Com dois sindicatos de carreiras diferentes no mesmo catálogo,
+    ignorá-la é oferecer a tese de uma carreira a quem é de outra — e, com os
+    critérios preenchidos, oferecer como PODE.
+
+    A mesma assimetria da trilha EXECUTAR, pelos mesmos dois motivos:
+
+        carreira conhecida e DIFERENTE  ->  NAO_PODE. É resposta.
+        carreira não reconhecida        ->  FALTA. Pode ser a mesma carreira
+                                            escrita de outro jeito.
+    """
     j = _Juizo()
+
+    da_pessoa = catalogo.categoria_do_cargo(fatos.cargo)
+    if da_pessoa is not None and e.categoria and da_pessoa != e.categoria:
+        return Oportunidade(
+            trilha=AJUIZAR,
+            referencia=e.id,
+            rotulo=f"Ajuizar: {e.rotulo}",
+            categoria=e.categoria,
+            veredicto=NAO_PODE,
+            motivos=(
+                f"{e.rotulo} é da categoria {e.categoria!r}, e o cargo "
+                f"informado é de outra carreira ({fatos.cargo})",
+            ),
+            fonte=e.fonte,
+        )
+    if da_pessoa is None:
+        j.falta_saber(
+            "confirmar a carreira desta pessoa",
+            f"o cargo {fatos.cargo!r} não foi reconhecido, e é ele que diz "
+            f"se este entendimento é da carreira dela"
+            if fatos.cargo.strip() else
+            "a pessoa não informou o cargo, e é ele que define a categoria",
+        )
+
     _homologacao(e, j)
 
     if e.pendente:
@@ -320,6 +366,7 @@ def _avaliar_ajuizar(fatos: Fatos, e: ent.Entendimento) -> Oportunidade:
         trilha=AJUIZAR,
         referencia=e.id,
         rotulo=f"Ajuizar: {e.rotulo}",
+        categoria=e.categoria,
         veredicto=j.veredicto,
         motivos=tuple(j.motivos),
         falta=tuple(j.falta),
@@ -346,7 +393,7 @@ def avaliar(fatos: Fatos, catalogo: ent.Catalogo) -> list[Oportunidade]:
 
     for e in catalogo.entendimentos:
         if e.trilha in (AJUIZAR, ent.AMBAS):
-            achadas.append(_avaliar_ajuizar(fatos, e))
+            achadas.append(_avaliar_ajuizar(fatos, e, catalogo))
 
     ordem = {PODE: 0, FALTA: 1, NAO_PODE: 2}
     return sorted(achadas, key=lambda o: (ordem[o.veredicto], o.referencia))

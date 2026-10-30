@@ -44,6 +44,12 @@ class CaminhoForaDaRaiz(RuntimeError):
     """A rede de segurança da regra 2. Só dispara se a regra 1 foi burlada."""
 
 
+#: Slug de categoria: o nome do arquivo em `config/categorias/`, sem `.toml`.
+#: Mesma forma do apelido, e pelo mesmo motivo: nenhum caractere daqui pode
+#: virar caminho.
+SLUG_CATEGORIA = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
+
+
 @dataclass(frozen=True)
 class Entidade:
     apelido: str
@@ -51,6 +57,14 @@ class Entidade:
     ativa: bool
     escritorio: str
     criada_em: str
+    #: As categorias que esta entidade contratou — os slugs dos catálogos de
+    #: `config/categorias/`.
+    #:
+    #: VAZIO É "NENHUMA", NUNCA "TODAS". Um sindicato sem declaração não
+    #: recebe veredicto algum, e é o certo: tratar a ausência como "todas"
+    #: entregaria a ele o catálogo das outras categorias, que é exatamente o
+    #: vazamento entre clientes que o resto do sistema existe para impedir.
+    categorias: tuple[str, ...] = ()
 
     def pasta(self, raiz: pathlib.Path) -> pathlib.Path:
         raiz_abs = raiz.resolve()
@@ -79,12 +93,24 @@ def _normalizar(bruto: dict) -> dict[str, Entidade]:
             )
         if not isinstance(dados, dict) or not str(dados.get("nome", "")).strip():
             raise ValueError(f"entidade {apelido!r} está sem nome")
+        categorias = dados.get("categorias") or []
+        if isinstance(categorias, str):
+            categorias = [categorias]
+        for slug in categorias:
+            if not SLUG_CATEGORIA.match(str(slug)):
+                # Em silêncio, um slug torto deixaria o sindicato sem
+                # catálogo e ninguém saberia por quê.
+                raise ValueError(
+                    f"entidade {apelido!r}: categoria {slug!r} inválida: use "
+                    f"minúsculas, dígitos e hífen"
+                )
         saida[apelido] = Entidade(
             apelido=apelido,
             nome=str(dados["nome"]).strip(),
             ativa=bool(dados.get("ativa", True)),
             escritorio=str(dados.get("escritorio", "")).strip(),
             criada_em=str(dados.get("criada_em", "")).strip(),
+            categorias=tuple(str(s) for s in categorias),
         )
     return saida
 

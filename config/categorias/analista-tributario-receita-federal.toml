@@ -1,0 +1,29 @@
+# =====================================================================
+# CATÁLOGO DE ENTENDIMENTOS — ANALISTA TRIBUTÁRIO DA RECEITA FEDERAL
+#
+# ESTE ARQUIVO NÃO TEM ENTRADA NENHUMA, E ISSO É O CONTEÚDO DELE.
+#
+# Ele existe para que a carreira seja RECONHECIDA como outra. Sem ele, um
+# Analista Tributário que digitasse o cargo sairia como "confirmar a carreira"
+# — porque o sistema não saberia se é a mesma coisa escrita de outro jeito. Com
+# ele, sai como "esta não é a sua carreira", que é resposta.
+#
+# A tabela de grafias abaixo veio de `nucleo/participacao.py`, onde ela já
+# estava pelo mesmo motivo.
+#
+# NADA FOI PESQUISADO PARA ESTA CARREIRA. Nenhuma ação coletiva, nenhum
+# entendimento. Enquanto nenhum sindicato de Analistas Tributários for
+# atendido, é assim que tem de ficar: declarar a existência da carreira não
+# afirma nada sobre o direito de ninguém, e inventar entrada aqui afirmaria.
+# =====================================================================
+
+[catalogo]
+versao = 1
+levantado_em = "2026-10-30"
+categoria = "Analista Tributário da Receita Federal do Brasil"
+cargos = [
+  "analista tributario da receita federal",
+  "analista tributario da receita federal do brasil",
+  "tecnico da receita federal",
+  "atrfb",
+]

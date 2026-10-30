@@ -17,8 +17,9 @@
 | 4 | Cadastro certo: o que o B pede, não o que o A pedia | **pronto** | `6fd78d6` |
 | 5 | Ação coletiva como entidade: categoria + período | **pronto** | `6fd78d6` |
 | 6 | Cruzamento: de quais ações a pessoa participa | **pronto** | `adc96a2` |
-| 7 | Portal do filiado pedindo o que o B pede | **pronto** | `76ad635` |
-| 7b | **Mostrar ao filiado de quais ações ele participa** | **agora** | — |
+| 7 | Portal do filiado pedindo o que o B pede | **pronto** | `73df604` |
+| 7b | Catálogo por categoria: atender vários sindicatos | **pronto** | `9e60e6f` |
+| 7c | **Mostrar ao filiado de quais ações ele participa** | **agora** | — |
 | 8 | Painel do sindicato sobre o novo cadastro | a fazer | — |
 | 9 | Banco ligado à aplicação (hoje lê de arquivo) | a fazer | — |
 | 10 | Migração para região brasileira | a fazer | — |
@@ -35,6 +36,7 @@
 | **T3** | `exige_rol = false` na GIFA porque não tenho os autos. Se houver rol, muda quem participa | conferir nos autos |
 | **T4** | Nenhuma exportação real de sindicato foi vista. A ingestão foi construída contra planilha que eu sujei imitando Excel brasileiro | o sindicato manda um arquivo |
 | **T5** | Retenção e apagamento não têm prazo aprovado | parecer |
+| **T6** | Só duas categorias existem em `config/categorias/`, e uma delas está lá sem entrada nenhuma, só para ser reconhecida como outra carreira. Nenhuma ação de nenhuma outra carreira foi pesquisada | o jurídico diz quais categorias e quais ações, por contrato |
 
 ---
 
@@ -68,3 +70,10 @@ faz o que diz". O que não existe não tem teste, e está na tabela acima.
 - **7** — O portal pedia procuração, identidade e endereço (do A). Agora pede
   contribuição, carreira e filiação. Seis etapas em vez de sete, e a da
   filiação explica por que pergunta.
+- **7b** — Era a tela do filiado; virou o catálogo, porque a tela seria
+  construída contra a hipótese de um cliente só e refeita depois. O catálogo
+  era um arquivo único de uma categoria: com dois sindicatos de carreiras
+  diferentes, a trilha AJUIZAR oferecia a tese de uma carreira a quem era de
+  outra — e, com os critérios preenchidos, oferecia como PODE. Agora é um
+  arquivo por categoria, a entidade declara o que contratou, e a tabela de
+  grafias de cargo saiu do Python. A tela virou 7c.

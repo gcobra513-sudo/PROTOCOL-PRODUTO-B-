@@ -29,10 +29,10 @@ Se algum arquivo contradisser o `MAPA.md`, o mapa vence.
 nucleo/         o veredicto: processo_cnj, entendimentos, motor
 servidor/       a API: portão, cadastro, acervo, completude, acompanhamento
 portal/         o site do filiado (React + Vite + TypeScript)
-config/         entendimentos.toml — o catálogo de teses
+config/         categorias/ — um catálogo de teses POR CATEGORIA
 compartilhado/  o contrato de dados entre o portal e o resto
 ferramentas/    linha de comando: ingerir acervo, coletar movimentação
-tests/          as oito suítes
+tests/          as suítes
 ```
 
 **O que NÃO está aqui é tão importante quanto o que está.** O motor de

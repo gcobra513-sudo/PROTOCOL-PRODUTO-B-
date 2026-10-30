@@ -1,5 +1,11 @@
 # =====================================================================
-# CATÁLOGO DE ENTENDIMENTOS
+# CATÁLOGO DE ENTENDIMENTOS — AUDITOR-FISCAL DA RECEITA FEDERAL DO BRASIL
+#
+# UM ARQUIVO POR CATEGORIA. O nome do arquivo é o slug, e é por ele que a
+# entidade declara o que contratou, em `entidades.json`. Era um arquivo único
+# com a categoria numa linha do topo: funciona para um contrato, e com dois
+# sindicatos de categorias diferentes passa a avaliar o filiado de um contra
+# as ações do outro.
 #
 # O que é: os entendimentos firmados nos tribunais superiores que mudam
 # QUEM PODE FAZER O QUÊ. Não é uma lista de leitura — cada entrada declara
@@ -30,9 +36,36 @@
 # =====================================================================
 
 [catalogo]
-versao = 1
+# A versão sobe quando o CONTEÚDO muda, porque é ela que o veredicto guardado
+# cita: quando o Tema 1.302 for julgado, a reavaliação muda o resultado, e a
+# versão é o que prova de qual catálogo o resultado anterior saiu.
+#
+# 2: o catálogo virou um arquivo por categoria, e a categoria passou a ser
+#    escrita no singular, como a ação GIFA já a escrevia. Antes o topo dizia
+#    "Auditores-Fiscais ..." e a ação dizia "Auditor-Fiscal ...": ninguém
+#    conferia, e nada casava.
+versao = 2
 levantado_em = "2026-10-29"
-categoria = "Auditores-Fiscais da Receita Federal do Brasil"
+categoria = "Auditor-Fiscal da Receita Federal do Brasil"
+
+# COMO ESSA CARREIRA APARECE ESCRITA POR AÍ. Esta tabela morava em
+# `nucleo/participacao.py`, e enquanto morava lá acrescentar uma categoria era
+# mexer no código — que é como uma tabela dessas para de crescer e todo mundo
+# de uma carreira nova vira INDETERMINADO para sempre.
+#
+# Crescer esta lista é trabalho normal de quem opera o produto. Enquanto uma
+# grafia não estiver aqui, o cargo é INDETERMINADO, nunca recusado: recusar
+# por diferença de grafia é tirar direito de alguém por causa de um hífen.
+cargos = [
+  "auditor fiscal da receita federal do brasil",
+  "auditor fiscal da receita federal",
+  "auditora fiscal da receita federal do brasil",
+  "auditora fiscal da receita federal",
+  "auditor fiscal da receita federal do brasil afrfb",
+  "afrfb",
+  "auditor fiscal do tesouro nacional",
+  "fiscal de tributos federais",
+]
 
 
 # ---------------------------------------------------------------------

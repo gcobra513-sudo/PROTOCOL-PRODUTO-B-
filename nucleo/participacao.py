@@ -14,11 +14,17 @@ dois anos. Filiação parcial é participação parcial, e é dessa interseção
 o valor sai depois. Responder só "sim" perderia a informação que mais
 importa para a conta.
 
-**Cargo que não casa é INDETERMINADO, não "não participa".** "Auditor Fiscal"
-e "Auditor-Fiscal da Receita Federal do Brasil" são a mesma pessoa escrita de
-dois jeitos. Dizer "você não participa" por diferença de grafia é tirar
-direito de alguém por causa de um hífen. Só se recusa quando o cargo casa
-com uma categoria DIFERENTE e conhecida.
+**Cargo que não casa é INDETERMINADO, não "não participa".** A mesma
+carreira aparece escrita de vários jeitos, e dizer "você não participa" por
+diferença de grafia é tirar direito de alguém por causa de um hífen. Só se
+recusa quando o cargo casa com uma categoria DIFERENTE e conhecida.
+
+**A tabela de grafias NÃO mora aqui.** Mora no `cargos` de cada arquivo de
+`config/categorias/`, e chega por `catalogo.categoria_do_cargo`. Enquanto ela
+morava neste módulo, acrescentar uma categoria era mexer no código — e é
+assim que a tabela para de crescer. Por isso `cruzar` exige o catálogo: sem
+ele não há como saber quais carreiras existem, e adivinhar seria recusar
+gente por grafia.
 
 **`filiado_ate` vazio conta até hoje.** É resposta, não omissão: a pessoa
 continua filiada. Tratá-lo como desconhecido tiraria da conta justamente
@@ -28,7 +34,6 @@ from __future__ import annotations
 
 import datetime as dt
 import re
-import unicodedata
 from dataclasses import dataclass
 
 from . import entendimentos as ent
@@ -39,33 +44,6 @@ INDETERMINADO = "INDETERMINADO"
 
 #: Ordem de leitura: o que a pessoa tem vem antes do que ela não tem.
 ORDEM = {PARTICIPA: 0, INDETERMINADO: 1, NAO_PARTICIPA: 2}
-
-#: Categorias conhecidas e como elas aparecem escritas por aí. Serve para
-#: dois fins opostos e igualmente importantes: casar a mesma carreira escrita
-#: de jeitos diferentes, e RECONHECER uma carreira diferente — porque só aí
-#: dá para dizer "não participa" com segurança.
-#:
-#: Crescer esta tabela é o trabalho normal de quem opera o produto. Enquanto
-#: um cargo não estiver aqui, ele é INDETERMINADO, nunca recusado.
-CATEGORIAS: dict[str, tuple[str, ...]] = {
-    "auditor-fiscal da receita federal do brasil": (
-        "auditor fiscal da receita federal do brasil",
-        "auditor fiscal da receita federal",
-        "auditora fiscal da receita federal do brasil",
-        "auditora fiscal da receita federal",
-        "auditor fiscal da receita federal do brasil afrfb",
-        "afrfb",
-        "auditor fiscal do tesouro nacional",
-        "fiscal de tributos federais",
-    ),
-    "analista tributario da receita federal do brasil": (
-        "analista tributario da receita federal",
-        "analista tributario da receita federal do brasil",
-        "tecnico da receita federal",
-        "atrfb",
-    ),
-}
-
 
 @dataclass(frozen=True)
 class Filiado:
@@ -108,31 +86,6 @@ class Participacao:
         return (af - ai) * 12 + (mf - mi) + 1
 
 
-def _plano(texto: str) -> str:
-    """Minúsculo, sem acento, sem pontuação, espaços colapsados."""
-    sem = "".join(
-        c for c in unicodedata.normalize("NFD", str(texto or ""))
-        if unicodedata.category(c) != "Mn"
-    )
-    return " ".join(re.sub(r"[^\w\s]", " ", sem).lower().split())
-
-
-def _categoria_de(cargo: str) -> str | None:
-    """A categoria canônica deste cargo, ou None se não for reconhecido.
-
-    None NÃO significa "outra categoria": significa que não sabemos. A
-    diferença é o que impede o sistema de recusar alguém por causa de uma
-    grafia que a tabela ainda não conhece.
-    """
-    plano = _plano(cargo)
-    if not plano:
-        return None
-    for canonica, variacoes in CATEGORIAS.items():
-        if plano == canonica or plano in (_plano(v) for v in variacoes):
-            return canonica
-    return None
-
-
 def _competencia(valor: str) -> tuple[int, int] | None:
     m = re.match(r"^(\d{4})-(0[1-9]|1[0-2])$", str(valor or "").strip())
     return (int(m.group(1)), int(m.group(2))) if m else None
@@ -145,9 +98,16 @@ def _texto(c: tuple[int, int]) -> str:
 def cruzar(
     filiado: Filiado,
     acao: ent.AcaoColetiva,
+    catalogo: ent.Catalogo,
     hoje: dt.date | None = None,
 ) -> Participacao:
-    """Esta pessoa participa desta ação? E, se participa, de que pedaço dela?"""
+    """Esta pessoa participa desta ação? E, se participa, de que pedaço dela?
+
+    O CATÁLOGO É OBRIGATÓRIO, e não tem padrão. É dele que vêm as grafias de
+    cargo: sem ele, nenhum cargo seria reconhecido e todo mundo viraria
+    INDETERMINADO — fail-closed na forma mais inútil possível, a de não
+    responder nada a ninguém.
+    """
     hoje = hoje or dt.date.today()
     motivos: list[str] = []
     falta: list[str] = []
@@ -163,8 +123,11 @@ def cruzar(
                             motivos=tuple(motivos))
 
     # ---- a categoria ----
-    da_acao = _categoria_de(acao.categoria) or _plano(acao.categoria)
-    da_pessoa = _categoria_de(filiado.cargo)
+    # A ação já carrega a categoria canônica do arquivo que a contém, então
+    # a comparação é direta. Normalizar de novo aqui esconderia um arquivo
+    # mal declarado, e a autópsia do catálogo é que tem de pegá-lo.
+    da_acao = acao.categoria
+    da_pessoa = catalogo.categoria_do_cargo(filiado.cargo)
     if da_pessoa is None:
         falta.append("confirmar a carreira desta pessoa")
         motivos.append(
@@ -264,5 +227,5 @@ def participacoes(
     entrou. Lista só com as positivas esconde o trabalho de corrigir
     cadastro, que é metade do produto.
     """
-    achadas = [cruzar(filiado, a, hoje=hoje) for a in catalogo.acoes]
+    achadas = [cruzar(filiado, a, catalogo, hoje=hoje) for a in catalogo.acoes]
     return sorted(achadas, key=lambda p: (ORDEM[p.estado], p.acao))

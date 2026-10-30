@@ -200,8 +200,8 @@ def teste_do_pdf_ao_veredicto_sem_ninguem_digitar():
     checa(fatos.tem_titulo is True,
           "sentença procedente + trânsito em julgado deviam dar tem_titulo=True")
 
-    catalogo = entendimentos.carregar(
-        RAIZ / "config" / "entendimentos.toml"
+    catalogo = entendimentos.carregar_categorias(
+        RAIZ / "config" / "categorias"
     ).homologando(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
     podem = [o for o in motor.avaliar(fatos, catalogo)
              if o.trilha == motor.EXECUTAR and o.veredicto == motor.PODE]
@@ -226,8 +226,8 @@ def teste_sentenca_improcedente_nao_vira_titulo():
     checa(fatos.tem_titulo is False,
           f"sentença IMPROCEDENTE virou título: tem_titulo={fatos.tem_titulo}")
 
-    catalogo = entendimentos.carregar(
-        RAIZ / "config" / "entendimentos.toml"
+    catalogo = entendimentos.carregar_categorias(
+        RAIZ / "config" / "categorias"
     ).homologando(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
     executar = [o for o in motor.avaliar(fatos, catalogo)
                 if o.trilha == motor.EXECUTAR]

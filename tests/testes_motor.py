@@ -31,7 +31,7 @@ sys.path.insert(0, str(RAIZ))
 
 from nucleo import entendimentos, motor  # noqa: E402
 
-CATALOGO = RAIZ / "config" / "entendimentos.toml"
+CATEGORIAS = RAIZ / "config" / "categorias"
 
 falhas: list[str] = []
 TESTES: list = []
@@ -53,7 +53,7 @@ def catalogo(homologar: tuple[str, ...] = ()) -> entendimentos.Catalogo:
     tem de continuar com `homologado = "N"` em tudo, porque homologar é ato
     de advogado e não de programador.
     """
-    return entendimentos.carregar(CATALOGO).homologando(homologar)
+    return entendimentos.carregar_categorias(CATEGORIAS).homologando(homologar)
 
 
 def fatos(**trocas) -> motor.Fatos:
@@ -147,7 +147,7 @@ def teste_fora_do_rol_com_tema_pendente_e_falta_nao_permissao():
 
 def teste_entendimento_nao_homologado_nao_produz_veredicto():
     """`homologado = "N"` é a trava: o motor prepara, quem assina é gente."""
-    cat = entendimentos.carregar(CATALOGO)      # nada homologado
+    cat = entendimentos.carregar_categorias(CATEGORIAS)      # nada homologado
     achadas = motor.avaliar(fatos(tem_titulo=True, no_rol=True), cat)
     checa(all(o.veredicto != motor.PODE for o in achadas),
           f"entendimento não homologado produziu permissão: "
@@ -229,7 +229,7 @@ def teste_acao_coletiva_declara_quem_ela_cobre():
     ela alcança quando não sabemos.
     """
     secao("a ação coletiva")
-    cat = entendimentos.carregar(CATALOGO)
+    cat = entendimentos.carregar_categorias(CATEGORIAS)
     gifa = cat.de("GIFA-2006")
     checa(gifa.categoria.strip() != "",
           "a ação não declara qual categoria ela cobre")
@@ -266,7 +266,7 @@ def teste_acao_sem_periodo_nao_homologa():
 def teste_acao_diz_se_exige_rol():
     """Exigir rol muda tudo: com rol, quem não está nele depende do Tema
     1.302, que está pendente. Sem rol, a coisa julgada alcança a categoria."""
-    gifa = entendimentos.carregar(CATALOGO).de("GIFA-2006")
+    gifa = entendimentos.carregar_categorias(CATEGORIAS).de("GIFA-2006")
     checa(isinstance(gifa.exige_rol, bool),
           f"exige_rol devia ser booleano, é {type(gifa.exige_rol).__name__}")
     print(f"  ok     exige_rol declarado: {gifa.exige_rol}")

@@ -86,7 +86,13 @@ expectativa de dinheiro em gente aposentada. Esse erro não se conserta.
 
 ## As regras que o motor usa
 
-Em `config/entendimentos.toml`, levantadas em 29/10/2026, com fonte:
+Em `config/categorias/`, **um arquivo por categoria**: a ação coletiva e a
+tese alcançam uma carreira, e um catálogo único só atende um cliente. O
+sindicato declara em `entidades.json` quais categorias contratou, e é só
+delas que o filiado dele recebe veredicto. Como entra uma categoria nova está
+em `config/categorias/LEIA.md`.
+
+As da carreira de Auditor-Fiscal, levantadas em 29/10/2026, com fonte:
 
 | Tema | O que decide | Situação |
 |---|---|---|
