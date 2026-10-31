@@ -150,6 +150,12 @@ class AcaoColetiva:
     #: STJ Tema 1.302, que está pendente com suspensão nacional. Sem rol, a
     #: coisa julgada alcança a categoria.
     exige_rol: bool = False
+    #: AAAA-MM do ajuizamento DA COLETIVA. É a data que interrompe a
+    #: prescrição para quem executa — e não é a da execução individual.
+    #: Confundir as duas muda o resultado em anos, e por isso ela é declarada
+    #: nos autos, nunca inferida do número do processo: o ano do número é o
+    #: da autuação, que pode não ser o do ajuizamento.
+    ajuizada_em: str = ""
     juizo: str = ""
 
     fonte: str = ""
@@ -466,6 +472,7 @@ def carregar(caminho: Path | str) -> Catalogo:
             periodo_inicio=str(bruto.get("periodo_inicio", "")),
             periodo_fim=str(bruto.get("periodo_fim", "")),
             exige_rol=bool(bruto.get("exige_rol", False)),
+            ajuizada_em=str(bruto.get("ajuizada_em", "")),
             juizo=str(bruto.get("juizo", "")),
             fonte=str(bruto.get("fonte", "")),
             observacoes=str(bruto.get("observacoes", "")),

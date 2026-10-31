@@ -27,6 +27,7 @@ SUITES = [
     "tests/testes_participacao.py",
     "tests/testes_pendencia.py",
     "tests/testes_panorama.py",
+    "tests/testes_valor.py",
     "tests/testes_categorias.py",
     "tests/testes_leitura.py",
     "tests/testes_documentos.py",

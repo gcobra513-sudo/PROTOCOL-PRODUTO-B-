@@ -671,6 +671,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         grupos = pendencia.agrupar(
             [f for p in acoes for f in p.falta]
             + [f for o in oportunidades for f in o.falta]
+            + [f for o in oportunidades for f in o.falta_para_valor]
         )
 
         return {
@@ -704,6 +705,26 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     "falta": [
                         {"quem": f.quem, "o_que": f.o_que} for f in o.falta
                     ],
+                    # SEPARADO de `falta`: uma responde "posso?", a outra
+                    # "quanto?". Juntá-las faria "falta a sua ficha
+                    # financeira" parecer impedimento para executar.
+                    "falta_para_valor": [
+                        {"quem": f.quem, "o_que": f.o_que}
+                        for f in o.falta_para_valor
+                    ],
+                    "valor": (
+                        {
+                            "apurado": str(o.apuracao.total)
+                            if o.apuracao.total is not None else None,
+                            "aviso": o.apuracao.aviso,
+                            "memoria": [
+                                {"o_que": p.o_que, "resultado": p.resultado,
+                                 "fonte": p.fonte}
+                                for p in o.apuracao.memoria
+                            ],
+                        }
+                        if o.apuracao is not None else None
+                    ),
                 }
                 for o in oportunidades
             ],

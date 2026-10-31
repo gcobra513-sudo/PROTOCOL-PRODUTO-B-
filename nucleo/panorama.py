@@ -234,7 +234,13 @@ def montar(
             aptos += 1
         # UMA PESSOA CONTA UMA VEZ POR PENDÊNCIA, por mais ações que a
         # tenham: "287 pessoas esperam o rol" é gente, não ocorrências.
-        dela = {(f.quem, f.o_que) for o in oportunidades for f in o.falta}
+        # AS DUAS LISTAS. `falta` é o que falta para saber SE pode;
+        # `falta_para_valor` é o que falta para saber QUANTO. São perguntas
+        # diferentes — e para o gestor as duas são acionáveis, porque uma só
+        # informação (a data de ajuizamento da coletiva) pode destravar a
+        # conta da base inteira.
+        dela = {(f.quem, f.o_que) for o in oportunidades
+                for f in (*o.falta, *o.falta_para_valor)}
         nome = fatos.nome or cpf
         for chave in dela:
             presos.setdefault(chave, []).append(nome)

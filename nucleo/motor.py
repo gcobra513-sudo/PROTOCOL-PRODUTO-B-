@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 
 from . import entendimentos as ent
 from . import pendencia
+from . import valor as mod_valor
 from . import participacao as part
 
 EXECUTAR = ent.EXECUTAR
@@ -113,8 +114,21 @@ class Oportunidade:
     periodo_inicio: str = ""
     periodo_fim: str = ""
     fonte: str = ""
-    #: Observações que não decidem nada mas o escritório precisa ler.
+    #: Observações que não decidem nada mas quem confere precisa ler.
     notas: tuple[str, ...] = ()
+    #: QUANTO, quando dá para dizer — e, hoje, quase sempre a recusa de
+    #: dizer. Só na trilha EXECUTAR: ajuizar não tem parcela a apurar antes
+    #: de haver decisão.
+    apuracao: "mod_valor.Apuracao | None" = None
+    #: O que falta para saber QUANTO — e isto é SEPARADO de `falta`.
+    #:
+    #: A distinção custou um teste vermelho para aparecer, e é do produto, não
+    #: do código: **"pode executar" não depende de saber quanto**. Pode
+    #: executar é sobre título e legitimidade; o valor se apura depois, no
+    #: próprio processo. Misturar as duas faria ninguém poder executar nada
+    #: até a ficha financeira de cada pessoa estar em mãos — o que é errado
+    #: em juízo e inútil como produto.
+    falta_para_valor: tuple[pendencia.Falta, ...] = ()
 
     def __bool__(self) -> bool:
         return self.veredicto == PODE
@@ -322,7 +336,31 @@ def _avaliar_executar(
             "não é possível afirmar que não há execução em curso para este CPF",
         )
 
-    # 4. LIQUIDAÇÃO. Não decide se pode; decide COMO se faz. Nota, não trava.
+    # 4. QUANTO. A prescrição corta o período ANTES de qualquer soma: somar
+    #    primeiro e cortar depois produziria, no caminho, um total que inclui
+    #    parcela prescrita — e alguém leria esse número.
+    #
+    #    Hoje isto quase sempre RECUSA, e a recusa é o produto: ela nomeia a
+    #    data de ajuizamento da coletiva e a ficha financeira, que são
+    #    exatamente o que falta para o valor existir. Como a recusa vem com
+    #    dono, ela aparece sozinha na tela do filiado e vira gargalo no
+    #    painel do sindicato — e um gargalo que segura a base inteira é a
+    #    informação mais útil que o painel pode dar.
+    periodo = mod_valor.periodo_apuravel(
+        faz_parte.inicio, faz_parte.fim, acao.ajuizada_em
+    )
+    apuracao = mod_valor.apurar(
+        periodo,
+        mod_valor.Verba(id=acao.id, fonte=acao.fonte),
+        bases={},
+    )
+    if periodo.meses_prescritos:
+        j.nota(
+            f"{periodo.meses_prescritos} mês(es) do período de participação "
+            f"já prescreveram e não entram na conta"
+        )
+
+    # 5. LIQUIDAÇÃO. Não decide se pode; decide COMO se faz. Nota, não trava.
     for e in catalogo.por_efeito("dispensa_liquidacao_se_calculo_aritmetico"):
         if e.esta_homologado and not e.pendente:
             j.nota(
@@ -343,6 +381,8 @@ def _avaliar_executar(
         periodo_fim=faz_parte.fim,
         fonte=acao.fonte,
         notas=tuple(j.notas),
+        apuracao=apuracao,
+        falta_para_valor=apuracao.falta,
     )
 
 

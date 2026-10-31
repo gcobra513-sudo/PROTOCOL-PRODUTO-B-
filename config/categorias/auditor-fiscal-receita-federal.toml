@@ -307,6 +307,13 @@ periodo_fim     = "2008-12"
 # substituídos, quem está fora depende do STJ Tema 1.302 — afetado, com
 # suspensão nacional. PREENCHER depois de conferir os autos.
 exige_rol       = false
+
+# QUANDO A COLETIVA FOI AJUIZADA, em AAAA-MM. É a data que interrompe a
+# prescrição para quem executa — e NÃO é a da execução individual. Vazia de
+# propósito: o ano do número CNJ é o da AUTUAÇÃO, que pode não ser o do
+# ajuizamento, e inferir um do outro erraria o corte em meses. Sai dos autos.
+ajuizada_em     = ""
+
 fonte = "https://www.sindifisconacional.org.br/gifa-juridico-orienta-egressos-da-srp-sobre-documentacao/"
 observacoes = """
 CONFERIDO EM 29/10/2026, por requisição real ao DataJud: o número é íntegro
@@ -321,3 +328,32 @@ Pendência registrada: a ADI 7873 questiona emenda relacionada à GIFA e, pelo
 que se apurou, não foi julgada. Não confirmado em fonte primária.
 """
 homologado      = "N"
+
+
+# =====================================================================
+# AS VERBAS — o que a decisão manda pagar, e sobre o quê
+#
+# NENHUM NÚMERO AQUI É CHUTE, porque não há número aqui. `percentual = 0` e
+# `homologado = "N"` são o estado honesto: o percentual sai do DISPOSITIVO
+# da sentença, lido por quem pode lê-lo, e a base de cálculo sai da ficha
+# financeira de cada pessoa — que o produto ainda não recebe.
+#
+# Enquanto for assim, `nucleo/valor.py` RECUSA apurar e diz o que falta. Um
+# valor estimado para gente aposentada é dinheiro prometido a quem já contou
+# com ele, e isso não se conserta com atualização de software.
+# =====================================================================
+
+[[verbas]]
+id            = "GIFA"
+acao          = "GIFA-2006"
+descricao     = "Gratificação de Incremento da Fiscalização e Arrecadação"
+percentual    = 0          # PREENCHER — sai do dispositivo da sentença
+incide_sobre  = "PREENCHER — a sentença diz sobre o quê a verba incide"
+fonte         = "PREENCHER — dispositivo da sentença, com folha"
+homologado    = "N"
+observacoes = """
+A conta final ainda depende de três coisas que não estão aqui e não são
+decisão de software: o ÍNDICE de correção monetária e a partir de quando, os
+JUROS, e a COMPENSAÇÃO do que já foi pago. Sem as três, o número apurado é
+bruto e parcial — e `valor.AVISO` diz isso junto do número, não no rodapé.
+"""
