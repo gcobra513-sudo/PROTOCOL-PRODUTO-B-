@@ -50,6 +50,16 @@ PELO_TEXTO = "cpf_no_texto"
 TETO_TOTAL = 2 * 1024 * 1024 * 1024
 #: Teto por arquivo, igual ao do portal.
 TETO_ARQUIVO = 25 * 1024 * 1024
+#: Teto de ENTRADAS. `infolist()` monta um objeto por entrada antes de
+#: qualquer leitura, então o metadado também custa memória: um zip de poucos
+#: KB pode declarar centenas de milhares de entradas. 20 mil é folga enorme
+#: para um sindicato — a escala nomeada no produto é de 4.812 filiados com
+#: até três documentos cada.
+TETO_ENTRADAS = 20_000
+
+#: De quanto em quanto se descomprime. Pedaço pequeno gasta chamada à toa;
+#: pedaço grande é o próprio problema que estamos resolvendo.
+_PEDACO = 1024 * 1024
 
 #: Pistas de tipo no nome do arquivo. O sindicato costuma nomear, e o nome
 #: dele vale mais que a nossa leitura do conteúdo.
@@ -147,27 +157,102 @@ def _cpf_no_nome(arquivo: str) -> list[str]:
     return vistos
 
 
+def _ler_contando(z, info, teto: int, nome: str) -> bytes:
+    """Descomprime UMA entrada em pedaços, contando os bytes.
+
+    POR QUE NÃO `z.read(info)`, que era o que estava aqui. `z.read` chama
+    `read(-1)`, e esse caminho da biblioteca entra em
+    `while not eof: buf += _read1(MAX_N)` — uma única chamada de
+    descompressão sem limite de saída. Medido num zip cujo índice declarava
+    1.000 bytes e cujo stream expandia 64 MiB: 141 MiB de pico a partir de
+    um arquivo de 64 KiB, e a exceção que aparecia chegava DEPOIS da
+    alocação.
+
+    Lendo com `read(n)` cada descompressão fica limitada a `n`, e a
+    biblioteca ainda trunca o resultado pelo tamanho que o índice declarou.
+    Então, para um zip que mente um tamanho pequeno, a leitura para no
+    declarado e a conferência de CRC reprova — o que é a resposta certa,
+    traduzida aqui para `ZipRecusado`, que é o que esta função promete
+    levantar.
+
+    O contador de bytes não é redundante com isso: ele é a defesa que não
+    depende de a biblioteca truncar, e é o que pega o zip que declara um
+    tamanho grande e crível por arquivo mas estoura o teto TOTAL no meio da
+    leitura.
+    """
+    pedacos: list[bytes] = []
+    lidos = 0
+    try:
+        with z.open(info) as fh:
+            while True:
+                pedaco = fh.read(_PEDACO)
+                if not pedaco:
+                    break
+                lidos += len(pedaco)
+                if lidos > teto:
+                    raise ZipRecusado(
+                        f"{nome!r} já descompactou mais de {teto} bytes e o "
+                        f"índice do zip declarava {info.file_size}. O "
+                        f"tamanho declarado não é confiável; este é o "
+                        f"medido. Mande em partes"
+                    )
+                pedacos.append(pedaco)
+    except zipfile.BadZipFile as e:
+        # INTEGRIDADE REPROVADA, e isto é recusa, não erro nosso. O caso
+        # típico é justamente o índice mentindo o tamanho: a leitura para no
+        # que ele declarou e o CRC não fecha. Deixar `BadZipFile` escapar
+        # quebraria o contrato de quem chama, que trata `ZipRecusado`.
+        raise ZipRecusado(
+            f"{nome!r} não passou na conferência de integridade do zip "
+            f"({e}). O índice declara {info.file_size} bytes; um índice que "
+            f"não corresponde ao conteúdo não é aberto aqui"
+        ) from None
+    return b"".join(pedacos)
+
+
 def abrir_zip(dados: bytes, teto_total: int = TETO_TOTAL,
-              teto_arquivo: int = TETO_ARQUIVO) -> list[tuple[str, bytes]]:
+              teto_arquivo: int = TETO_ARQUIVO,
+              teto_entradas: int = TETO_ENTRADAS
+              ) -> list[tuple[str, bytes]]:
     """Os PDFs de dentro do zip, SEM caminho.
 
-    DUAS DEFESAS, e as duas porque o zip vem de fora:
+    TRÊS DEFESAS, e as três porque o zip vem de fora:
 
     **O caminho nunca vira caminho.** `../../etc/x.pdf` escreve onde quiser —
     é a falha clássica de quem descompacta arquivo alheio. Aqui só o nome
     final é usado, e entrada que sai da pasta é recusada em vez de aparada:
     aparar em silêncio esconderia um arquivo malicioso no meio do lote.
 
-    **O tamanho é conferido ANTES de descompactar**, pelo declarado no
-    índice. Conferir depois já é tarde: a memória já foi.
+    **A descompactação é limitada enquanto acontece, não antes.** Esta
+    função conferia `info.file_size` e o comentário afirmava, em negrito,
+    que conferir antes bastava. A conferência existia; o número é que é
+    escolhido por quem monta o arquivo. E o `z.read` que vinha depois pedia
+    o conteúdo inteiro de uma vez: medido, um zip de 64 KiB declarando 1.000
+    bytes levou o processo a 141 MiB de pico, e a exceção chegava DEPOIS da
+    alocação.
+
+    O declarado continua sendo conferido, porque recusa barata para zip
+    honesto é boa. O que mudou é a leitura: `_ler_contando` lê em pedaços,
+    então nenhuma entrada aloca mais que um pedaço de cada vez, e o teto
+    TOTAL é cobrado durante a leitura, com os bytes medidos.
+
+    **O número de entradas tem teto.** `infolist()` monta um objeto por
+    entrada antes de qualquer leitura.
     """
     try:
         z = zipfile.ZipFile(io.BytesIO(dados))
     except zipfile.BadZipFile as e:
         raise ZipRecusado(f"não é um arquivo .zip legível: {e}") from None
 
+    entradas = z.infolist()
+    if len(entradas) > teto_entradas:
+        raise ZipRecusado(
+            f"o zip declara {len(entradas)} entradas e o teto é "
+            f"{teto_entradas}. Mande em partes"
+        )
+
     total = 0
-    for info in z.infolist():
+    for info in entradas:
         if info.is_dir():
             continue
         nome = info.filename.replace("\\", "/")
@@ -189,7 +274,8 @@ def abrir_zip(dados: bytes, teto_total: int = TETO_TOTAL,
         )
 
     saida: list[tuple[str, bytes]] = []
-    for info in z.infolist():
+    medido = 0
+    for info in entradas:
         if info.is_dir():
             continue
         nome = info.filename.replace("\\", "/").rsplit("/", 1)[-1]
@@ -198,7 +284,13 @@ def abrir_zip(dados: bytes, teto_total: int = TETO_TOTAL,
             continue
         if not nome.lower().endswith(".pdf"):
             continue
-        saida.append((nome, z.read(info)))
+        # O teto desta entrada é o menor entre o teto por arquivo e o que
+        # ainda resta do teto total: senão dez arquivos de 25 MiB passariam
+        # num zip cujo total permitido é 60.
+        resta = teto_total - medido
+        corpo = _ler_contando(z, info, min(teto_arquivo, resta), nome)
+        medido += len(corpo)
+        saida.append((nome, corpo))
     return saida
 
 

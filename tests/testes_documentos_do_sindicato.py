@@ -268,6 +268,88 @@ def teste_zip_com_caminho_para_fora_e_recusado():
         print("  ok     caminho para fora da pasta é recusado")
 
 
+def _zip_mentiroso(tamanho_real: int, declarado: int) -> bytes:
+    """Um zip cujo índice MENTE o tamanho descompactado.
+
+    O campo é só metadado: quem monta o arquivo escolhe o número, e o stream
+    deflate não é obrigado a concordar com ele. Patcheamos os dois lugares
+    onde o tamanho aparece — cabeçalho local e diretório central.
+    """
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("grande.pdf", b"%PDF-1.4\n" + b"\0" * tamanho_real)
+    cru = bytearray(buffer.getvalue())
+
+    mentira = declarado.to_bytes(4, "little")
+    local = cru.find(b"PK\x03\x04")
+    assert local == 0, local
+    cru[local + 22:local + 26] = mentira          # tamanho descompactado
+    central = cru.find(b"PK\x01\x02")
+    assert central > 0, central
+    cru[central + 24:central + 28] = mentira      # idem, no índice
+    return bytes(cru)
+
+
+def teste_o_teto_do_zip_nao_acredita_no_tamanho_declarado():
+    """O TAMANHO DECLARADO NO ÍNDICE É ESCOLHIDO POR QUEM MANDA O ARQUIVO.
+
+    `abrir_zip` conferia `info.file_size` — o tamanho descompactado que o
+    diretório central ANUNCIA — e o comentário da função dizia, em negrito,
+    que o tamanho é conferido antes de descompactar. A conferência existia; o
+    número é que não era confiável. `z.read(info)` descomprime o stream
+    inteiro sem olhar o anunciado.
+
+    Auditoria independente mediu: zip de 408 KB com `file_size` declarado em
+    1000 levou o processo a 816 MiB de pico, sem `ZipRecusado` nenhum. A
+    amplificação é escolhida por quem monta o zip.
+
+    Aqui o payload é menor, para o teste ser rápido — o que importa é a
+    proporção entre o declarado e o real, não o tamanho absoluto.
+    """
+    import tracemalloc
+
+    REAL = 64 * 1024 * 1024     # 64 MiB de zeros, que comprimem a quase nada
+    mentiroso = _zip_mentiroso(REAL, declarado=1000)
+    checa(len(mentiroso) < 256 * 1024,
+          f"o zip de prova devia ser pequeno, tem {len(mentiroso)} bytes")
+
+    tracemalloc.start()
+    try:
+        lote.abrir_zip(mentiroso, teto_total=4 * 1024 * 1024,
+                       teto_arquivo=4 * 1024 * 1024)
+        _, pico = tracemalloc.get_traced_memory()
+        checa(False,
+              f"aceitou o zip que mente o tamanho; pico de "
+              f"{pico / 1024 / 1024:.0f} MiB para um teto de 4 MiB")
+    except lote.ZipRecusado:
+        _, pico = tracemalloc.get_traced_memory()
+        # A RECUSA TEM DE CHEGAR ANTES DA MEMÓRIA. Recusar depois de alocar
+        # 64 MiB é o mesmo estrago com uma mensagem mais bonita.
+        checa(pico < 16 * 1024 * 1024,
+              f"recusou, mas só depois de alocar {pico / 1024 / 1024:.0f} "
+              f"MiB — o teto era 4 MiB")
+        print("  ok     o teto mede o que descomprime, não o que o zip diz")
+    finally:
+        tracemalloc.stop()
+
+
+def teste_zip_com_entradas_demais_e_recusado():
+    """Metadado também custa memória.
+
+    `infolist()` monta um objeto por entrada antes de qualquer leitura, e o
+    número de entradas não tinha teto: um zip de poucos KB pode declarar
+    centenas de milhares delas.
+    """
+    muitas = _zip([(f"a{i}.pdf", b"%PDF-1.4\n") for i in range(40)])
+    try:
+        lote.abrir_zip(muitas, teto_entradas=10)
+        checa(False, "aceitou zip com mais entradas que o teto")
+    except lote.ZipRecusado as e:
+        checa("entrada" in str(e).lower(),
+              f"a mensagem não diz que o problema é a quantidade: {e}")
+        print("  ok     zip com entradas demais é recusado")
+
+
 def teste_zip_que_descompacta_grande_demais_e_recusado():
     """Arquivo pequeno que vira gigabytes derruba o servidor. O tamanho
     DECLARADO é conferido antes de descompactar: conferir depois já é tarde."""
@@ -347,6 +429,8 @@ TESTES = [
     teste_le_o_zip_que_o_sindicato_mandou,
     teste_zip_com_caminho_para_fora_e_recusado,
     teste_zip_que_descompacta_grande_demais_e_recusado,
+    teste_o_teto_do_zip_nao_acredita_no_tamanho_declarado,
+    teste_zip_com_entradas_demais_e_recusado,
     teste_zip_ignora_o_que_nao_e_pdf,
     teste_a_pilha_do_que_nao_casou_e_o_produto,
     teste_varios_documentos_da_mesma_pessoa,
