@@ -439,6 +439,34 @@ def _servidor():
     return TestClient(criar_app(cfg)), ent, raiz
 
 
+def _por_no_rol(raiz, apelido: str, cpfs: list[str]) -> None:
+    """Acrescenta CPFs ao rol da entidade.
+
+    Necessário porque o código de acesso só volta para quem o SINDICATO
+    declarou — e é assim que tem de ser: quem não está no rol não entra.
+    """
+    import csv
+
+    caminho = raiz / apelido / "filiados.csv"
+    with open(caminho, "a", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        for cpf in cpfs:
+            w.writerow([cpf, f"exemplo-{cpf}@exemplo.invalid",
+                        f"PESSOA DE EXEMPLO {cpf} (CADASTRO FICTICIO)"])
+
+
+def _cpf_sintetico(n: int) -> str:
+    """CPF com dígito verificador que fecha, montado a partir de um número.
+
+    Sintético por construção: a base é o índice, não cadastro de ninguém.
+    """
+    base = [int(c) for c in f"{n:09d}"]
+    for peso0 in (10, 11):
+        soma = sum(d * (peso0 - i) for i, d in enumerate(base))
+        base.append((soma * 10 % 11) % 10)
+    return "".join(map(str, base))
+
+
 def _token(cliente, cpf: str) -> str:
     r = cliente.post("/api/acesso/codigo",
                      json={"entidade": "demo-a", "cpf": cpf})
@@ -1274,6 +1302,114 @@ def teste_saude_nao_publica_o_detalhe_a_quem_nao_tem_sessao():
     print("  ok     a saúde não publica CPF, senha, detalhe nem apelido")
 
 
+def teste_um_cadastro_nao_custa_o_diario_inteiro():
+    """O CUSTO DE ATENDER UM ENVIO NÃO PODE CRESCER COM O ACERVO.
+
+    `/api/cadastro` chamava `banco.reconstruir` passando
+    `deposito.ler_diario(...)` — TODOS os registros do diário, não o que
+    acabou de chegar. `reconstruir` é a função de RECUPERAÇÃO: ela existe
+    para refazer a projeção a partir do diário todo, e estava sendo usada
+    como escrita incremental de um envio.
+
+    Auditoria independente mediu 21 comandos SQL por registro já existente,
+    numa transação só, e 13,8 s para um diário de 4.000 registros num
+    Postgres por socket unix. O diário é append-only e nunca é podado, então
+    o pedido do filiado número N custava O(N), e a campanha inteira O(N²).
+    Contra um banco pela rede, a 1,5 ms de ida e volta, o cadastro de número
+    10.000 são mais de cinco minutos de transação aberta.
+
+    Não é só lentidão: `app.py` declara, três linhas acima da chamada, que
+    "ler a base inteira a cada pedido é consulta de minutos para responder
+    uma página". A regra estava escrita no comentário e quebrada na linha
+    seguinte.
+
+    Este teste conta COMANDOS, não segundos: segundo depende de máquina,
+    comando é propriedade do código.
+    """
+    import psycopg
+
+    secao("o custo de um envio")
+
+    def custo_com_diario_de(quantos: int) -> int:
+        """Comandos SQL de UM cadastro, com `quantos` registros já no diário."""
+        cliente, ent, raiz = _servidor()
+        cpfs = [_cpf_sintetico(1000 + i) for i in range(quantos + 1)]
+        _por_no_rol(raiz, ent.apelido, cpfs)
+        for cpf in cpfs[:quantos]:
+            _cadastrar(cliente, cpf)
+
+        original = psycopg.Cursor.execute
+        contador = {"n": 0}
+
+        def espiao(self, *a, **k):
+            contador["n"] += 1
+            return original(self, *a, **k)
+
+        psycopg.Cursor.execute = espiao
+        try:
+            resposta = _cadastrar(cliente, cpfs[quantos])
+        finally:
+            psycopg.Cursor.execute = original
+        checa(resposta.status_code == 200,
+              f"o cadastro falhou: {resposta.status_code} "
+              f"{resposta.text[:200]}")
+        return contador["n"]
+
+    # DOIS TAMANHOS, porque um só não distingue "ficou menor" de "ficou
+    # plano". A medição que pegou o defeito foi 279 comandos com 12
+    # registros no diário — 21 por registro já existente, mais o custo fixo
+    # do envio. Com esse comportamento, a diferença entre os dois tamanhos
+    # abaixo seria de centenas de comandos.
+    poucos, muitos = 4, 20
+    com_poucos = custo_com_diario_de(poucos)
+    com_muitos = custo_com_diario_de(muitos)
+
+    checa(com_muitos <= com_poucos + 5,
+          f"o custo cresce com o acervo: {com_poucos} comandos com "
+          f"{poucos} registros no diário, {com_muitos} com {muitos}")
+    print(f"  ok     {com_poucos} comandos com {poucos} no diário, "
+          f"{com_muitos} com {muitos} — plano")
+
+
+def teste_reconstruir_continua_recuperando_o_diario_inteiro():
+    """A FUNÇÃO DE RECUPERAÇÃO NÃO PODE TER SIDO SACRIFICADA.
+
+    Tirar o diário inteiro da rota é certo; tirá-lo de `reconstruir` seria
+    perder a única maneira de refazer a projeção depois de uma queda do
+    banco. O caminho de recuperação é exercitado aqui porque é o que ninguém
+    roda no dia a dia — e por isso é o que quebra calado.
+    """
+    from servidor import banco, deposito
+
+    cliente, ent, raiz = _servidor()
+    cpfs = [_cpf_sintetico(100 + i) for i in range(3)]
+    _por_no_rol(raiz, ent.apelido, cpfs)
+    for cpf in cpfs:
+        _cadastrar(cliente, cpf)
+
+    # Apaga a projeção e refaz a partir do diário, como numa recuperação.
+    # `sessao`, não `cru`: `cru` faz rollback de propósito — existe para
+    # provar que o RLS está ligado, não para escrever.
+    #
+    # E `recebimento` sai também, o que não é detalhe: o sha256 dele é a
+    # chave de idempotência de `reconstruir`. Deixá-lo faria a recuperação
+    # PULAR tudo como já projetado, e o teste passaria sem exercitar nada.
+    with banco.sessao(URL, ent.apelido) as cur:
+        for tabela in ("pessoa_afirmacao", "documento", "achado",
+                       "pessoa", "vinculo", "recebimento"):
+            cur.execute(f"DELETE FROM {tabela}")
+    base_vazia = banco.base(URL, ent.apelido)
+    checa(base_vazia == [], f"a projeção não foi apagada: {base_vazia}")
+
+    quantos = banco.reconstruir(URL, ent.apelido,
+                                deposito.ler_diario(ent.pasta(raiz)))
+    refeita = banco.base(URL, ent.apelido)
+    checa(len(refeita) == 3,
+          f"a recuperação não refez as 3 pessoas: {len(refeita)} "
+          f"(reconstruir devolveu {quantos})")
+    print("  ok     a recuperação pelo diário inteiro continua funcionando")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1320,6 +1456,8 @@ TESTES = [
     teste_saude_nao_diz_ok_quando_nao_consegue_ler_o_estado,
     teste_a_saude_fica_boa_quando_o_trabalho_roda,
     teste_saude_nao_publica_o_detalhe_a_quem_nao_tem_sessao,
+    teste_um_cadastro_nao_custa_o_diario_inteiro,
+    teste_reconstruir_continua_recuperando_o_diario_inteiro,
     teste_a_leitura_de_dado_nominal_fica_registrada,
     teste_o_registro_de_leitura_nao_guarda_cpf_em_claro,
     teste_a_auditoria_tambem_respeita_a_politica,

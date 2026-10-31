@@ -47,7 +47,7 @@ import os
 import pathlib
 import secrets
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from nucleo import cadastro as conta
 
@@ -72,8 +72,22 @@ class Recibo:
     entidade: str
     arquivos: dict[str, str]
     substituiu: str
+    #: O registro EXATO que foi anexado ao diário, para quem precisa
+    #: projetar só este envio em vez de reler o diário inteiro.
+    #:
+    #: Existe porque a rota de cadastro chamava `banco.reconstruir` com
+    #: `ler_diario(...)` — todos os registros — e `reconstruir` é a função
+    #: de RECUPERAÇÃO. O custo de atender um envio passava a crescer com o
+    #: acervo: medido, 279 comandos SQL com 12 registros no diário.
+    #:
+    #: Com padrão vazio para não quebrar quem constrói `Recibo` à mão, mas
+    #: `depositar` sempre o preenche.
+    registro: dict = field(default_factory=dict)
 
     def para_json(self) -> dict:
+        # `registro` NÃO entra: é o que nós gravamos, não o que a pessoa
+        # pediu de volta, e devolvê-lo faria a resposta repetir a linha
+        # inteira do cadastro sem motivo.
         return {
             "protocolo": self.protocolo,
             "recebido_em": self.recebido_em,
@@ -207,20 +221,16 @@ def depositar(
 
     with _travada(pasta):
         # 1. o diário primeiro. Ver o cabeçalho do módulo para o porquê.
+        registro = {
+            "protocolo": protocolo,
+            "recebido_em": agora,
+            "entidade": entidade.apelido,
+            "linha": linha,
+            "arquivos": somas,
+        }
         anexar_com_fsync(
             pasta / DIARIO,
-            json.dumps(
-                {
-                    "protocolo": protocolo,
-                    "recebido_em": agora,
-                    "entidade": entidade.apelido,
-                    "linha": linha,
-                    "arquivos": somas,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            )
-            + "\n",
+            json.dumps(registro, ensure_ascii=False, sort_keys=True) + "\n",
         )
 
         # 2. os arquivos, montados de lado e trocados de uma vez.
@@ -264,6 +274,7 @@ def depositar(
         entidade=entidade.apelido,
         arquivos=somas,
         substituiu=substituiu,
+        registro=registro,
     )
 
 

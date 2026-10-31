@@ -1202,8 +1202,27 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         # de minutos para responder uma página.
         if cfg.tem_banco:
             try:
+                # SÓ O QUE CHEGOU, não o diário inteiro.
+                #
+                # Esta linha passava `deposito.ler_diario(...)` — TODOS os
+                # registros. `reconstruir` é a função de RECUPERAÇÃO: ela
+                # existe para refazer a projeção a partir do diário todo, e
+                # estava sendo usada como escrita incremental de um envio.
+                # Como o diário é append-only e nunca é podado, o pedido do
+                # filiado número N custava O(N), e a campanha inteira O(N²).
+                #
+                # Medido: 279 comandos SQL num diário de 12 registros, 21 por
+                # registro já existente. Na escala que a arquitetura nomeia,
+                # 4.812 filiados, são ~101 mil comandos numa transação só —
+                # contra um banco pela rede, minutos de transação aberta por
+                # cadastro. A ironia é que o comentário logo abaixo já dizia
+                # que ler a base inteira a cada pedido é consulta de minutos
+                # para responder uma página.
+                #
+                # A recuperação pelo diário inteiro continua existindo, e
+                # tem teste próprio — ela só deixou de rodar aqui.
                 banco.reconstruir(cfg.banco_url, ent.apelido,
-                                  deposito.ler_diario(ent.pasta(cfg.raiz)))
+                                  [recibo.registro])
                 for nome, corpo in recebidos.items():
                     banco.guardar_achados(
                         cfg.banco_url, ent.apelido, limpa["cpf"],
