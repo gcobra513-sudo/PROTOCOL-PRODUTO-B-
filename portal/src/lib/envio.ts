@@ -435,6 +435,9 @@ export interface Panorama {
   nome: string;
   manchete: string;
   pessoas: number;
+  /** Destes, quantos já mandaram documento pelo portal. São dois números
+   *  diferentes e o gestor precisa dos dois. */
+  cadastrados: number;
   aptos: number;
   categorias: string[];
   catalogo: string;
@@ -468,6 +471,7 @@ export async function verPanorama(
     nome: corpo.nome ?? "",
     manchete: corpo.manchete ?? "",
     pessoas: corpo.pessoas ?? 0,
+    cadastrados: corpo.cadastrados ?? 0,
     aptos: corpo.aptos ?? 0,
     categorias: corpo.categorias ?? [],
     catalogo: corpo.catalogo ?? "",

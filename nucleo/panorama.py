@@ -73,7 +73,15 @@ class Gargalo:
 
 @dataclass(frozen=True)
 class Panorama:
+    #: TODA a base: a planilha do sindicato mais quem se cadastrou.
     pessoas: int = 0
+    #: Destes, quantos já mandaram documento pelo portal.
+    #:
+    #: São dois números diferentes e o gestor precisa dos dois: quantos ele
+    #: tem, e de quantos já temos o que falta para responder. Antes só existia
+    #: o segundo — e um sindicato com 4.812 filiados e 200 cadastrados via um
+    #: painel de 200.
+    cadastrados: int = 0
     categorias: tuple[str, ...] = ()
     catalogo: str = ""
     por_acao: tuple[PorAcao, ...] = ()
@@ -88,16 +96,21 @@ class Panorama:
     leu_documentos: bool = False
 
     def manchete(self) -> str:
+        # "CADASTRADA" NÃO SERVE MAIS. Desde que a planilha do sindicato
+        # virou base, a maioria das pessoas aqui nunca entrou no portal — e
+        # chamá-las de cadastradas sugere ao gestor que elas já mandaram
+        # documento. Visto no vivo, com uma planilha de quatro e zero
+        # cadastros.
         if not self.pessoas:
-            return "Nenhum filiado se cadastrou ainda pelo portal."
+            return "Não há ninguém na base: nem planilha, nem cadastro."
         if not self.categorias:
             return (
-                f"{self.pessoas} pessoa(s) cadastrada(s), e nenhuma categoria "
+                f"{self.pessoas} pessoa(s) na base, e nenhuma categoria "
                 f"declarada para este sindicato — sem ela não há ação a "
                 f"cruzar com os dados delas."
             )
         if not self.gargalos:
-            return f"{self.pessoas} pessoa(s) cadastrada(s), sem pendências."
+            return f"{self.pessoas} pessoa(s) na base, sem pendências."
         maior = self.gargalos[0]
         # DE QUEM É O GARGALO VAI NA FRASE. Sem isso, a manchete apontava o
         # maior da base — que pode ser pendência do próprio filiado — e o
@@ -105,7 +118,7 @@ class Panorama:
         # frases coladas uma na outra nomeando coisas diferentes como "a"
         # prioridade.
         return (
-            f"{self.pessoas} pessoa(s) cadastrada(s). O que segura mais "
+            f"{self.pessoas} pessoa(s) na base. O que segura mais "
             f"gente agora: {maior.o_que} — {maior.pessoas} pessoa(s), e "
             f"{pendencia.ROTULO_CURTO[maior.quem]}."
         )
@@ -163,6 +176,10 @@ def ultimo_envio_por_cpf(registros) -> dict[str, dict]:
         por_cpf[cpf] = {
             "linha": linha,
             "entregues": tipos_entregues(registro.get("arquivos") or {}),
+            # Quem veio do diário sempre se cadastrou; quem veio da base do
+            # banco traz a marca. O padrão `True` preserva o sentido para o
+            # caminho sem banco, em que só há cadastro.
+            "cadastrou": bool(registro.get("fonte_cadastro", True)),
         }
     return por_cpf
 
@@ -258,6 +275,7 @@ def montar(
 
     return Panorama(
         pessoas=len(pessoas),
+        cadastrados=sum(1 for e in pessoas.values() if e["cadastrou"]),
         categorias=catalogo.categorias,
         catalogo=catalogo.assinatura,
         por_acao=tuple(

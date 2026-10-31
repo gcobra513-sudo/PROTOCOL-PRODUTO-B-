@@ -255,22 +255,9 @@ def reconstruir(url: str, entidade: str, registros) -> int:
                      recebimento_id, quando),
                 )
 
-            # O VIGENTE. O último envio vence: reenvio é correção, não pessoa
-            # nova, e os registros chegam em ordem.
-            cur.execute(
-                "INSERT INTO pessoa (entidade, cpf, nome, email, cargo, "
-                "situacao, data_nascimento, atualizado_em) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s, now()) "
-                "ON CONFLICT (entidade, cpf) DO UPDATE SET "
-                "nome = EXCLUDED.nome, email = EXCLUDED.email, "
-                "cargo = EXCLUDED.cargo, situacao = EXCLUDED.situacao, "
-                "data_nascimento = EXCLUDED.data_nascimento, "
-                "atualizado_em = now()",
-                (entidade, cpf, str(linha.get("nome_completo") or ""),
-                 str(linha.get("email") or ""), str(linha.get("cargo") or ""),
-                 str(linha.get("situacao") or ""),
-                 str(linha.get("data_nascimento") or "")),
-            )
+            # O VIGENTE sai das DUAS fontes, com o acervo vencendo — não do
+            # último que escreveu. Ver `_recalcular_pessoa`.
+            _recalcular_pessoa(cur, entidade, cpf)
 
             # O DOCUMENTO: só o metadado. Os bytes ficam no disco — PDF em
             # coluna faz o banco inchar e não melhora resposta nenhuma.
@@ -300,6 +287,208 @@ def reconstruir(url: str, entidade: str, registros) -> int:
                     (entidade, cpf, numero),
                 )
     return gravados
+
+
+#: Campos que o acervo e o cadastro podem afirmar sobre a mesma pessoa. É
+#: sobre eles que a divergência se mede — e só sobre eles: comparar um campo
+#: que só uma das fontes tem marcaria divergência em toda linha.
+CAMPOS_COMUNS = (
+    "nome_completo", "email", "telefone", "cargo", "situacao", "unidade",
+    "data_nascimento", "data_ingresso", "data_aposentadoria",
+    "filiado_desde", "filiado_ate",
+)
+
+
+def _vigentes(cur, cpf: str) -> dict[str, dict[str, str]]:
+    """campo -> {fonte: último valor afirmado}."""
+    cur.execute(
+        "SELECT DISTINCT ON (campo, fonte) campo, fonte, valor "
+        "FROM pessoa_afirmacao WHERE cpf = %s "
+        "ORDER BY campo, fonte, afirmado_em DESC, id DESC", (cpf,)
+    )
+    saida: dict[str, dict[str, str]] = {}
+    for campo, fonte, valor in cur.fetchall():
+        saida.setdefault(campo, {})[fonte] = valor
+    return saida
+
+
+def _recalcular_pessoa(cur, entidade: str, cpf: str) -> None:
+    """O valor VIGENTE de uma pessoa, das duas fontes.
+
+    **O ACERVO VENCE**, e isso estava escrito no esquema desde o começo sem
+    ninguém implementar: o valor vigente é o do sindicato até ele homologar
+    outra coisa. A ordem de chegada não decide qual versão da verdade entra
+    na base — se decidisse, quem se cadastrasse depois reescreveria o
+    cadastro do sindicato só por ter chegado por último.
+
+    E A AFIRMAÇÃO DO FILIADO NÃO SOME: ela continua na camada 2, e é dela que
+    a divergência existe. Divergência não se resolve sozinha: marca e mostra.
+    """
+    por_campo = _vigentes(cur, cpf)
+
+    def valor(campo: str) -> str:
+        fontes = por_campo.get(campo, {})
+        # Preenchido vence vazio, e entre dois preenchidos o acervo vence.
+        return (fontes.get("acervo") or fontes.get("cadastro") or "").strip()
+
+    divergente = any(
+        (por_campo.get(c, {}).get("acervo") or "").strip()
+        and (por_campo.get(c, {}).get("cadastro") or "").strip()
+        and (por_campo[c]["acervo"].strip()
+             != por_campo[c]["cadastro"].strip())
+        for c in CAMPOS_COMUNS
+    )
+
+    # ALCANÇÁVEL: CPF que fecha E e-mail que serve, de QUALQUER fonte — quem
+    # se cadastrou com e-mail bom é alcançável ainda que a planilha do
+    # sindicato não tenha o dela.
+    #
+    # NÃO É O MESMO NÚMERO que `completude.inalcancaveis` publica, e não deve
+    # ser: aquele mede a QUALIDADE DA EXPORTAÇÃO do sindicato, e por isso
+    # olha só a planilha. São duas perguntas, e juntá-las daria dois números
+    # com um nome só.
+    from nucleo import cadastro as conta
+
+    emails = [v for fontes in [por_campo.get("email", {})]
+              for v in fontes.values() if v and v.strip()]
+    alcancavel = bool(conta.cpf_valido(cpf)) and any(
+        conta.EMAIL.match(e.strip()) for e in emails
+    )
+
+    cur.execute(
+        "INSERT INTO pessoa (entidade, cpf, nome, email, cargo, situacao, "
+        "data_nascimento, alcancavel, tem_divergencia, atualizado_em) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, now()) "
+        "ON CONFLICT (entidade, cpf) DO UPDATE SET "
+        "nome = EXCLUDED.nome, email = EXCLUDED.email, "
+        "cargo = EXCLUDED.cargo, situacao = EXCLUDED.situacao, "
+        "data_nascimento = EXCLUDED.data_nascimento, "
+        "alcancavel = EXCLUDED.alcancavel, "
+        "tem_divergencia = EXCLUDED.tem_divergencia, atualizado_em = now()",
+        (entidade, cpf, valor("nome_completo"), valor("email"),
+         valor("cargo"), valor("situacao"), valor("data_nascimento"),
+         alcancavel, divergente),
+    )
+
+
+def projetar_acervo(url: str, entidade: str, pessoas) -> int:
+    """A planilha do sindicato vira base consultável.
+
+    ERA O BURACO DO PRODUTO: `acervo.jsonl` alimentava UMA tela — o retrato
+    da base — e parava ali. O motor nunca via a planilha, e tudo o que o
+    produto afirmava sobre alguém saía do que a PESSOA digitara no portal.
+    Um sindicato com 4.812 filiados e 200 cadastrados via um painel de 200.
+
+    `pessoas` são as de `acervo.ler`: uma por LINHA, e a mesma pessoa pode
+    aparecer em várias. Consolidamos por CPF com a regra do leitor —
+    preenchido vence vazio —, porque a divergência DENTRO da planilha já foi
+    marcada lá, como achado, e remarcá-la aqui não acrescenta nada.
+    """
+    linhas = [p for p in pessoas or () if getattr(p, "cpf", "")]
+    if not linhas:
+        return 0
+
+    # Um recebimento por INGESTÃO, não por linha: o que chegou foi o arquivo.
+    marca = hashlib.sha256(
+        json.dumps([[p.cpf, p.linha_no_arquivo, p.campos] for p in linhas],
+                   sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
+
+    consolidado: dict[str, dict[str, str]] = {}
+    for p in linhas:
+        alvo = consolidado.setdefault(p.cpf, {})
+        for campo, valor in (p.campos or {}).items():
+            if str(valor or "").strip() or campo not in alvo:
+                alvo[campo] = str(valor or "").strip()
+
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT id FROM recebimento WHERE entidade = %s AND sha256 = %s",
+            (entidade, marca),
+        )
+        ja = cur.fetchone()
+        if ja:
+            recebimento_id = ja[0]
+        else:
+            cur.execute(
+                "INSERT INTO recebimento (entidade, tipo, origem, payload, "
+                "sha256) VALUES (%s, 'acervo', %s, %s::jsonb, %s) "
+                "RETURNING id",
+                (entidade, f"{len(linhas)} linha(s)",
+                 json.dumps({"linhas": len(linhas)}), marca),
+            )
+            recebimento_id = cur.fetchone()[0]
+
+        from nucleo import cadastro as conta
+
+        for cpf, campos in consolidado.items():
+            for campo, valor in campos.items():
+                cur.execute(
+                    "INSERT INTO pessoa_afirmacao (entidade, cpf, campo, "
+                    "valor, fonte, recebimento_id) "
+                    "VALUES (%s,%s,%s,%s,'acervo',%s) ON CONFLICT DO NOTHING",
+                    (entidade, cpf, campo, valor, recebimento_id),
+                )
+            _recalcular_pessoa(cur, entidade, cpf)
+
+            for numero in conta.numeros_de_processo(
+                campos.get("numeros_de_processo") or ""
+            ):
+                cur.execute(
+                    "INSERT INTO processo (entidade, numero) VALUES (%s,%s) "
+                    "ON CONFLICT DO NOTHING", (entidade, numero),
+                )
+                cur.execute(
+                    "INSERT INTO vinculo (entidade, cpf, numero, fonte) "
+                    "VALUES (%s,%s,%s,'acervo') ON CONFLICT DO NOTHING",
+                    (entidade, cpf, numero),
+                )
+    return len(consolidado)
+
+
+def base(url: str, entidade: str) -> list[dict]:
+    """TODA a base da entidade — a planilha do sindicato mais os cadastros.
+
+    É o que o motor passa a responder. `cadastros()` continua existindo e
+    continua sendo só o cadastro: é ele que o teste de concordância compara
+    com o diário, e misturar as fontes ali apagaria essa garantia.
+
+    Cada registro sai com `fonte_cadastro`, para que o panorama possa dizer
+    quantos da base já mandaram documento — são dois números diferentes, e o
+    gestor precisa dos dois.
+    """
+    linhas: dict[str, dict] = {}
+    fontes: dict[str, set] = {}
+    arquivos: dict[str, dict] = {}
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (cpf, campo, fonte) cpf, campo, fonte, valor "
+            "FROM pessoa_afirmacao "
+            "ORDER BY cpf, campo, fonte, afirmado_em DESC, id DESC"
+        )
+        for cpf, campo, fonte, valor in cur.fetchall():
+            fontes.setdefault(cpf, set()).add(fonte)
+            alvo = linhas.setdefault(cpf, {"cpf": cpf})
+            # O acervo vence, e o preenchido vence o vazio.
+            atual = alvo.get(campo, "")
+            if fonte == "acervo":
+                if str(valor or "").strip() or not atual:
+                    alvo[campo] = valor
+            elif not str(atual or "").strip():
+                alvo[campo] = valor
+        cur.execute("SELECT cpf, tipo, sha256 FROM documento")
+        for cpf, tipo, soma in cur.fetchall():
+            arquivos.setdefault(cpf, {})[tipo] = soma
+
+    return [
+        {
+            "protocolo": "",
+            "linha": linha,
+            "arquivos": arquivos.get(cpf, {}),
+            "fonte_cadastro": "cadastro" in fontes.get(cpf, set()),
+        }
+        for cpf, linha in sorted(linhas.items())
+    ]
 
 
 def cadastros(url: str, entidade: str) -> list[dict]:
@@ -381,6 +570,23 @@ def achados_do_cpf(url: str, entidade: str, cpf: str) -> list:
                        posicao=pos, metodo=m)
             for t, v, c, tr, pos, m in cur.fetchall()
         ]
+
+
+def processos_do_cpf(url: str, entidade: str, cpf: str) -> list[str]:
+    """Os processos ligados a esta pessoa, venham de onde vierem.
+
+    É a promessa da tela dela — "controle sobre as ações que já correm no seu
+    nome" —, e ela só se cumpre com os números que o SINDICATO mandou: pedir
+    a uma aposentada que ache 20 dígitos numa papelada e digite no celular é
+    pedir que ela desista.
+    """
+    digitos = "".join(c for c in str(cpf or "") if c.isdigit())
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT numero FROM vinculo WHERE cpf = %s ORDER BY numero",
+            (digitos,),
+        )
+        return [n for (n,) in cur.fetchall()]
 
 
 def documentos_do_cpf(url: str, entidade: str, cpf: str) -> tuple[str, ...]:

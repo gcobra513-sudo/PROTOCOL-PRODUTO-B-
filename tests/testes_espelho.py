@@ -651,6 +651,257 @@ def teste_o_panorama_por_http_bate_com_o_diario():
           f"{donos}")
 
 
+# ============================== a planilha do sindicato vira base (etapa 1)
+#
+# A AUDITORIA QUE ABRIU ESTE BLOCO: `acervo.jsonl` era lido em UM lugar do
+# código — o retrato da base — e parava ali. O motor nunca via a planilha.
+# Tudo o que o produto afirmava sobre alguém saía do que a PESSOA digitou no
+# portal, e um sindicato com 4.812 filiados e 200 cadastrados via um painel
+# de 200.
+#
+# É a diferença entre vender "organizamos a sua base" e vender "fizemos um
+# formulário".
+
+
+def _pessoas_do_acervo(linhas: list[tuple]):
+    """Pessoas como `acervo.ler` as devolve, sem passar por arquivo."""
+    from servidor import acervo as mod
+
+    saida = []
+    for numero, (cpf, nome, email, desde, ate) in enumerate(linhas, start=2):
+        campos = {"cpf": cpf, "nome_completo": nome, "email": email,
+                  "cargo": "Auditor Fiscal da Receita Federal",
+                  "situacao": "aposentado",
+                  "filiado_desde": desde, "filiado_ate": ate}
+        saida.append(mod.Pessoa(
+            cpf="".join(c for c in cpf if c.isdigit()),
+            linha_no_arquivo=numero, campos=campos,
+        ))
+    return saida
+
+
+def teste_a_planilha_entra_no_banco():
+    secao("a planilha vira base")
+    from servidor import banco
+
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "FULANA DA PLANILHA (EXEMPLO)", "f@exemplo.org", "2004-03", ""),
+        (B, "BELTRANO DA PLANILHA (EXEMPLO)", "b@exemplo.org", "2001-01", "2009-12"),
+    ]))
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("SELECT count(*) FROM pessoa")
+        checa(cur.fetchone()[0] == 2, "a planilha não virou pessoa no banco")
+        cur.execute(
+            "SELECT count(*) FROM pessoa_afirmacao WHERE fonte = 'acervo'"
+        )
+        checa(cur.fetchone()[0] > 5, "as afirmações do acervo não entraram")
+        cur.execute("SELECT tipo FROM recebimento")
+        checa([t for (t,) in cur.fetchall()] == ["acervo"],
+              "o recebimento não foi marcado como acervo")
+    print("  ok     planilha -> recebimento, afirmação e pessoa")
+
+
+def teste_projetar_a_mesma_planilha_duas_vezes_nao_duplica():
+    from servidor import banco
+
+    pessoas = _pessoas_do_acervo([
+        (A, "FULANA (EXEMPLO)", "f@exemplo.org", "2004-03", ""),
+    ])
+    banco.projetar_acervo(URL, "demo-a", pessoas)
+    banco.projetar_acervo(URL, "demo-a", pessoas)
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("SELECT count(*) FROM recebimento")
+        checa(cur.fetchone()[0] == 1, "duplicou o recebimento do acervo")
+        cur.execute("SELECT count(*) FROM pessoa")
+        checa(cur.fetchone()[0] == 1, "duplicou a pessoa")
+    print("  ok     reprojetar a mesma planilha é idempotente")
+
+
+def teste_o_acervo_vence_o_cadastro_e_a_divergencia_fica_marcada():
+    """A REGRA QUE O ESQUEMA JÁ DECLARAVA e ninguém implementava: o valor
+    vigente é o do ACERVO até o sindicato homologar. A ordem de chegada não
+    decide qual versão da verdade entra na base — e a afirmação do filiado
+    não some: é dela que a divergência existe."""
+    from servidor import banco
+
+    # O filiado se cadastra dizendo um cargo; a planilha do sindicato diz
+    # outro. Ninguém escolhe sozinho.
+    banco.reconstruir(URL, "demo-a",
+                      [registro(A, cargo="Analista Tributário da Receita Federal")])
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "FULANA DA PLANILHA (EXEMPLO)", "f@exemplo.org", "2004-03", ""),
+    ]))
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("SELECT cargo, tem_divergencia FROM pessoa WHERE cpf = %s",
+                    (A,))
+        cargo, divergente = cur.fetchone()
+        checa("Auditor" in cargo,
+              f"o cadastro venceu o acervo: cargo vigente = {cargo!r}")
+        checa(divergente is True,
+              "as duas fontes discordam e a divergência não foi marcada")
+        cur.execute(
+            "SELECT count(DISTINCT fonte) FROM pessoa_afirmacao "
+            "WHERE cpf = %s AND campo = 'cargo'", (A,)
+        )
+        checa(cur.fetchone()[0] == 2,
+              "uma das duas afirmações de cargo foi apagada")
+    print("  ok     acervo vence, cadastro sobrevive, divergência marcada")
+
+
+def teste_concordar_nao_e_divergir():
+    from servidor import banco
+
+    banco.reconstruir(URL, "demo-a", [registro(A)])
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "FULANO 35 (CADASTRO DE EXEMPLO)", "exemplo@exemplo.org",
+         "2004-03", ""),
+    ]))
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("SELECT tem_divergencia FROM pessoa WHERE cpf = %s", (A,))
+        checa(cur.fetchone()[0] is False,
+              "marcou divergência onde as duas fontes concordam")
+    print("  ok     concordância não vira divergência")
+
+
+def teste_quem_so_esta_na_planilha_ja_tem_resposta():
+    """O TESTE QUE MEDE A AUDITORIA. Uma pessoa que NUNCA entrou no portal,
+    só está na planilha do sindicato: o motor tem de responder por ela.
+
+    É isto que separa "organizamos a sua base" de "fizemos um formulário"."""
+    secao("o motor responde pela base inteira")
+    from nucleo import entendimentos, panorama, participacao as part
+    from servidor import banco
+
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "SÓ NA PLANILHA (EXEMPLO)", "f@exemplo.org", "2004-03", ""),
+    ]))
+    catalogo = entendimentos.carregar_categorias(
+        entendimentos.PASTA_PADRAO, ("auditor-fiscal-receita-federal",)
+    ).homologando(("GIFA-2006",))
+
+    base = banco.base(URL, "demo-a")
+    checa(len(base) == 1, f"a pessoa da planilha não entrou na base: {base}")
+    visao = panorama.montar(base, catalogo)
+    checa(visao.pessoas == 1, f"panorama não contou: {visao.pessoas}")
+    gifa = next(a for a in visao.por_acao if a.acao == "GIFA-2006")
+    checa(gifa.participam == 1,
+          f"quem só está na planilha não teve participação apurada: {gifa}")
+    # 2004-03 a 2008-12 = 58 meses. A conta do teste estava errada antes, não
+    # a do produto: (2008-2004)*12 + (12-3) + 1.
+    checa(gifa.meses_somados == 58,
+          f"meses somados {gifa.meses_somados}, esperado 58 (2004-03 a 2008-12)")
+    print(f"  ok     sem cadastro nenhum: participa, {gifa.meses_somados} meses")
+
+
+def teste_o_panorama_separa_a_base_de_quem_se_cadastrou():
+    """Os dois números são diferentes e o gestor precisa dos dois: quantos
+    ele tem, e de quantos já temos documento."""
+    from nucleo import entendimentos, panorama
+    from servidor import banco
+
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "SÓ NA PLANILHA (EXEMPLO)", "f@exemplo.org", "2004-03", ""),
+        (B, "TAMBÉM NA PLANILHA (EXEMPLO)", "b@exemplo.org", "2004-03", ""),
+    ]))
+    banco.reconstruir(URL, "demo-a", [registro(B)])
+    catalogo = entendimentos.carregar_categorias(
+        entendimentos.PASTA_PADRAO, ("auditor-fiscal-receita-federal",)
+    )
+    visao = panorama.montar(banco.base(URL, "demo-a"), catalogo)
+    checa(visao.pessoas == 2, f"base: {visao.pessoas}, esperado 2")
+    checa(visao.cadastrados == 1,
+          f"cadastrados: {visao.cadastrados}, esperado 1")
+    print(f"  ok     {visao.pessoas} na base, {visao.cadastrados} cadastrada(s)")
+
+
+def teste_o_processo_da_planilha_vira_acompanhamento():
+    """O sindicato costuma ter o número. Hoje a pessoa aposentada tinha de
+    achar 20 dígitos numa papelada e digitar no celular."""
+    from servidor import banco
+    from servidor import acervo as mod
+
+    pessoa = mod.Pessoa(cpf=A, linha_no_arquivo=2, campos={
+        "cpf": A, "email": "f@exemplo.org", "nome_completo": "FULANA (EXEMPLO)",
+        "numeros_de_processo": "00103912420064013400",
+    })
+    banco.projetar_acervo(URL, "demo-a", [pessoa])
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("SELECT numero FROM vinculo WHERE cpf = %s", (A,))
+        checa(cur.fetchall() == [("00103912420064013400",)],
+              "o processo da planilha não virou vínculo")
+    print("  ok     processo da planilha vira acompanhamento")
+
+
+def teste_a_base_nao_atravessa_entidade():
+    from servidor import banco
+
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "DA ENTIDADE A (EXEMPLO)", "a@exemplo.org", "2004-03", ""),
+    ]))
+    banco.projetar_acervo(URL, "demo-b", _pessoas_do_acervo([
+        (B, "DA ENTIDADE B (EXEMPLO)", "b@exemplo.org", "2004-03", ""),
+    ]))
+    cpfs = {r["linha"]["cpf"] for r in banco.base(URL, "demo-a")}
+    checa(cpfs == {A}, f"VAZOU pessoa de outra entidade: {cpfs}")
+    print("  ok     a base de cada entidade é só dela")
+
+
+def teste_o_processo_que_o_sindicato_mandou_aparece_para_a_pessoa():
+    """A PROMESSA DA TELA DA PESSOA: "controle sobre as ações que já correm
+    no seu nome". Isso vem da planilha do sindicato, não do que ela digita —
+    e hoje ela tinha de achar 20 dígitos numa papelada."""
+    from servidor import banco
+    from servidor import acervo as mod
+
+    cliente, _, _raiz = _servidor()
+    banco.projetar_acervo(URL, "demo-a", [mod.Pessoa(
+        cpf=A, linha_no_arquivo=2, campos={
+            "cpf": A, "email": "fulana@exemplo.org",
+            "nome_completo": "FULANA (EXEMPLO)",
+            "numeros_de_processo": "00103912420064013400",
+        })])
+    r = cliente.get("/api/meus-processos",
+                    headers={"Authorization": f"Bearer {_token(cliente, A)}"})
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    numeros = {p["numero"] for p in r.json()["processos"]}
+    checa("00103912420064013400" in numeros,
+          f"o processo da planilha não chegou à pessoa: {numeros}")
+    print("  ok     processo da planilha aparece sem ela digitar nada")
+
+
+def teste_o_painel_responde_pela_base_inteira():
+    """O número que muda a venda: o panorama deixa de contar só quem se
+    cadastrou."""
+    from servidor import banco
+
+    cliente, _, _raiz = _servidor()
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "SÓ NA PLANILHA (EXEMPLO)", "fulana@exemplo.org", "2004-03", ""),
+        (B, "GESTOR NA PLANILHA (EXEMPLO)", "gestor@exemplo.org", "2004-03", ""),
+    ]))
+    r = cliente.get("/api/entidade/demo-a/panorama",
+                    headers={"Authorization": f"Bearer {_token(cliente, B)}"})
+    corpo = r.json()
+    checa(corpo["pessoas"] == 2,
+          f"o painel contou {corpo['pessoas']}, e a planilha tem 2")
+    checa(corpo["cadastrados"] == 0,
+          f"contou cadastrado sem ninguém ter se cadastrado: "
+          f"{corpo['cadastrados']}")
+    # O catálogo em disco tem `homologado = "N"` em tudo, então as duas saem
+    # INDETERMINADO — e é o certo. O que este teste prova é que elas foram
+    # AVALIADAS: antes, quem não se cadastrasse não existia para o motor.
+    gifa = [a for a in corpo["por_acao"] if a["acao"] == "GIFA-2006"]
+    checa(bool(gifa), f"a ação não apareceu: {corpo['por_acao']}")
+    avaliadas = (gifa[0]["participam"] + gifa[0]["indeterminados"]
+                 + gifa[0]["nao_participam"])
+    checa(avaliadas == 2,
+          f"a base da planilha não foi avaliada pelo motor: {gifa[0]}")
+    checa(gifa[0]["participam"] == 0,
+          "disse que participa com o catálogo não homologado")
+    print(f"  ok     painel: {corpo['pessoas']} na base, "
+          f"{corpo['cadastrados']} cadastradas, {avaliadas} avaliadas")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -669,6 +920,16 @@ TESTES = [
     teste_a_consulta_do_filiado_fica_registrada,
     teste_o_painel_do_gestor_tambem_fica_registrado,
     teste_o_panorama_por_http_bate_com_o_diario,
+    teste_a_planilha_entra_no_banco,
+    teste_o_processo_que_o_sindicato_mandou_aparece_para_a_pessoa,
+    teste_o_painel_responde_pela_base_inteira,
+    teste_projetar_a_mesma_planilha_duas_vezes_nao_duplica,
+    teste_o_acervo_vence_o_cadastro_e_a_divergencia_fica_marcada,
+    teste_concordar_nao_e_divergir,
+    teste_quem_so_esta_na_planilha_ja_tem_resposta,
+    teste_o_panorama_separa_a_base_de_quem_se_cadastrou,
+    teste_o_processo_da_planilha_vira_acompanhamento,
+    teste_a_base_nao_atravessa_entidade,
     teste_a_leitura_de_dado_nominal_fica_registrada,
     teste_o_registro_de_leitura_nao_guarda_cpf_em_claro,
     teste_a_auditoria_tambem_respeita_a_politica,

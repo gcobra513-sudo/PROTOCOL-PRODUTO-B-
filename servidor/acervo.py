@@ -32,10 +32,14 @@ primeira. A ordem de uma exportação não é informação sobre nada, e escolhe
 from __future__ import annotations
 
 import csv
+import datetime as dt
 import io
 import pathlib
+import re
 import unicodedata
 from dataclasses import dataclass, field
+
+from nucleo import processo_cnj
 
 from . import validacao
 
@@ -109,7 +113,117 @@ APELIDOS: dict[str, str] = {
     "admissao": "data_ingresso",
     "data_aposentadoria": "data_aposentadoria",
     "data_de_aposentadoria": "data_aposentadoria",
+
+    # O PERÍODO DE FILIAÇÃO. É ele que cruza com o período da ação coletiva e
+    # responde "em quais ações esta pessoa participa" — e ele NÃO ESTAVA
+    # AQUI. Sem ele na planilha, o sindicato manda 4.812 pessoas e o motor
+    # não responde por nenhuma: a pessoa aposentada tinha de digitar, no
+    # celular, desde quando contribui.
+    #
+    # Nenhum sindicato escreve "filiado_desde". Cada sistema tem o seu nome,
+    # e cabeçalho não reconhecido vira texto solto que o motor nunca olha.
+    "filiado_desde": "filiado_desde",
+    "filiado_em": "filiado_desde",
+    "data_filiacao": "filiado_desde",
+    "dt_filiacao": "filiado_desde",
+    "data_de_filiacao": "filiado_desde",
+    "filiacao": "filiado_desde",
+    "associado_desde": "filiado_desde",
+    "data_de_associacao": "filiado_desde",
+    "inicio_da_contribuicao": "filiado_desde",
+    "inicio_contribuicao": "filiado_desde",
+
+    # VAZIO É RESPOSTA: significa "ainda filiado". Tratá-lo como omissão
+    # tiraria da conta justamente quem está no sindicato hoje.
+    "filiado_ate": "filiado_ate",
+    "desfiliado_em": "filiado_ate",
+    "data_desfiliacao": "filiado_ate",
+    "data_de_desfiliacao": "filiado_ate",
+    "fim_da_contribuicao": "filiado_ate",
+    "fim_contribuicao": "filiado_ate",
+    "data_saida": "filiado_ate",
+
+    # OS PROCESSOS QUE O SINDICATO JÁ CONHECE. Hoje a pessoa tem de achar 20
+    # dígitos numa papelada e digitar — informação que o sindicato costuma
+    # ter. `numero` NÃO entra aqui: é o número do endereço, e já está mapeado.
+    "numero_do_processo": "numeros_de_processo",
+    "numero_processo": "numeros_de_processo",
+    "n_processo": "numeros_de_processo",
+    "processo": "numeros_de_processo",
+    "processos": "numeros_de_processo",
+    "numeros_de_processo": "numeros_de_processo",
+    "autos": "numeros_de_processo",
 }
+
+#: Competência AAAA-MM. É o formato que o cruzamento usa.
+_COMPETENCIA = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
+
+#: As formas em que uma data de filiação chega numa planilha brasileira.
+#: Dia inteiro, mês/ano, ano/mês, e com barra, hífen ou ponto.
+_FORMAS_DE_DATA = (
+    re.compile(r"^(?P<d>\d{1,2})[/\-.](?P<m>\d{1,2})[/\-.](?P<a>\d{4})$"),
+    re.compile(r"^(?P<a>\d{4})[/\-.](?P<m>\d{1,2})[/\-.](?P<d>\d{1,2})$"),
+    re.compile(r"^(?P<m>\d{1,2})[/\-.](?P<a>\d{4})$"),
+    re.compile(r"^(?P<a>\d{4})[/\-.](?P<m>\d{1,2})$"),
+)
+
+
+def competencia(bruto: str, hoje: dt.date | None = None) -> str:
+    """A data da planilha em AAAA-MM, ou "" quando não dá para ler.
+
+    DESCARTAR EM SILÊNCIO SERIA O PIOR CAMINHO: a pessoa perderia a
+    participação dela por causa de uma célula que o Excel formatou torto, e
+    ninguém saberia por quê. Quem chama transforma o "" em achado.
+
+    O DIA É JOGADO FORA de propósito: o cruzamento é mensal, e guardar um dia
+    que a planilha às vezes não tem faria competência de mesmo mês parecer
+    diferente.
+    """
+    hoje = hoje or dt.date.today()
+    texto = str(bruto or "").strip()
+    if not texto:
+        return ""
+    if _COMPETENCIA.match(texto):
+        ano, mes = int(texto[:4]), int(texto[5:7])
+    else:
+        for forma in _FORMAS_DE_DATA:
+            achado = forma.match(texto)
+            if achado:
+                ano, mes = int(achado.group("a")), int(achado.group("m"))
+                break
+        else:
+            return ""
+    if not 1 <= mes <= 12:
+        return ""
+    # Antes de 1930 é erro de digitação; no futuro é ano de dois dígitos lido
+    # errado. Aceitar qualquer um dos dois poria a pessoa fora de toda ação.
+    if ano < 1930 or (ano, mes) > (hoje.year, hoje.month):
+        return ""
+    return f"{ano:04d}-{mes:02d}"
+
+
+#: Dentro de uma célula, vários processos vêm separados por qualquer coisa.
+#: A planilha não avisa qual.
+_ENTRE_PROCESSOS = re.compile(r"[;,/\n|]+")
+
+
+def processos(bruto: str) -> tuple[list[str], list[str]]:
+    """(números que fecham, números que não fecham), em dígitos.
+
+    Número cujo dígito verificador não bate é erro de digitação. Acompanhá-lo
+    é gastar consulta de 30 segundos e devolver silêncio à pessoa.
+    """
+    bons: list[str] = []
+    ruins: list[str] = []
+    for pedaco in _ENTRE_PROCESSOS.split(str(bruto or "")):
+        digitos = "".join(c for c in pedaco if c.isdigit())
+        if not digitos:
+            continue
+        if processo_cnj.conferir(digitos, exigir_trf1=False):
+            ruins.append(pedaco.strip())
+        elif digitos not in bons:
+            bons.append(digitos)
+    return bons, ruins
 
 
 class AcervoIlegivel(ValueError):
@@ -221,6 +335,26 @@ def _achados_do_campo(coluna: str, valor: str) -> list[Achado]:
                            "sem e-mail o código de acesso não tem para onde ir")]
         if not validacao.EMAIL.match(valor):
             return [Achado("email", INVALIDO, f"e-mail {valor!r} não serve")]
+        return []
+    if coluna in ("filiado_desde", "filiado_ate"):
+        # Vazio NÃO é achado aqui: em `filiado_ate` significa "ainda
+        # filiado", e em `filiado_desde` a falta aparece depois, nominal e
+        # com dono, pela via normal do produto.
+        if valor and not competencia(valor):
+            return [Achado(
+                coluna, INVALIDO,
+                f"{valor!r} não é data que dê para ler. Use AAAA-MM, "
+                f"MM/AAAA ou DD/MM/AAAA — e confira se não é ano de dois "
+                f"dígitos lido como futuro",
+            )]
+        return []
+    if coluna == "numeros_de_processo":
+        _, ruins = processos(valor)
+        if ruins:
+            return [Achado(
+                coluna, INVALIDO,
+                f"não fecha o dígito verificador: {', '.join(ruins[:3])}",
+            )]
         return []
     if not valor and coluna in validacao.EXIGIDOS:
         return [Achado(coluna, FALTA, f"{coluna} está vazio no acervo")]
@@ -336,6 +470,20 @@ def ler(caminho: pathlib.Path | str) -> tuple[list[Pessoa], list[str]]:
         achados: list[Achado] = []
         for coluna in sorted(set(campos) | {"cpf", "email"}):
             achados += _achados_do_campo(coluna, campos.get(coluna, ""))
+
+        # NORMALIZA DEPOIS DE ACHAR, nunca antes: o achado precisa mostrar o
+        # que veio na célula — "não dá para ler '15/03/2099'" só ajuda quem
+        # vai abrir a planilha se disser o que estava lá.
+        #
+        # O que não dá para ler vira VAZIO, e o achado acima é quem conta a
+        # história. Guardar o texto torto faria o cruzamento comparar contra
+        # um mês que não existe.
+        for coluna in ("filiado_desde", "filiado_ate"):
+            if coluna in campos:
+                campos[coluna] = competencia(campos[coluna])
+        if "numeros_de_processo" in campos:
+            bons, _ = processos(campos["numeros_de_processo"])
+            campos["numeros_de_processo"] = ";".join(bons)
         pessoas.append(Pessoa(
             cpf=cpf_digitos,
             linha_no_arquivo=numero,

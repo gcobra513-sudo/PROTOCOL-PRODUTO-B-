@@ -88,6 +88,24 @@ function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
         </Aviso>
       )}
 
+      {/* OS DOIS NÚMEROS. A base é o que o sindicato mandou; os cadastrados
+          são de quem já temos documento. Mostrar só o segundo era o que
+          fazia um sindicato de 4.812 filiados ver um painel de 200. */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-md border border-borda bg-papel p-4">
+          <p className="text-2xl font-semibold text-tinta">{p.pessoas}</p>
+          <p className="mt-1 text-sm text-tinta/70">
+            pessoas na base (planilha + portal)
+          </p>
+        </div>
+        <div className="rounded-md border border-borda bg-papel p-4">
+          <p className="text-2xl font-semibold text-tinta">{p.cadastrados}</p>
+          <p className="mt-1 text-sm text-tinta/70">
+            já mandaram documento pelo portal
+          </p>
+        </div>
+      </div>
+
       {noTribunal > 0 ? (
         <Aviso tom="neutro">
           <strong>{pessoas(noTribunal)}</strong> dependem de um tribunal

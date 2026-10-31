@@ -228,6 +228,168 @@ def teste_coluna_ausente_nao_e_o_mesmo_que_coluna_vazia():
 
 
 
+# ============================================ o que decide participação (etapa 1)
+#
+# A AUDITORIA QUE ABRIU ESTE BLOCO: o leitor da planilha trazia cargo,
+# situação, lotação e datas da carreira — e **não trazia o período de
+# filiação nem os processos**. Justamente os dois que o produto usa para
+# responder o que ele promete responder.
+#
+# O efeito prático era pior do que parece: a pessoa aposentada tinha de
+# digitar, no celular, desde quando contribui e o número de 20 dígitos do
+# próprio processo — informação que o sindicato já tinha na planilha que nos
+# mandou.
+
+
+def _planilha(tmp, cabecalho: str, *linhas: str):
+    caminho = tmp / "acervo.csv"
+    caminho.write_text(
+        cabecalho + "\n" + "\n".join(linhas) + "\n", encoding="utf-8"
+    )
+    return acervo.ler(caminho)
+
+
+def teste_le_o_periodo_de_filiacao_da_planilha():
+    """É o campo que cruza com o período da ação. Sem ele na planilha, o
+    sindicato manda 4.812 pessoas e o motor não responde por nenhuma."""
+    secao("o período de filiação")
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    pessoas, problemas = _planilha(
+        tmp,
+        "cpf;nome;email;filiado desde;desfiliado em",
+        "111.444.777-35;FULANA (EXEMPLO);f@exemplo.org;15/03/2004;",
+        "529.982.247-25;BELTRANO (EXEMPLO);b@exemplo.org;01/2001;12/2009",
+    )
+    checa(problemas == [], f"recusou planilha legítima: {problemas}")
+    campos = {p.cpf: p.campos for p in pessoas}
+    checa(campos["11144477735"].get("filiado_desde") == "2004-03",
+          f"filiado_desde não normalizado: "
+          f"{campos['11144477735'].get('filiado_desde')!r}")
+    checa(campos["11144477735"].get("filiado_ate") == "",
+          "inventou data de saída para quem continua filiado")
+    checa(campos["52998224725"].get("filiado_desde") == "2001-01",
+          f"{campos['52998224725'].get('filiado_desde')!r}")
+    checa(campos["52998224725"].get("filiado_ate") == "2009-12",
+          f"{campos['52998224725'].get('filiado_ate')!r}")
+    print("  ok     filiação lida e normalizada para AAAA-MM")
+
+
+def teste_reconhece_os_nomes_que_a_planilha_usa_para_filiacao():
+    """Nenhum sindicato escreve "filiado_desde". Cada sistema tem o seu nome,
+    e um cabeçalho não reconhecido faz a coluna virar texto solto que o motor
+    nunca olha."""
+    import tempfile
+    for cabecalho in ("data de filiacao", "filiado em", "associado desde",
+                      "dt_filiacao", "inicio da contribuicao"):
+        tmp = Path(tempfile.mkdtemp())
+        pessoas, _ = _planilha(
+            tmp, f"cpf;email;{cabecalho}",
+            "111.444.777-35;f@exemplo.org;03/2004",
+        )
+        achado = pessoas[0].campos.get("filiado_desde", "")
+        checa(achado == "2004-03",
+              f"o cabeçalho {cabecalho!r} não virou filiado_desde: {achado!r}")
+    print("  ok     cinco grafias de cabeçalho reconhecidas")
+
+
+def teste_data_que_nao_da_para_ler_vira_achado_nao_silencio():
+    """DESCARTAR EM SILÊNCIO É O PIOR CAMINHO. A pessoa perderia a
+    participação dela por causa de uma célula que o Excel formatou torto, e
+    ninguém saberia por quê."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    pessoas, _ = _planilha(
+        tmp, "cpf;email;filiado desde",
+        "111.444.777-35;f@exemplo.org;sei la quando",
+    )
+    p = pessoas[0]
+    checa(p.campos.get("filiado_desde") == "",
+          f"aceitou lixo como data: {p.campos.get('filiado_desde')!r}")
+    invalidos = [a for a in p.achados
+                 if a.coluna == "filiado_desde" and a.estado == acervo.INVALIDO]
+    checa(bool(invalidos),
+          f"a data ilegível sumiu sem achado: {p.achados}")
+    checa("sei la quando" in invalidos[0].detalhe,
+          f"o achado não mostra o que veio: {invalidos[0].detalhe!r}")
+    print("  ok     data ilegível vira achado, com o valor original")
+
+
+def teste_data_no_futuro_e_recusada():
+    """Filiação em 2041 é erro de digitação ou ano de dois dígitos lido
+    errado. Aceitar poria a pessoa fora de toda ação."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    pessoas, _ = _planilha(
+        tmp, "cpf;email;filiado desde",
+        "111.444.777-35;f@exemplo.org;15/03/2099",
+    )
+    checa(pessoas[0].campos.get("filiado_desde") == "",
+          "aceitou filiação no futuro")
+    checa(any(a.coluna == "filiado_desde" for a in pessoas[0].achados),
+          "a data futura sumiu sem achado")
+    print("  ok     data no futuro é recusada, com achado")
+
+
+def teste_le_os_processos_da_planilha():
+    """O sindicato costuma ter o número. Hoje a pessoa aposentada tem de
+    achar 20 dígitos numa papelada e digitar no celular."""
+    secao("os processos")
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    pessoas, problemas = _planilha(
+        tmp, "cpf;email;numero do processo",
+        "111.444.777-35;f@exemplo.org;0010391-24.2006.4.01.3400",
+        "529.982.247-25;b@exemplo.org;"
+        "0010391-24.2006.4.01.3400 / 0007654-05.2019.8.07.0001",
+    )
+    checa(problemas == [], f"{problemas}")
+    campos = {p.cpf: p.campos for p in pessoas}
+    checa(campos["11144477735"].get("numeros_de_processo")
+          == "00103912420064013400",
+          f"{campos['11144477735'].get('numeros_de_processo')!r}")
+    # Dois numa célula é o caso normal: separador pode ser barra, vírgula,
+    # ponto e vírgula ou quebra de linha, e a planilha não avisa qual.
+    checa(campos["52998224725"].get("numeros_de_processo")
+          == "00103912420064013400;00076540520198070001",
+          f"{campos['52998224725'].get('numeros_de_processo')!r}")
+    print("  ok     processos lidos, inclusive vários numa célula")
+
+
+def teste_numero_de_processo_que_nao_fecha_vira_achado():
+    """Dígito verificador que não bate é erro de digitação. Acompanhar um
+    número errado é gastar consulta e devolver silêncio à pessoa."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    pessoas, _ = _planilha(
+        tmp, "cpf;email;processo",
+        "111.444.777-35;f@exemplo.org;0010391-99.2006.4.01.3400",
+    )
+    p = pessoas[0]
+    checa(p.campos.get("numeros_de_processo") == "",
+          f"aceitou número que não fecha: "
+          f"{p.campos.get('numeros_de_processo')!r}")
+    checa(any(a.coluna == "numeros_de_processo" for a in p.achados),
+          f"o número errado sumiu sem achado: {p.achados}")
+    print("  ok     número que não fecha vira achado, não acompanhamento")
+
+
+def teste_planilha_sem_filiacao_continua_sendo_lida():
+    """FAIL-OPEN NA INGESTÃO. Exigir a coluna faria a primeira entrega não
+    acontecer — e o produto já sabe dizer que falta: a pendência aparece
+    nominal, com dono."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    pessoas, problemas = _planilha(
+        tmp, "cpf;nome;email",
+        "111.444.777-35;FULANA (EXEMPLO);f@exemplo.org",
+    )
+    checa(problemas == [], f"recusou planilha sem filiação: {problemas}")
+    checa(len(pessoas) == 1, "perdeu a linha")
+    checa(pessoas[0].alcancavel, "marcou como inalcançável sem motivo")
+    print("  ok     planilha sem filiação entra, e a falta aparece depois")
+
+
 TESTES.extend([
     teste_le_planilha_de_excel_brasileiro,
     teste_le_exportacao_em_latin1,
@@ -241,6 +403,13 @@ TESTES.extend([
     teste_campo_vazio_vira_achado_de_falta,
     teste_duas_colunas_para_o_mesmo_campo_nao_se_sobrescrevem,
     teste_coluna_ausente_nao_e_o_mesmo_que_coluna_vazia,
+    teste_le_o_periodo_de_filiacao_da_planilha,
+    teste_reconhece_os_nomes_que_a_planilha_usa_para_filiacao,
+    teste_data_que_nao_da_para_ler_vira_achado_nao_silencio,
+    teste_data_no_futuro_e_recusada,
+    teste_le_os_processos_da_planilha,
+    teste_numero_de_processo_que_nao_fecha_vira_achado,
+    teste_planilha_sem_filiacao_continua_sendo_lida,
 ])
 
 

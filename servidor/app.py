@@ -462,6 +462,22 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 achadas.append(linha)
         return achadas
 
+    def _cpf_da_sessao(ent: entidades.Entidade, sessao) -> str:
+        """O CPF de quem abriu a sessão, descoberto pelo MARCADOR.
+
+        A sessão nunca guardou o CPF em claro — de propósito. Para consultar
+        o banco por CPF é preciso achar de quem é o marcador, e o único lugar
+        onde o par existe é o rol que o sindicato mandou.
+        """
+        try:
+            lista = rol.carregar(ent.pasta(cfg.raiz))
+        except (rol.RolAusente, ValueError):
+            return ""
+        for cpf in lista.por_cpf:
+            if portao.marcar_cpf(cpf) == sessao.cpf_hash:
+                return conta.so_digitos(cpf)
+        return ""
+
     @app.get("/api/meus-processos")
     def meus_processos(pedido: Request) -> dict:
         """Os processos de quem está logado, e o que andou neles.
@@ -487,6 +503,19 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             ):
                 if numero not in numeros:
                     numeros.append(numero)
+
+        # E OS QUE O SINDICATO MANDOU. A planilha dele costuma ter o número,
+        # e até aqui a pessoa precisava achar 20 dígitos numa papelada e
+        # digitar no celular para que a gente acompanhasse o processo dela.
+        if cfg.tem_banco:
+            try:
+                for numero in banco.processos_do_cpf(
+                    cfg.banco_url, ent.apelido, _cpf_da_sessao(ent, sessao)
+                ):
+                    if numero not in numeros:
+                        numeros.append(numero)
+            except Exception:  # noqa: BLE001
+                log.exception("PROCESSOS do banco falharam ent=%s", ent.apelido)
 
         ultimos = acompanhamento.ultimo_por_processo(
             acompanhamento.ler_diario_de_movimentos(
@@ -831,8 +860,11 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         # DO BANCO QUANDO HÁ BANCO, do diário quando não há. Não são duas
         # verdades: o banco é projeção do diário, e um teste monta o panorama
         # das duas pontas e exige que sejam idênticos.
+        # A BASE INTEIRA quando há banco: a planilha do sindicato mais os
+        # cadastros. `cadastros()` continua existindo e continua sendo só o
+        # cadastro — é ele que o teste de concordância compara com o diário.
         visao = panorama.montar(
-            banco.cadastros(cfg.banco_url, ent.apelido) if cfg.tem_banco
+            banco.base(cfg.banco_url, ent.apelido) if cfg.tem_banco
             else deposito.ler_diario(ent.pasta(cfg.raiz)),
             catalogo,
         )
@@ -841,6 +873,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "nome": ent.nome,
             "manchete": visao.manchete(),
             "pessoas": visao.pessoas,
+            "cadastrados": visao.cadastrados,
             "aptos": visao.aptos,
             "categorias": list(visao.categorias),
             "catalogo": visao.catalogo,

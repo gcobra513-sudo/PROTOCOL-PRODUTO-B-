@@ -20,6 +20,7 @@ motivo de código de erro: linha ruim é o produto.
 from __future__ import annotations
 
 import argparse
+import os
 import dataclasses
 import datetime as dt
 import json
@@ -80,6 +81,11 @@ def main() -> int:
     p.add_argument("--entidade", default="",
                    help="apelido da entidade. Sem isto, nada é gravado")
     p.add_argument("--raiz", default="dados", help="raiz dos dados (padrão: dados)")
+    p.add_argument(
+        "--banco", default=os.environ.get("PROTOCOL_DATABASE_URL", ""),
+        help="URL do banco. Sem ela a planilha vira só arquivo, e o motor "
+             "não responde pela base — ver o aviso no fim da execução",
+    )
     p.add_argument("--mostrar", type=int, default=20,
                    help="quantos inalcançáveis listar por nome")
     args = p.parse_args()
@@ -135,6 +141,22 @@ def main() -> int:
         ) + "\n",
     )
     print(f"\n  gravado em {pasta / ARQUIVO}")
+    # E A PROJEÇÃO NO BANCO. O arquivo é a autoridade; sem esta linha a
+    # planilha continuava alimentando UMA tela — o retrato da base — e o
+    # motor nunca a via. Um sindicato com 4.812 filiados e 200 cadastrados
+    # via um painel de 200.
+    if args.banco:
+        from servidor import banco
+
+        quantas = banco.projetar_acervo(args.banco, ent.apelido, pessoas)
+        print(f"  banco: {quantas} pessoa(s) projetada(s) em {ent.apelido}")
+    else:
+        print(
+            "\n  AVISO: sem --banco (ou PROTOCOL_DATABASE_URL), esta planilha\n"
+            "  fica só em arquivo. O painel mostra o retrato da base, mas o\n"
+            "  motor NÃO responde por quem não se cadastrou no portal."
+        )
+
     return 0
 
 

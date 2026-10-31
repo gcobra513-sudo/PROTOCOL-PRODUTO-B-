@@ -285,6 +285,19 @@ def teste_nada_homologado_nenhum_pode():
     print("  ok     catálogo não homologado: 0 aptos")
 
 
+def teste_a_manchete_nao_chama_de_cadastrada_quem_so_esta_na_planilha():
+    """Visto no vivo, com uma planilha de quatro pessoas e nenhum cadastro:
+    a manchete dizia "4 pessoa(s) cadastrada(s)". Desde que a planilha virou
+    base, a palavra está errada — e errada do jeito pior, porque sugere ao
+    gestor que quatro pessoas já mandaram documento."""
+    p = panorama.montar([registro(A), registro(B)], acervo())
+    m = p.manchete().lower()
+    checa("cadastrad" not in m,
+          f"a manchete ainda diz 'cadastrada' para a base: {p.manchete()!r}")
+    checa("base" in m, f"a manchete não diz que o número é da base: {m!r}")
+    print(f"  ok     {p.manchete()}")
+
+
 def teste_a_manchete_nomeia_o_maior_gargalo_e_de_quem_ele_e():
     """Uma decisão, mil pessoas. É esta frase que o diretor leva da reunião.
 
@@ -343,6 +356,7 @@ TESTES = [
     teste_base_vazia_nao_inventa_numero,
     teste_o_panorama_declara_que_nao_leu_documento,
     teste_nada_homologado_nenhum_pode,
+    teste_a_manchete_nao_chama_de_cadastrada_quem_so_esta_na_planilha,
     teste_a_manchete_nomeia_o_maior_gargalo_e_de_quem_ele_e,
     teste_cada_dono_tem_rotulo_curto_para_caber_na_frase,
     teste_registro_ilegivel_nao_derruba_o_panorama,
