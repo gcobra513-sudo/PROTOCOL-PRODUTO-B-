@@ -481,3 +481,37 @@ export async function verPanorama(
     limite: corpo.limite ?? "",
   };
 }
+
+// ------------------- o que o sindicato já sabe sobre a pessoa (etapa 2)
+
+export type CamposConhecidos = Record<string, string>;
+
+export interface MeuCadastro {
+  conhecido: boolean;
+  campos: CamposConhecidos;
+  /** Tipos de documento que já temos desta pessoa. */
+  documentos: string[];
+  aviso: string;
+}
+
+/** O que já sabemos de quem abriu a sessão. O CPF NÃO viaja: o servidor
+ *  filtra pela sessão, e o que esta rota devolve é o cadastro inteiro de uma
+ *  pessoa — aceitar parâmetro aqui seria pior que nas outras. */
+export async function meuCadastro(token: string): Promise<MeuCadastro> {
+  const r = await fetch(`${BASE}/api/meu-cadastro`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      corpo?.detail?.erro ?? "não foi possível consultar",
+      r.status,
+    );
+  }
+  return {
+    conhecido: Boolean(corpo.conhecido),
+    campos: corpo.campos ?? {},
+    documentos: corpo.documentos ?? [],
+    aviso: corpo.aviso ?? "",
+  };
+}

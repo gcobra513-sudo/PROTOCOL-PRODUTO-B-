@@ -15,11 +15,22 @@ export function Voce({
   dados,
   onChange,
   cpfTravado,
+  doSindicato,
 }: {
   dados: Identificacao;
   onChange: (campo: keyof Identificacao, valor: string) => void;
   cpfTravado: boolean;
+  /** Campos que vieram do sindicato, como `identificacao.campo`. */
+  doSindicato?: Set<string>;
 }) {
+  // DE ONDE VEIO O QUE JÁ ESTÁ PREENCHIDO. Sem isto, a pessoa vê o próprio
+  // nome num campo que ela não digitou e não sabe por quê — e campo
+  // preenchido sem explicação parece erro do sistema, não ajuda.
+  const daBase = (campo: string, padrao?: string) =>
+    doSindicato?.has(`identificacao.${campo}`)
+      ? "Veio do seu sindicato. Corrija se estiver errado."
+      : padrao;
+
   return (
     <Cartao
       titulo="Você"
@@ -29,6 +40,7 @@ export function Voce({
         rotulo="Nome completo"
         obrigatorio
         valor={dados.nome}
+        ajuda={daBase("nome")}
         onChange={(v) => onChange("nome", v)}
       />
 
@@ -52,14 +64,18 @@ export function Voce({
         obrigatorio
         valor={dados.email}
         onChange={(v) => onChange("email", v.trim())}
-        ajuda="É para cá que vão os avisos. O código de acesso continua indo
-          para o e-mail que o sindicato tem em cadastro."
+        ajuda={daBase(
+          "email",
+          "É para cá que vão os avisos. O código de acesso continua indo " +
+            "para o e-mail que o sindicato tem em cadastro.",
+        )}
       />
 
       <Campo
         rotulo="Telefone"
         inputMode="tel"
         valor={dados.telefone}
+        ajuda={daBase("telefone")}
         onChange={(v) => onChange("telefone", v)}
       />
 
@@ -67,6 +83,7 @@ export function Voce({
         rotulo="Data de nascimento"
         placeholder="AAAA-MM-DD"
         valor={dados.dataNascimento}
+        ajuda={daBase("dataNascimento")}
         onChange={(v) => onChange("dataNascimento", v.trim())}
       />
 

@@ -213,8 +213,20 @@ export function Documentos({
   );
 }
 
-export function tiposFaltando(enviados: DocumentoEnviado[]): TipoDocumento[] {
-  const tem = new Set(enviados.map((d) => d.tipo));
+/** O que ainda falta anexar.
+ *
+ *  `jaTemos` são os tipos que o SINDICATO já mandou. Sem contá-los, a pessoa
+ *  ficava travada nesta etapa pedindo um comprovante que o sindicato já tinha
+ *  entregado — e pedir de novo o que já foi dado é o que faz alguém concluir
+ *  que o sistema não funciona. */
+export function tiposFaltando(
+  enviados: DocumentoEnviado[],
+  jaTemos: string[] = [],
+): TipoDocumento[] {
+  const tem = new Set<string>([
+    ...enviados.map((d) => d.tipo),
+    ...jaTemos,
+  ]);
   return DOCUMENTOS.filter((d) => d.obrigatorio && !tem.has(d.tipo)).map(
     (d) => d.tipo,
   );

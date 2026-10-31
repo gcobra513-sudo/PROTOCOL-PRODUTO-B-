@@ -44,12 +44,22 @@ export function Carreira({
   filiacao,
   onCarreira,
   onFiliacao,
+  doSindicato,
 }: {
   carreira: DadosCarreira;
   filiacao: Filiacao;
   onCarreira: (campo: keyof DadosCarreira, valor: string) => void;
   onFiliacao: (campo: keyof Filiacao, valor: string) => void;
+  /** Campos que vieram do sindicato, como `carreira.campo` / `filiacao.campo`. */
+  doSindicato?: Set<string>;
 }) {
+  // DE ONDE VEIO O QUE JÁ ESTÁ PREENCHIDO. Campo preenchido sem explicação
+  // parece erro do sistema, não ajuda — e nesta tela está o campo que mais
+  // decide a resposta da pessoa.
+  const daBase = (chave: string, padrao?: string) =>
+    doSindicato?.has(chave)
+      ? "Veio do seu sindicato. Corrija se estiver errado."
+      : padrao;
   // Estado próprio, e não `ate === ""`, porque desmarcar a caixa precisa
   // REVELAR o campo de data — e nesse instante ele ainda está vazio. Derivar
   // do valor faria a caixa desmarcar e nada aparecer.
@@ -82,8 +92,11 @@ export function Carreira({
         valor={carreira.cargo}
         onChange={(v) => onCarreira("cargo", v)}
         placeholder="Ex.: Auditor-Fiscal da Receita Federal do Brasil"
-        ajuda="Escreva como está no seu contracheque. A gente entende variações
-          de grafia — não precisa acertar o hífen."
+        ajuda={daBase(
+          "carreira.cargo",
+          "Escreva como está no seu contracheque. A gente entende variações " +
+            "de grafia — não precisa acertar o hífen.",
+        )}
       />
 
       <Escolha<SituacaoFuncional>
@@ -117,7 +130,7 @@ export function Carreira({
           valor={filiacao.desde}
           onChange={(v) => onFiliacao("desde", v.trim())}
           problemas={problemasDesde}
-          ajuda="Ano e mês, assim: 1992-05"
+          ajuda={daBase("filiacao.desde", "Ano e mês, assim: 1992-05")}
         />
 
         <Caixa
@@ -163,12 +176,14 @@ export function Carreira({
         <Campo
           rotulo="Unidade onde trabalha ou trabalhou"
           valor={carreira.unidade}
+          ajuda={daBase("carreira.unidade")}
           onChange={(v) => onCarreira("unidade", v)}
         />
         <Campo
           rotulo="Quando entrou no serviço público"
           placeholder="AAAA-MM-DD"
           valor={carreira.dataIngresso}
+          ajuda={daBase("carreira.dataIngresso")}
           onChange={(v) => onCarreira("dataIngresso", v.trim())}
         />
         {carreira.situacao === "aposentado" ? (

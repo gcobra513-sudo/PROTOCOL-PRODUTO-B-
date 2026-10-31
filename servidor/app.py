@@ -469,13 +469,19 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         o banco por CPF é preciso achar de quem é o marcador, e o único lugar
         onde o par existe é o rol que o sindicato mandou.
         """
-        try:
-            lista = rol.carregar(ent.pasta(cfg.raiz))
-        except (rol.RolAusente, ValueError):
-            return ""
-        for cpf in lista.por_cpf:
-            if portao.marcar_cpf(cpf) == sessao.cpf_hash:
-                return conta.so_digitos(cpf)
+        # OS DOIS ROLS. A sessão pode ter sido aberta por quem está em
+        # `filiados.csv` OU em `gestores.csv` — o gerente do sindicato não é
+        # necessariamente filiado, e quando é, ele tem cadastro como todo
+        # mundo. Procurar só no primeiro deixava o gestor sem os próprios
+        # dados, sem erro nenhum para explicar.
+        for carregar in (rol.carregar, rol.carregar_gestores):
+            try:
+                lista = carregar(ent.pasta(cfg.raiz))
+            except (rol.RolAusente, ValueError):
+                continue
+            for cpf in lista.por_cpf:
+                if portao.marcar_cpf(cpf) == sessao.cpf_hash:
+                    return conta.so_digitos(cpf)
         return ""
 
     @app.get("/api/meus-processos")
@@ -604,6 +610,79 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             [a.name for a in pasta.glob("*.pdf")] if pasta.is_dir() else []
         )
         return panorama.tipos_entregues(nomes)
+
+    @app.get("/api/meu-cadastro")
+    def meu_cadastro(pedido: Request) -> dict:
+        """O que já sabemos sobre quem está entrando.
+
+        A PESSOA RECEBE O LINK NO GRUPO DO SINDICATO E ABRE. Até aqui ela
+        encontrava 17 campos em branco — e **10 deles o sindicato já tinha
+        mandado**. Cada campo desses é gente que abandona o cadastro no meio,
+        e a abandonada é sempre a mesma: a aposentada, no celular.
+
+        Agora ela CONFERE em vez de digitar. E o que ela corrigir não
+        sobrescreve o sindicato: vira afirmação dela, e a divergência aparece
+        no painel. Quem decide qual versão vale é o sindicato — a ordem de
+        chegada não decide isso.
+
+        ESTA ROTA NÃO ACEITA CPF, pela mesma razão das outras, e aqui com mais
+        força: o que ela devolve é o cadastro inteiro de uma pessoa.
+
+        QUEM NÃO ESTÁ NA BASE RECEBE VAZIO, não erro. É o filiado novo, que
+        entrou depois da última exportação do sindicato: ele existe, e a tela
+        dele é a de sempre.
+        """
+        sessao = _sessao_de(pedido)
+        ent = _entidade(sessao.entidade)
+        _auditar(ent, "meu-cadastro", quem_hash=sessao.cpf_hash,
+                 alvo_hash=sessao.cpf_hash)
+
+        vazio = {
+            "entidade": ent.apelido,
+            "nome": ent.nome,
+            "conhecido": False,
+            "campos": {},
+            "documentos": [],
+            "aviso": (
+                "Não encontramos você na base que o seu sindicato enviou. "
+                "Isso é normal para quem se filiou há pouco — basta preencher "
+                "os seus dados."
+            ),
+        }
+
+        cpf = _cpf_da_sessao(ent, sessao)
+        if not cpf or not cfg.tem_banco:
+            return vazio
+        try:
+            registro = next(
+                (r for r in banco.base(cfg.banco_url, ent.apelido)
+                 if conta.so_digitos(r["linha"].get("cpf", "")) == cpf),
+                None,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("MEU-CADASTRO falhou ent=%s", ent.apelido)
+            return vazio
+        if registro is None:
+            return vazio
+
+        # SÓ OS CAMPOS DO CONTRATO, e só os preenchidos. Devolver campo vazio
+        # faria a tela marcar como "conferido" o que ninguém informou.
+        campos = {
+            campo: str(registro["linha"].get(campo) or "").strip()
+            for campo in conta.CAMPOS
+            if str(registro["linha"].get(campo) or "").strip()
+        }
+        return {
+            **vazio,
+            "conhecido": True,
+            "campos": campos,
+            "documentos": sorted(registro["arquivos"]),
+            "aviso": (
+                "O seu sindicato já enviou parte dos seus dados. Confira, "
+                "corrija o que estiver errado e complete o que faltar — a "
+                "correção não apaga o que ele enviou: ele confere a diferença."
+            ),
+        }
 
     @app.get("/api/minhas-acoes")
     def minhas_acoes(pedido: Request) -> dict:

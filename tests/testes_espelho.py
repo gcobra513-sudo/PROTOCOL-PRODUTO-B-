@@ -902,6 +902,145 @@ def teste_o_painel_responde_pela_base_inteira():
           f"{corpo['cadastrados']} cadastradas, {avaliadas} avaliadas")
 
 
+# ====================== o portal reconhece quem já está na base (etapa 2)
+#
+# A pessoa recebe o link no grupo de WhatsApp do sindicato e abre. Até aqui,
+# ela encontrava 17 campos em branco — e **10 deles o sindicato já tinha
+# mandado**. Cada campo desses é gente que abandona o cadastro no meio.
+#
+# Agora ela confere em vez de digitar. E o que ela corrigir NÃO sobrescreve o
+# sindicato: vira afirmação dela, e a divergência aparece no painel. Quem
+# decide qual versão vale é o sindicato, não a ordem de chegada.
+
+
+def teste_meu_cadastro_exige_sessao():
+    secao("o portal reconhece a pessoa")
+    cliente, _, _raiz = _servidor()
+    for cabecalho in ({}, {"Authorization": "Bearer invalido"}):
+        r = cliente.get("/api/meu-cadastro", headers=cabecalho)
+        checa(r.status_code == 401,
+              f"dados pessoais sem sessão: {r.status_code}")
+    print("  ok     sem sessão válida, 401")
+
+
+def teste_meu_cadastro_devolve_o_que_o_sindicato_mandou():
+    from servidor import banco
+
+    cliente, _, _raiz = _servidor()
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "FULANA DA PLANILHA (EXEMPLO)", "fulana@exemplo.org",
+         "2004-03", ""),
+    ]))
+    r = cliente.get("/api/meu-cadastro",
+                    headers={"Authorization": f"Bearer {_token(cliente, A)}"})
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    corpo = r.json()
+    checa(corpo["conhecido"] is True, "não reconheceu quem está na base")
+    conhecido = corpo["campos"]
+    checa(conhecido.get("nome_completo", "").startswith("FULANA"),
+          f"o nome não voltou: {conhecido}")
+    checa(conhecido.get("filiado_desde") == "2004-03",
+          f"a filiação não voltou: {conhecido}")
+    checa(conhecido.get("cargo", "").startswith("Auditor"),
+          f"o cargo não voltou: {conhecido}")
+    print(f"  ok     {len([v for v in conhecido.values() if v])} campo(s) "
+          f"já conhecidos")
+
+
+def teste_meu_cadastro_diz_que_documentos_ja_temos():
+    """Se o sindicato já mandou a sentença dela, a tela não pode pedir de
+    novo — é o pedido que faz a pessoa achar que o sistema não funciona."""
+    from servidor import banco
+
+    cliente, _, _raiz = _servidor()
+    _cadastrar(cliente, A, com_sentenca=True)
+    r = cliente.get("/api/meu-cadastro",
+                    headers={"Authorization": f"Bearer {_token(cliente, A)}"})
+    corpo = r.json()
+    checa("sentenca" in corpo["documentos"],
+          f"não disse que já tem a sentença: {corpo['documentos']}")
+    checa("contribuicao" in corpo["documentos"], f"{corpo['documentos']}")
+    print(f"  ok     já temos: {', '.join(corpo['documentos'])}")
+
+
+def teste_meu_cadastro_nao_aceita_cpf_por_parametro():
+    """A mesma trava das outras consultas: aceitar CPF de fora
+    transformaria isto na pesquisa de filiação que o portão se recusa a ser
+    — e aqui o retorno é o cadastro inteiro de alguém."""
+    from servidor import banco
+
+    cliente, _, _raiz = _servidor()
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "FULANA (EXEMPLO)", "fulana@exemplo.org", "2004-03", ""),
+        (B, "BELTRANO (EXEMPLO)", "gestor@exemplo.org", "2001-01", ""),
+    ]))
+    r = cliente.get(f"/api/meu-cadastro?cpf={A}",
+                    headers={"Authorization": f"Bearer {_token(cliente, B)}"})
+    corpo = r.json()
+    checa("FULANA" not in str(corpo),
+          f"VAZOU o cadastro de outra pessoa: {corpo}")
+    checa(corpo["campos"].get("nome_completo", "").startswith("BELTRANO"),
+          f"devolveu o de quem não abriu a sessão: {corpo['campos']}")
+    print("  ok     parâmetro cpf é ignorado, não obedecido")
+
+
+def teste_quem_nao_esta_na_base_recebe_vazio_e_nao_erro():
+    """Filiado novo, que entrou depois da última exportação do sindicato.
+    Ele existe, e a tela dele é a de sempre — em branco, sem erro."""
+    cliente, _, _raiz = _servidor()
+    r = cliente.get("/api/meu-cadastro",
+                    headers={"Authorization": f"Bearer {_token(cliente, A)}"})
+    checa(r.status_code == 200, f"deu erro: {r.status_code}")
+    corpo = r.json()
+    checa(corpo["conhecido"] is False, "disse conhecer quem não está na base")
+    checa(corpo["campos"] == {} and corpo["documentos"] == [], f"{corpo}")
+    checa(bool(corpo.get("aviso", "").strip()), "não explicou o vazio")
+    print("  ok     quem não está na base: vazio com explicação")
+
+
+def teste_a_consulta_do_proprio_cadastro_fica_registrada():
+    """É dado nominal, e dos mais completos que o sistema devolve."""
+    from servidor import banco
+
+    cliente, _, _raiz = _servidor()
+    cliente.get("/api/meu-cadastro",
+                headers={"Authorization": f"Bearer {_token(cliente, A)}"})
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("SELECT count(*) FROM leitura WHERE o_que = 'meu-cadastro'")
+        checa(cur.fetchone()[0] >= 1, "a consulta não foi registrada")
+    print("  ok     a leitura fica registrada")
+
+
+def teste_a_correcao_da_pessoa_nao_apaga_o_sindicato():
+    """A REGRA, agora no caminho que a pessoa percorre. Ela abre o link, vê
+    'Analista Tributário' onde devia ser 'Auditor Fiscal', corrige e envia.
+    O vigente continua sendo o do sindicato, a correção dela sobrevive, e a
+    divergência aparece no painel — ninguém decide sozinho."""
+    from servidor import banco
+
+    cliente, _, _raiz = _servidor()
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "FULANA DA PLANILHA (EXEMPLO)", "fulana@exemplo.org",
+         "2004-03", ""),
+    ]))
+    import json as _json
+    corrigida = linha(A, cargo="Analista Tributário da Receita Federal")
+    cliente.post(
+        "/api/cadastro",
+        data={"token": _token(cliente, A), "linha": _json.dumps(corrigida)},
+        files=[("arquivos", ("contribuicao-1.pdf", _pdf(CONTRIB),
+                             "application/pdf"))],
+    )
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("SELECT cargo, tem_divergencia FROM pessoa WHERE cpf = %s",
+                    (A,))
+        cargo, divergente = cur.fetchone()
+    checa("Auditor" in cargo,
+          f"a correção da pessoa sobrescreveu o sindicato: {cargo!r}")
+    checa(divergente is True, "a divergência não foi marcada")
+    print("  ok     correção vira divergência, não sobrescrita")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -930,6 +1069,13 @@ TESTES = [
     teste_o_panorama_separa_a_base_de_quem_se_cadastrou,
     teste_o_processo_da_planilha_vira_acompanhamento,
     teste_a_base_nao_atravessa_entidade,
+    teste_meu_cadastro_exige_sessao,
+    teste_meu_cadastro_devolve_o_que_o_sindicato_mandou,
+    teste_meu_cadastro_diz_que_documentos_ja_temos,
+    teste_meu_cadastro_nao_aceita_cpf_por_parametro,
+    teste_quem_nao_esta_na_base_recebe_vazio_e_nao_erro,
+    teste_a_consulta_do_proprio_cadastro_fica_registrada,
+    teste_a_correcao_da_pessoa_nao_apaga_o_sindicato,
     teste_a_leitura_de_dado_nominal_fica_registrada,
     teste_o_registro_de_leitura_nao_guarda_cpf_em_claro,
     teste_a_auditoria_tambem_respeita_a_politica,

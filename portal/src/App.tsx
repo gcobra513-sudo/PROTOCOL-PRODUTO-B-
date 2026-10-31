@@ -31,6 +31,7 @@ import { MeusProcessos } from "./paginas/MeusProcessos";
 import { MinhasAcoes } from "./paginas/MinhasAcoes";
 import { Painel } from "./paginas/Painel";
 import * as arquivos from "./lib/arquivos";
+import { camposDoSindicato, jaTemos, preencher } from "./lib/conhecido";
 import * as armazenamento from "./lib/armazenamento";
 import * as api from "./lib/envio";
 import { baixar, reciboJson } from "./lib/exportar";
@@ -56,7 +57,12 @@ const ETAPAS = [
  *
  *  A LISTA É O TEXTO QUE A PESSOA LÊ, não um código de erro. "preencher o
  *  campo obrigatório" não diz qual; aqui cada pendência é uma frase. */
-function pendencias(r: Rascunho, etapa: number, temToken: boolean): string[] {
+function pendencias(
+  r: Rascunho,
+  etapa: number,
+  temToken: boolean,
+  jaTemos: string[] = [],
+): string[] {
   if (etapa === 0) {
     return temToken ? [] : ["entrar com o código que chegou no seu e-mail"];
   }
@@ -102,7 +108,7 @@ function pendencias(r: Rascunho, etapa: number, temToken: boolean): string[] {
   }
 
   if (etapa === 4) {
-    return tiposFaltando(r.documentos).map((tipo) => {
+    return tiposFaltando(r.documentos, jaTemos).map((tipo) => {
       const espec = DOCUMENTOS.find((d) => d.tipo === tipo);
       return `anexar: ${espec?.rotulo ?? tipo}`;
     });
@@ -143,6 +149,7 @@ export function App() {
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
   const [verPrivacidade, setVerPrivacidade] = useState(false);
+  const [conhecido, setConhecido] = useState<api.MeuCadastro | null>(null);
 
   // O NOME da entidade vem do SERVIDOR, do apelido que está no link. O
   // apelido não serve como nome: uma página que se apresenta como sendo de
@@ -179,7 +186,32 @@ export function App() {
     [],
   );
 
-  const falta = pendencias(rascunho, etapa, Boolean(token));
+  // ASSIM QUE A PESSOA ENTRA, buscamos o que o sindicato já mandou. Ela
+  // recebeu o link no grupo do WhatsApp e abriu: encontrar 17 campos em
+  // branco — 10 deles já enviados pelo sindicato — é o que faz a aposentada
+  // desistir no meio.
+  //
+  // Falha aqui NÃO trava o cadastro: a tela volta a ser a de antes, em
+  // branco, e ela preenche. Pior que não preencher é não deixar entrar.
+  useEffect(() => {
+    if (!token || !api.servidorLigado()) return;
+    void api
+      .meuCadastro(token)
+      .then((d) => {
+        setConhecido(d);
+        if (d.conhecido) setRascunho((r) => preencher(r, d.campos));
+      })
+      .catch(() => setConhecido(null));
+  }, [token]);
+
+  const doSindicato = useMemo(
+    () => camposDoSindicato(conhecido?.campos ?? {}),
+    [conhecido],
+  );
+
+  const falta = pendencias(
+    rascunho, etapa, Boolean(token), conhecido?.documentos ?? [],
+  );
   const ultima = etapa === ETAPAS.length - 1;
 
   async function enviar() {
@@ -231,6 +263,23 @@ export function App() {
         {avisoDemo ? (
           <Aviso tom="alerta">
             <strong>Demonstração.</strong> {avisoDemo}
+          </Aviso>
+        ) : null}
+
+        {/* O QUE MUDA A CONVERSA: ela não está preenchendo, está conferindo.
+            E se já temos documento dela, a tela diz — pedir de novo o que o
+            sindicato já mandou é o que faz a pessoa achar que não funciona. */}
+        {conhecido?.conhecido && !recibo ? (
+          <Aviso tom="bom">
+            {/* O texto do servidor já explica tudo. Repetir a mesma ideia
+                em duas frases coladas faz a pessoa parar de ler. */}
+            <p>{conhecido.aviso}</p>
+            {conhecido.documentos.length ? (
+              <p className="mt-2">
+                Já temos: {jaTemos(conhecido.documentos).join(", ")}. Você não
+                precisa enviar de novo.
+              </p>
+            ) : null}
           </Aviso>
         ) : null}
 
@@ -326,6 +375,7 @@ export function App() {
                 dados={rascunho.identificacao}
                 onChange={(c, v) => mudar("identificacao", c, v)}
                 cpfTravado={Boolean(token)}
+              doSindicato={doSindicato}
               />
             ) : null}
 
@@ -335,6 +385,7 @@ export function App() {
                 filiacao={rascunho.filiacao}
                 onCarreira={(campo, valor) => mudar("carreira", campo, valor)}
                 onFiliacao={(campo, valor) => mudar("filiacao", campo, valor)}
+              doSindicato={doSindicato}
               />
             ) : null}
 
