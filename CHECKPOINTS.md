@@ -23,7 +23,7 @@
 | 8 | Painel do sindicato: o que resolver primeiro | **pronto** | `6700a89` |
 | 9 | Banco ligado: diário é a autoridade, banco é a projeção | **pronto** | `dfca8a6` |
 | 10 | **Migração para região brasileira** | **agora** | — |
-| 11 | O valor: a prescrição, e a recusa de dizer quanto | **pronto** | `HEAD` |
+| 11 | O valor: a prescrição, e a recusa de dizer quanto | **pronto** | `f4ae30d` |
 
 ---
 
