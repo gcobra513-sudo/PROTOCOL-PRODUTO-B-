@@ -116,6 +116,7 @@ def fatos_para_o_motor(
     no_rol: bool | None = None,
     ja_executou: bool | None = None,
     tem_acao_propria: bool | None = None,
+    documentos_entregues: tuple[str, ...] = (),
 ) -> motor.Fatos:
     """Junta o que os documentos disseram com o que não está neles.
 
@@ -149,4 +150,5 @@ def fatos_para_o_motor(
         no_rol=no_rol,
         ja_executou=ja_executou,
         tem_acao_propria=tem_acao_propria,
+        documentos_entregues=documentos_entregues,
     )

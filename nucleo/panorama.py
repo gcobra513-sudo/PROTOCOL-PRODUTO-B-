@@ -113,16 +113,28 @@ class Panorama:
 
 #: `contribuicao-3.pdf` -> `contribuicao`. O tipo é o que decide a pendência;
 #: o índice só distingue um comprovante do outro.
-_TIPO = re.compile(r"^([a-z_]+?)(?:-\d{1,2})?\.pdf$")
+#:
+#: `.pdf` É OPCIONAL de propósito: o diário guarda o nome do arquivo e o
+#: banco guarda o TIPO, e as duas pontas chamam esta mesma função. Enquanto
+#: ela exigia a extensão, o caminho do banco não reconhecia documento nenhum
+#: — e o painel passava a cobrar a sentença de quem já a tinha entregue.
+#: Achado pelo teste que compara o panorama das duas fontes.
+_TIPO = re.compile(r"^([a-z_]+?)(?:-\d{1,2})?(?:\.pdf)?$")
+
+
+def tipo_do_arquivo(nome: str) -> str:
+    """`contribuicao-3.pdf` -> `contribuicao`; `sentenca` -> `sentenca`."""
+    achado = _TIPO.match(str(nome).strip().lower())
+    return achado.group(1) if achado else ""
 
 
 def tipos_entregues(arquivos) -> tuple[str, ...]:
-    """Os TIPOS de documento que chegaram, a partir dos nomes do diário."""
+    """Os TIPOS de documento que chegaram, pelo nome ou pelo próprio tipo."""
     vistos: list[str] = []
     for nome in sorted(arquivos or ()):
-        achado = _TIPO.match(str(nome).strip().lower())
-        if achado and achado.group(1) not in vistos:
-            vistos.append(achado.group(1))
+        tipo = tipo_do_arquivo(nome)
+        if tipo and tipo not in vistos:
+            vistos.append(tipo)
     return tuple(vistos)
 
 

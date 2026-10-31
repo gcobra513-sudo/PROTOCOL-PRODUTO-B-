@@ -16,6 +16,7 @@ e-mail. Qualquer outra escolha transforma o portal numa consulta de filiação.
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 import logging
 import pathlib
@@ -54,6 +55,15 @@ from .config import (
 )
 
 log = logging.getLogger("protocol.portal")
+
+
+def _hash_curto(texto: str) -> str:
+    """Marcador para o log de auditoria. NUNCA o CPF em claro: um log cheio
+    de CPF é um segundo banco de dado pessoal, com retenção mais longa e
+    menos cuidado que o primeiro."""
+    import hashlib
+
+    return hashlib.sha256(str(texto or "").encode("utf-8")).hexdigest()
 
 
 def _pendencias_vazias() -> list[dict]:
@@ -231,6 +241,33 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 f"19/2024). Declare PROTOCOL_REGIAO como uma região "
                 f"brasileira ({', '.join(sorted(banco.REGIOES_BRASILEIRAS))}), "
                 f"ou atenda só entidades de demonstração",
+            )
+
+        # A SEGUNDA TRAVA, e ela é sobre AUDITORIA.
+        #
+        # O esquema tem a tabela `leitura` porque num produto de consulta o
+        # vazamento é um `read`: sem ela, "quem viu o dado de quem" é
+        # pergunta sem resposta, e é a primeira que alguém faz depois de um
+        # incidente. Sem banco não há onde registrá-la — e aí a frase
+        # "registramos toda leitura de dado nominal" passa a ser falsa
+        # justamente no servidor que atende gente de verdade.
+        #
+        # De código, como as outras duas, e pelo mesmo motivo: "configurar o
+        # banco antes do primeiro sindicato" é promessa; isto é
+        # impossibilidade. A demonstração segue sem banco porque lá não há
+        # dado pessoal.
+        if not ent.apelido.startswith(PREFIXO_DEMO) and not cfg.tem_banco:
+            log.error(
+                "AUDITORIA recusou a entidade %s: sem PROTOCOL_DATABASE_URL "
+                "não há onde registrar quem leu dado nominal", ent.apelido,
+            )
+            raise _problema(
+                503,
+                "este servidor está sem banco de dados, e por isso não "
+                "registra quem leu o dado de quem. Entidade real não é "
+                "atendida assim: o registro de leitura é o que torna um "
+                "vazamento investigável. Defina PROTOCOL_DATABASE_URL, ou "
+                "atenda só entidades de demonstração",
             )
 
         return ent
@@ -485,26 +522,59 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         }
 
     def _fatos_lidos_do_cpf(ent: entidades.Entidade, cpf: str) -> dict:
-        """Os fatos que os PDFs da pessoa dizem, lidos agora.
+        """Os fatos que os documentos da pessoa dizem.
 
-        LÊ OS ARQUIVOS A CADA PEDIDO, e isto é dívida declarada: o lugar
-        certo é a tabela `achado`, que existe no esquema e ainda não é
-        escrita por ninguém (checkpoint 9). São poucos arquivos por pessoa, e
-        a alternativa — guardar o resultado numa variável de módulo — daria
-        resposta velha justamente no dia em que alguém corrigir um documento.
+        DO BANCO QUANDO HÁ BANCO. Os achados são extraídos UMA VEZ, na
+        chegada do cadastro, e ficam gravados com o trecho de onde saíram.
+        Antes isto reabria todos os PDFs da pessoa a cada carregamento de
+        tela — e era o que impedia o painel do sindicato de olhar os
+        documentos da base inteira.
 
-        PDF ilegível NÃO vira erro: vira ausência de fato, e o motor devolve
-        FALTA. Quebrar a consulta inteira por causa de um arquivo manda a
-        pessoa ligar para o sindicato por algo que ela já resolveu enviando.
+        Sem banco, relê os arquivos: é o modo de demonstração, e ali a base
+        tem uma pessoa.
+
+        DOCUMENTO ILEGÍVEL NÃO VIRA ERRO: vira ausência de fato, e o motor
+        devolve FALTA. Quebrar a consulta inteira por causa de um arquivo
+        manda a pessoa ligar para o sindicato por algo que ela já resolveu
+        enviando.
         """
-        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
         achados: list[leitura.Achado] = []
+        if cfg.tem_banco:
+            try:
+                return leitura.fatos_confiaveis(
+                    banco.achados_do_cpf(cfg.banco_url, ent.apelido, cpf)
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("ACHADOS do banco falharam; relendo os arquivos")
+        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
         for arquivo in sorted(pasta.glob("*.pdf")) if pasta.is_dir() else []:
             try:
                 achados += documentos.ler_pdf(arquivo.read_bytes())
             except Exception:  # noqa: BLE001
                 log.warning("documento ilegível em %s", arquivo.name)
         return leitura.fatos_confiaveis(achados)
+
+    def _entregues_do_cpf(ent: entidades.Entidade, cpf: str) -> tuple[str, ...]:
+        """QUE TIPOS de documento a pessoa já entregou — não o que eles
+        dizem. É o que faz a pendência mudar de dono: quem mandou a sentença
+        está esperando leitura, não providência.
+
+        DO BANCO QUANDO HÁ BANCO, pelo mesmo motivo dos achados: com banco,
+        nenhuma leitura de tela toca os PDFs. Olhar o disco aqui também
+        amarraria a resposta à presença do arquivo, e arquivo some — por
+        backup restaurado pela metade, por migração de armazenamento — sem
+        que a pessoa tenha deixado de entregar nada.
+        """
+        if cfg.tem_banco:
+            try:
+                return banco.documentos_do_cpf(cfg.banco_url, ent.apelido, cpf)
+            except Exception:  # noqa: BLE001
+                log.exception("DOCUMENTOS do banco falharam; olhando o disco")
+        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
+        nomes = (
+            [a.name for a in pasta.glob("*.pdf")] if pasta.is_dir() else []
+        )
+        return panorama.tipos_entregues(nomes)
 
     @app.get("/api/minhas-acoes")
     def minhas_acoes(pedido: Request) -> dict:
@@ -532,6 +602,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         """
         sessao = _sessao_de(pedido)
         ent = _entidade(sessao.entidade)
+        _auditar(ent, "minhas-acoes", quem_hash=sessao.cpf_hash,
+                 alvo_hash=sessao.cpf_hash)
         linhas = _linhas_do_cpf_da_sessao(ent, sessao)
 
         # Recarrega a cada pedido de propósito: homologar é ato de advogado
@@ -580,6 +652,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         fatos = documentos.fatos_para_o_motor(
             _fatos_lidos_do_cpf(ent, linha["cpf"]),
             linha,
+            documentos_entregues=_entregues_do_cpf(ent, linha["cpf"]),
             ja_executou=conta.resposta_booleana(linha["ja_executou"]),
             tem_acao_propria=conta.resposta_booleana(
                 linha["tem_acao_propria"]
@@ -652,6 +725,28 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             ),
         }
 
+    def _auditar(ent: entidades.Entidade, o_que: str, *, quem_hash: str,
+                 alvo_hash: str = "") -> None:
+        """Registra a leitura de dado nominal.
+
+        FALHA DE REGISTRO NÃO DERRUBA A CONSULTA, e esta é uma escolha com
+        um custo: um banco fora do ar deixa a leitura sem rastro em vez de
+        negar a leitura. A alternativa — recusar — tiraria do ar a consulta
+        de milhares de pessoas por causa de uma indisponibilidade de
+        infraestrutura, e o registro perdido aparece no log do servidor.
+        A trava que importa é outra, e é anterior: entidade REAL não é
+        atendida sem banco nenhum.
+        """
+        if not cfg.tem_banco:
+            return
+        try:
+            banco.registrar_leitura(cfg.banco_url, ent.apelido,
+                                    quem_hash=quem_hash, o_que=o_que,
+                                    alvo_hash=alvo_hash)
+        except Exception:  # noqa: BLE001
+            log.exception("AUDITORIA falhou ent=%s o_que=%s",
+                          ent.apelido, o_que)
+
     # -------------------------------------------------------- painel do gestor
 
     def _gestor_de(apelido: str, pedido: Request) -> entidades.Entidade:
@@ -707,11 +802,18 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         arquivos chegaram, que o diário já guarda.
         """
         ent = _gestor_de(apelido, pedido)
+        _auditar(ent, "panorama",
+                 quem_hash=_sessao_de(pedido).cpf_hash)
         catalogo = entendimentos.carregar_categorias(
             entendimentos.PASTA_PADRAO, tuple(ent.categorias)
         )
+        # DO BANCO QUANDO HÁ BANCO, do diário quando não há. Não são duas
+        # verdades: o banco é projeção do diário, e um teste monta o panorama
+        # das duas pontas e exige que sejam idênticos.
         visao = panorama.montar(
-            deposito.ler_diario(ent.pasta(cfg.raiz)), catalogo
+            banco.cadastros(cfg.banco_url, ent.apelido) if cfg.tem_banco
+            else deposito.ler_diario(ent.pasta(cfg.raiz)),
+            catalogo,
         )
         return {
             "entidade": ent.apelido,
@@ -899,6 +1001,33 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         recibo = deposito.depositar(ent, cfg.raiz, limpa, recebidos)
         # Um token, um envio.
         portao.gastar_sessao(token)
+
+        # ESPELHA NO BANCO, DEPOIS DO DIÁRIO. A ordem é a mesma do depósito e
+        # pelo mesmo motivo: o diário é a autoridade. Se o banco falhar, o
+        # envio já está gravado e `banco.reconstruir` o recupera — por isso
+        # a falha aqui vira log e não 500: a pessoa não perde o cadastro por
+        # causa de um banco fora do ar, e nada se perdeu de fato.
+        #
+        # E OS ACHADOS SÃO EXTRAÍDOS AQUI, UMA VEZ. Antes, a leitura do PDF
+        # acontecia a cada carregamento da tela do filiado, e nunca para o
+        # painel do sindicato — ler a base inteira a cada pedido é consulta
+        # de minutos para responder uma página.
+        if cfg.tem_banco:
+            try:
+                banco.reconstruir(cfg.banco_url, ent.apelido,
+                                  deposito.ler_diario(ent.pasta(cfg.raiz)))
+                for nome, corpo in recebidos.items():
+                    banco.guardar_achados(
+                        cfg.banco_url, ent.apelido, limpa["cpf"],
+                        hashlib.sha256(corpo).hexdigest(),
+                        documentos.ler_pdf(corpo),
+                    )
+            except Exception:  # noqa: BLE001
+                log.exception(
+                    "ESPELHO falhou para ent=%s protocolo=%s — o diário está "
+                    "gravado; refaça com banco.reconstruir",
+                    ent.apelido, recibo.protocolo,
+                )
 
         log.info(
             "cadastro gravado ent=%s protocolo=%s arquivos=%d substituiu=%s",

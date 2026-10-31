@@ -217,11 +217,28 @@ sempre", e essa é a pior resposta possível numa negociação com sindicato.
 
 ## O que falta, para não parecer pronto
 
-1. **O log de leitura existe como tabela e nada escreve nele.** Num produto
-   de consulta o vazamento é um `read`, e hoje "quem viu o dado de quem" não
-   tem resposta.
-2. **A migração do diário em disco para o banco não foi feita.** As telas de
-   hoje leem o arquivo. O banco está testado e vazio.
-3. **Nenhum prazo de retenção foi aprovado** por ninguém.
-4. **A trava de região existe; a migração para São Paulo não aconteceu.** O
+1. **O ACERVO não é projetado.** Só o cadastro entra no banco. Por isso
+   `pessoa.alcancavel` e `pessoa.tem_divergencia` ficam no padrão: calculá-las
+   só com o cadastro daria um número diferente com o mesmo nome do que
+   `completude` publica, e dois números com um nome só é o pior tipo de erro
+   de relatório. Enquanto isso, o painel de completude lê o arquivo.
+2. **Nenhum prazo de retenção foi aprovado** por ninguém, e o tombstone não
+   tem quem o acione: `tombstone` existe como tabela e nenhuma rota apaga.
+3. **A trava de região existe; a migração para São Paulo não aconteceu.** O
    servidor segue em Virginia, atendendo só demonstração.
+4. **O veredicto não é gravado.** `oportunidade` existe e ninguém escreve
+   nela, então a reavaliação com prova ("quando o Tema 1.302 for julgado,
+   quem era FALTA virou PODE, e aqui está por quê") ainda não é possível.
+
+### O que deixou de faltar no checkpoint 9
+
+- **O log de leitura escreve.** Cada consulta de dado nominal deixa linha, com
+  marcador e nunca com CPF em claro — e entidade real não é atendida sem
+  banco, justamente porque sem ele não há onde registrar.
+- **O diário é projetado no banco**, e `banco.reconstruir` refaz a projeção a
+  qualquer momento. O diário continua sendo a autoridade; o banco é a vista
+  consultável. Um teste monta o panorama das duas pontas e exige que sejam
+  idênticos — é ele que impede a divergência que duas fontes sempre criam.
+- **Os achados ficam gravados, com o trecho**, extraídos uma vez na chegada.
+  Antes a tela do filiado reabria todos os PDFs da pessoa a cada
+  carregamento, e o painel do sindicato não podia olhar documento nenhum.

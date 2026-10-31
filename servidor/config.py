@@ -64,7 +64,15 @@ class Config:
     #: vale com as cláusulas-padrão da ANPD (Res. CD/ANPD 19/2024). Região
     #: brasileira elimina a pergunta em vez de respondê-la.
     regiao: str = ""
+    #: Onde o banco está. VAZIO é modo sem banco: a aplicação roda, grava no
+    #: diário em disco e **não tem onde registrar quem leu o dado de quem**.
+    #: Por isso entidade real é recusada sem ele — ver `app._entidade`.
+    banco_url: str = ""
     avisos: tuple[str, ...] = field(default=())
+
+    @property
+    def tem_banco(self) -> bool:
+        return bool(self.banco_url.strip())
 
     @property
     def tem_remetente(self) -> bool:
@@ -156,7 +164,16 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
             raise ConfiguracaoInvalida(f"{nome} tem que ser pelo menos 1")
         return valor
 
+    banco_url = amb.get("PROTOCOL_DATABASE_URL", "").strip()
+    if not banco_url:
+        avisos.append(
+            "SEM BANCO: PROTOCOL_DATABASE_URL não está definida. As leituras "
+            "de dado nominal NÃO são registradas, e entidade real é recusada "
+            "por isso — só demonstração é atendida."
+        )
+
     cfg = Config(
+        banco_url=banco_url,
         regiao=regiao,
         raiz=raiz,
         segredo=segredo,

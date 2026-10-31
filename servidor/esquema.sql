@@ -61,7 +61,13 @@ CREATE INDEX IF NOT EXISTS recebimento_por_entidade
 -- primeiro, e a divergência some junto. Por isso são duas tabelas — uma que
 -- guarda toda afirmação já feita, e outra com o valor vigente.
 -- ---------------------------------------------------------------------
+-- A CHAVE É O RECEBIMENTO, NÃO O RELÓGIO. Era
+-- `(entidade, cpf, campo, fonte, afirmado_em)`, e dois envios da mesma pessoa
+-- no mesmo segundo colidiam: o segundo era descartado em silêncio, e com ele
+-- ia embora a afirmação que fazia a divergência existir. Um envio é um
+-- recebimento; é ele que distingue.
 CREATE TABLE IF NOT EXISTS pessoa_afirmacao (
+    id             bigserial PRIMARY KEY,
     entidade       text NOT NULL,
     cpf            text NOT NULL,
     campo          text NOT NULL,
@@ -69,7 +75,10 @@ CREATE TABLE IF NOT EXISTS pessoa_afirmacao (
     fonte          text NOT NULL CHECK (fonte IN ('acervo', 'cadastro')),
     recebimento_id bigint REFERENCES recebimento (id) ON DELETE SET NULL,
     afirmado_em    timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (entidade, cpf, campo, fonte, afirmado_em)
+    -- NULLS NOT DISTINCT para que a afirmação sem recebimento também não
+    -- duplique: com o padrão do SQL, NULL nunca colide com NULL e a
+    -- reprojeção criaria uma linha nova a cada execução.
+    UNIQUE NULLS NOT DISTINCT (entidade, cpf, campo, fonte, recebimento_id)
 );
 
 CREATE TABLE IF NOT EXISTS pessoa (
@@ -186,10 +195,17 @@ CREATE TABLE IF NOT EXISTS oportunidade (
 -- registro, "quem viu o dado de quem" é uma pergunta sem resposta — e é a
 -- primeira que alguém faz depois de um incidente.
 --
--- ATENÇÃO: NADA ESCREVE NESTA TABELA AINDA. As rotas de consulta leem do
--- diário em disco e o Postgres ainda não está ligado à aplicação. Controle
--- declarado que ninguém implementa é pior que controle ausente, porque o
--- próximo a ler conclui que existe.
+-- ESCRITA desde o checkpoint 9: `/api/minhas-acoes` e o painel do sindicato
+-- registram cada leitura, com MARCADOR e nunca com o CPF em claro — um log
+-- de auditoria cheio de CPF é um segundo banco de dado pessoal, com retenção
+-- mais longa e menos cuidado que o primeiro.
+--
+-- E é por causa desta tabela que entidade REAL não é atendida sem banco: sem
+-- onde registrar, "quem viu o dado de quem" volta a ser pergunta sem
+-- resposta. A trava está em `app._entidade`.
+--
+-- SEM DELETE para a aplicação (ver os GRANTs abaixo): log que o próprio
+-- sistema apaga não é log de auditoria.
 CREATE TABLE IF NOT EXISTS leitura (
     entidade  text NOT NULL,
     quando    timestamptz NOT NULL DEFAULT now(),
@@ -258,6 +274,15 @@ BEGIN
         );
     END LOOP;
 
-    -- A sequência do recebimento também precisa ser usável pelo papel.
-    EXECUTE 'GRANT USAGE, SELECT ON SEQUENCE recebimento_id_seq TO protocol_app';
+    -- TODA sequência do esquema precisa ser usável pelo papel, não só a do
+    -- recebimento. A linha nomeava uma sequência só; quando `pessoa_afirmacao`
+    -- ganhou chave serial, o INSERT passou a falhar com "permission denied
+    -- for sequence" — erro que só aparece na primeira escrita, e que num
+    -- esquema aplicado pelo superusuário ninguém vê até a aplicação rodar com
+    -- o papel certo. Varrer o schema não esquece a próxima.
+    FOR t IN
+        SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
+    LOOP
+        EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %I TO protocol_app', t);
+    END LOOP;
 END $$;

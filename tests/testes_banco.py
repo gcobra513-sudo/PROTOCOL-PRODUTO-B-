@@ -226,13 +226,61 @@ def teste_regiao_brasileira_libera():
         "PROTOCOL_RAIZ": str(raiz),
         "PROTOCOL_SEGREDO": "x" * 40,
         "PROTOCOL_REGIAO": "sa-east-1",
+        # COM BANCO: entidade real sem banco é recusada por outra trava, a de
+        # auditoria — sem banco não há onde registrar quem leu o dado de quem.
+        "PROTOCOL_DATABASE_URL": URL,
         "PROTOCOL_SMTP_HOST": "smtp.exemplo.org",
         "PROTOCOL_SMTP_REMETENTE": "portal@exemplo.org",
     })
     r = TestClient(criar_app(cfg)).get("/api/entidade/sindicato-real")
     checa(r.status_code == 200,
           f"região brasileira foi recusada: {r.status_code} {r.text[:200]}")
-    print("  ok     sa-east-1 atende entidade real")
+    print("  ok     sa-east-1 com banco atende entidade real")
+
+
+def teste_entidade_real_sem_banco_e_recusada():
+    """A SEGUNDA TRAVA, e ela é sobre auditoria, não sobre região.
+
+    O esquema tem a tabela `leitura` porque num produto de CONSULTA o
+    vazamento é um `read`: sem ela, "quem viu o dado de quem" é pergunta sem
+    resposta. Sem banco não há onde registrá-la — e aí a frase "registramos
+    toda leitura de dado nominal" passa a ser falsa justamente no servidor
+    que atende gente de verdade.
+
+    A demonstração continua rodando sem banco: lá não há dado pessoal, e
+    fechá-la não protegeria ninguém.
+    """
+    secao("trava de auditoria")
+    from fastapi.testclient import TestClient
+
+    from servidor.app import criar_app
+    from servidor.config import carregar
+
+    import tempfile
+    raiz = Path(tempfile.mkdtemp(prefix="semBanco-"))
+    from servidor import entidades as mod
+    cad = mod.Cadastro(raiz)
+    cad.criar("sindicato-real", "Sindicato Real")
+    cad.criar("demo-teste", "Demonstração")
+
+    cfg = carregar({
+        "PROTOCOL_RAIZ": str(raiz),
+        "PROTOCOL_SEGREDO": "x" * 40,
+        "PROTOCOL_REGIAO": "sa-east-1",       # região certa, banco nenhum
+        "PROTOCOL_SMTP_HOST": "smtp.exemplo.org",
+        "PROTOCOL_SMTP_REMETENTE": "portal@exemplo.org",
+    })
+    cliente = TestClient(criar_app(cfg))
+    r = cliente.get("/api/entidade/sindicato-real")
+    checa(r.status_code == 503,
+          f"atendeu entidade real sem banco: {r.status_code}")
+    checa("leitura" in r.text.lower() or "auditor" in r.text.lower()
+          or "registr" in r.text.lower(),
+          f"a recusa não explica que é a auditoria: {r.text[:300]}")
+    r = cliente.get("/api/entidade/demo-teste")
+    checa(r.status_code == 200,
+          f"a trava de auditoria fechou a demonstração: {r.status_code}")
+    print("  ok     entidade real exige banco; a demonstração não")
 
 
 # ------------------------------------------------- as três camadas (BANCO.md)
@@ -460,6 +508,7 @@ SEM_BANCO = [
     teste_entidade_real_fora_do_brasil_e_recusada,
     teste_entidade_de_demonstracao_roda_em_qualquer_regiao,
     teste_regiao_brasileira_libera,
+    teste_entidade_real_sem_banco_e_recusada,
 ]
 
 
