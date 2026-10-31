@@ -40,7 +40,7 @@ padrão é o mesmo que nenhum, com a desvantagem de parecer que existe.
 | Variável | Para quê |
 |---|---|
 | `PROTOCOL_SEGREDO` | assina código de acesso, token e marcador de CPF. Obrigatória |
-| `PROTOCOL_RAIZ` | onde moram os dados. Padrão `dados_portal` — separada de `dados/`, que é versionada |
+| `PROTOCOL_RAIZ` | onde moram os dados. Padrão `dados_portal`. **As duas, `dados/` e `dados_portal/`, estão no `.gitignore`** — e `tests/testes_repositorio.py` confere isso contra este padrão. Se você apontar a raiz para outro lugar, acrescente esse lugar ao `.gitignore` |
 | `PROTOCOL_ORIGENS` | endereços do portal, separados por vírgula |
 | `PROTOCOL_SMTP_*` | `HOST`, `PORTA`, `USUARIO`, `SENHA`, `REMETENTE` |
 | `PROTOCOL_EMISSOES_POR_CPF_HORA` | padrão 3 |

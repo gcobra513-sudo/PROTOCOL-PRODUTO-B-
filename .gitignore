@@ -3,8 +3,19 @@ __pycache__/
 *.pyc
 .venv/
 
-# Dados: NUNCA versionar cadastro de gente
+# Dados: NUNCA versionar cadastro de gente.
+#
+# `dados_portal/` é a raiz PADRÃO (ver PROTOCOL_RAIZ em servidor/config.py), e
+# estava de fora: só `*.jsonl` a pegava de raspão. Ficavam rastreáveis o PDF
+# de sentença, filiados.csv, gestores.csv, entidades.json, o manifesto, o log
+# de códigos de acesso EM CLARO e o log de e-mails com nome e processo.
+#
+# A regra guardava a pasta errada por dois meses. `tests/testes_repositorio.py`
+# agora confere isto contra o padrão declarado no código — porque este é o
+# único estrago da auditoria que um conserto não desfaz: dado empurrado só sai
+# reescrevendo história, e o repositório pode já estar clonado em outro lugar.
 dados/
+dados_portal/
 *.jsonl
 
 # Front
