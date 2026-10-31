@@ -208,6 +208,9 @@ export interface ProcessoAcompanhado {
 export interface MeusProcessos {
   nome: string;
   processos: ProcessoAcompanhado[];
+  /** Quando a gente conferiu o tribunal pela última vez. VAZIO quer dizer
+   *  que nunca conferimos — e a tela diz isso, em vez de calar. */
+  conferido_em: string;
   limite: string;
 }
 
@@ -228,6 +231,7 @@ export async function meusProcessos(token: string): Promise<MeusProcessos> {
   return {
     nome: corpo.nome ?? "",
     processos: corpo.processos ?? [],
+    conferido_em: corpo.conferido_em ?? "",
     limite: corpo.limite ?? "",
   };
 }

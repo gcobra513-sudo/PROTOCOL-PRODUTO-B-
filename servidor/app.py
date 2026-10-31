@@ -35,6 +35,7 @@ from nucleo import participacao, pendencia
 
 from . import (
     acervo,
+    agenda,
     documentos,
     acesso,
     banco,
@@ -168,6 +169,23 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             log.error("SEMENTE recusada: %s", e)
 
     app = FastAPI(title="Portal de execução", docs_url=None, redoc_url=None)
+
+    # O TRABALHO DE FUNDO SOBE COM O SERVIDOR.
+    #
+    # Aqui e não num cron de fora por um motivo concreto: o aviso toca CPF,
+    # nome e e-mail, e por isso tem de rodar onde a API roda — que tem de ser
+    # região brasileira. O coletor poderia viver em qualquer agendador (ele
+    # só toca número de processo), mas separar os dois em lugares diferentes
+    # dobraria o que há para configurar e esquecer.
+    #
+    # Em THREAD, nunca no laço de eventos: a coleta leva de 22 a 43 s por
+    # processo, medidos, e isso dentro do laço travaria o portal inteiro.
+    #
+    # E só com banco: sem ele não há arrendamento entre instâncias nem
+    # registro de execução — e agendador sem registro é agendador que morre
+    # calado.
+    if cfg.tem_banco and cfg.agendar:
+        agenda.subir(app, cfg)
     app.state.cfg = cfg
     app.state.cadastro = cadastro
     app.state.portao = portao
@@ -276,8 +294,33 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
     @app.get("/saude")
     def saude() -> dict:
+        # O ESTADO DO TRABALHO DE FUNDO VAI NA SAÚDE, e é o ponto inteiro
+        # deste checkpoint: um agendador que parou tem de aparecer em algum
+        # lugar que alguém olhe. `ok: false` quando alguma tarefa está
+        # atrasada — monitor que só confere se a porta responde não percebe
+        # que os avisos pararam.
+        trabalhos: list[dict] = []
+        ilegivel: list[str] = []
+        if cfg.tem_banco:
+            for ent in cadastro.todas():
+                try:
+                    for e in agenda.estado(cfg.banco_url, ent.apelido):
+                        trabalhos.append({"entidade": ent.apelido, **e})
+                except Exception as erro:  # noqa: BLE001
+                    # NÃO ENGOLIR. Visto no vivo, com a tabela ainda não
+                    # criada: a consulta falhava, a lista ficava vazia, e a
+                    # saúde respondia `ok: true` — exatamente o silêncio que
+                    # este checkpoint existe para impedir. Não saber como
+                    # está o trabalho é um estado RUIM, não um estado bom.
+                    log.exception("estado do agendador falhou para %s",
+                                  ent.apelido)
+                    ilegivel.append(f"{ent.apelido}: {type(erro).__name__}")
+        atrasados = [t for t in trabalhos if t["atrasado"]]
         return {
-            "ok": True,
+            "ok": not atrasados and not ilegivel,
+            "trabalho_de_fundo": trabalhos,
+            "atrasados": len(atrasados),
+            "estado_ilegivel": ilegivel,
             "modo_ensaio": cfg.modo_ensaio,
             "envio_de_email": "smtp" if cfg.tem_remetente else "arquivo",
             "entidades": len(cadastro.todas()),
@@ -544,10 +587,25 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     if ultimo else None
                 ),
             })
+        # QUANDO FOI A ÚLTIMA CONFERÊNCIA. Sem isto a tela sabia a data do
+        # último MOVIMENTO e não a da última COLETA — e "nada novo" só é
+        # verdade em relação à segunda. É a frase que mata o telefonema:
+        # quem liga, liga para ouvir "conferimos hoje de manhã e não mudou
+        # nada". Sem a data da coleta, a tela não podia dizer isso.
+        conferido_em = ""
+        if cfg.tem_banco:
+            try:
+                quando = agenda.ultima_boa(cfg.banco_url, ent.apelido,
+                                           "coletar")
+                conferido_em = quando.isoformat() if quando else ""
+            except Exception:  # noqa: BLE001
+                log.exception("última coleta falhou ent=%s", ent.apelido)
+
         return {
             "entidade": ent.apelido,
             "nome": ent.nome,
             "processos": processos,
+            "conferido_em": conferido_em,
             # Dito na resposta, não só na tela: quem consumir esta API por
             # fora tem de receber o limite junto com o dado.
             "limite": (

@@ -70,6 +70,15 @@ class Config:
     banco_url: str = ""
     avisos: tuple[str, ...] = field(default=())
 
+    #: Subir o trabalho de fundo junto com o servidor. Desligável porque
+    #: quem roda várias instâncias pode preferir um processo dedicado — e
+    #: porque o teste não quer um laço rodando por baixo.
+    agendar: bool = True
+    #: Endereço do portal, para o aviso dizer onde ver o resto. Vazio, o
+    #: e-mail não inventa link — link errado num e-mail sobre processo
+    #: judicial é o melhor jeito de ensinar a pessoa a clicar em link falso.
+    portal: str = ""
+
     @property
     def tem_banco(self) -> bool:
         return bool(self.banco_url.strip())
@@ -173,6 +182,8 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
         )
 
     cfg = Config(
+        agendar=amb.get("PROTOCOL_AGENDAR", "1") != "0",
+        portal=amb.get("PROTOCOL_PORTAL", "").strip(),
         banco_url=banco_url,
         regiao=regiao,
         raiz=raiz,

@@ -5,11 +5,13 @@
  * o sindicato liga para ouvir isso, e em nove de cada dez vezes é essa a
  * resposta.
  *
- * ELA AINDA NÃO ESTÁ AQUI, e o docstring dizia que estava. Falta o dado: a
- * tela sabe a data do último MOVIMENTO, não a da última COLETA, e "nada novo"
- * só é verdade em relação à segunda. `movimentos.jsonl` guarda `coletado_em`;
- * a API ainda não o expõe. Enquanto não expuser, a tela mostra o último
- * andamento e cala sobre o que não sabe.
+ * AGORA ELA ESTÁ AQUI. A tela sabia a data do último MOVIMENTO, não a da
+ * última COLETA — e "nada novo" só é verdade em relação à segunda. Com o
+ * agendador registrando cada execução, a API passou a expor `conferido_em`,
+ * e a frase que importa pode finalmente ser dita.
+ *
+ * E quando NUNCA conferimos, a tela diz isso em vez de calar: silêncio aqui
+ * seria lido como "não mudou nada", que é o oposto da verdade.
  *
  * E ela diz o limite na própria tela, não no rodapé: movimentação não é
  * intimação. Esconder isso pouparia uma linha e criaria a chance de alguém
@@ -91,8 +93,19 @@ export function MeusProcessos({ entidade }: { entidade: string }) {
   return (
     <Cartao
       titulo="Meus processos"
-      explicacao="A gente confere a movimentação sozinho. Você não precisa ligar para perguntar se andou."
+      explicacao={
+        dados.conferido_em
+          ? `A gente confere sozinho. Última conferência: ${soData(dados.conferido_em)}.`
+          : "A gente confere a movimentação sozinho. Você não precisa ligar para perguntar se andou."
+      }
     >
+      {!dados.conferido_em ? (
+        <Aviso tom="alerta">
+          <strong>Ainda não conferimos o tribunal.</strong> O que está abaixo
+          é o que já tínhamos. Enquanto não houver uma conferência, a
+          ausência de novidade aqui não quer dizer que nada mudou.
+        </Aviso>
+      ) : null}
       <div className="space-y-3">
         {dados.processos.map((p) => (
           <div

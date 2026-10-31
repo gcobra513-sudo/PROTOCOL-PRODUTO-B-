@@ -22,6 +22,7 @@ sem saber de uma sentença porque a nossa rede piscou — e ninguém perceberia.
 from __future__ import annotations
 
 import argparse
+import os
 import datetime as dt
 import json
 import pathlib
@@ -65,6 +66,9 @@ def main() -> int:
     fonte.add_argument("--entidade", help="coleta o que os filiados pediram")
     fonte.add_argument("--processos",
                        help="arquivo com um número por linha (para medir)")
+    p.add_argument("--banco", default=os.environ.get("PROTOCOL_DATABASE_URL", ""),
+                   help="URL do banco, para incluir os processos que vieram "
+                        "da planilha do sindicato")
     p.add_argument("--raiz", default="dados")
     p.add_argument("--seco", action="store_true",
                    help="não grava nada; só mostra o que viria")
@@ -87,7 +91,25 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         pasta = ent.pasta(raiz)
+        # DAS DUAS FONTES. Ler só o diário de cadastro deixava de fora os
+        # números que vieram da PLANILHA do sindicato — justamente os que a
+        # pessoa não precisou digitar. O ciclo ficava quebrado no meio: a
+        # planilha trazia o processo, o banco guardava, e a coleta não ia
+        # buscar. Achado pelo agendador, que registrou "nada a acompanhar"
+        # numa entidade que tinha processo.
         numeros = numeros_do_diario(deposito.ler_diario(pasta))
+        if args.banco:
+            from servidor import banco
+
+            try:
+                for numero in banco.processos_para_acompanhar(
+                    args.banco, ent.apelido
+                ):
+                    if numero not in numeros:
+                        numeros.append(numero)
+            except Exception as e:  # noqa: BLE001
+                print(f"  aviso: não deu para ler os processos do banco: {e}",
+                      file=sys.stderr)
         destino = pasta / ARQUIVO
 
     if not numeros:

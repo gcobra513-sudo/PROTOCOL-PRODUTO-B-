@@ -101,7 +101,7 @@ def preparar():
         with banco.sessao(URL, entidade) as cur:
             for tabela in ("achado", "documento", "vinculo", "processo",
                            "pessoa", "pessoa_afirmacao", "aviso_enviado",
-                           "movimento", "recebimento"):
+                           "movimento", "execucao", "recebimento"):
                 cur.execute(f"DELETE FROM {tabela}")
 
 
@@ -432,6 +432,7 @@ def _servidor():
         "PROTOCOL_MODO_ENSAIO": "1",
         "PROTOCOL_RAIZ": str(raiz),
         "PROTOCOL_DATABASE_URL": URL,
+        "PROTOCOL_AGENDAR": "0",
         "PROTOCOL_EMISSOES_POR_CPF_HORA": "50",
         "PROTOCOL_EMISSOES_POR_ORIGEM_HORA": "500",
     })
@@ -1141,6 +1142,86 @@ def teste_o_aviso_nao_atravessa_entidade():
     print("  ok     a marca de aviso não atravessa entidade")
 
 
+def teste_o_coletor_enxerga_o_processo_que_veio_da_planilha():
+    """O CICLO QUEBRADO NO MEIO, achado pelo próprio agendador: ele registrou
+    "nada a acompanhar" numa entidade que tinha processo. O coletor lia só o
+    diário de cadastro, e os números que vieram da PLANILHA do sindicato —
+    justamente os que a pessoa não precisou digitar — ficavam invisíveis."""
+    secao("o ciclo fechado")
+    from servidor import banco
+    from servidor import acervo as mod
+
+    banco.projetar_acervo(URL, "demo-a", [mod.Pessoa(
+        cpf=A, linha_no_arquivo=2, campos={
+            "cpf": A, "email": "f@exemplo.org",
+            "nome_completo": "FULANA (EXEMPLO)",
+            "numeros_de_processo": "00103912420064013400",
+        })])
+    numeros = banco.processos_para_acompanhar(URL, "demo-a")
+    checa(numeros == ["00103912420064013400"],
+          f"o processo da planilha não chegou ao coletor: {numeros}")
+    checa(banco.processos_para_acompanhar(URL, "demo-b") == [],
+          "o coletor de uma entidade enxergou o processo de outra")
+    print("  ok     o processo da planilha chega ao coletor")
+
+
+def teste_a_saude_denuncia_o_agendador_parado():
+    """O PONTO INTEIRO DESTE CHECKPOINT. Um agendador que morreu tem de
+    aparecer onde alguém olhe — e `ok: true` com os avisos parados há um mês
+    é exatamente o relatório que faz ninguém perceber.
+
+    Monitor que só confere se a porta responde não vê que os avisos pararam.
+    """
+    secao("o agendador parado aparece")
+    cliente, _, _raiz = _servidor()
+    corpo = cliente.get("/saude").json()
+    checa(corpo["ok"] is False,
+          f"disse ok com o trabalho de fundo nunca tendo rodado: {corpo}")
+    checa(corpo["atrasados"] >= 1, f"{corpo}")
+    tarefas = {t["tarefa"] for t in corpo["trabalho_de_fundo"]}
+    checa(tarefas == {"coletar", "avisar"},
+          f"as tarefas não aparecem na saúde: {tarefas}")
+    print(f"  ok     saúde: ok={corpo['ok']}, "
+          f"{corpo['atrasados']} atrasada(s)")
+
+
+def teste_saude_nao_diz_ok_quando_nao_consegue_ler_o_estado():
+    """A ARMADILHA EM QUE EU MESMO CAÍ, vista no vivo. A consulta do estado
+    falhava, a lista ficava vazia, e `atrasados == 0` fazia a saúde
+    responder `ok: true` — com os avisos parados.
+
+    **Não saber como está o trabalho é um estado RUIM**, não um estado bom.
+    """
+    cliente, _, _raiz = _servidor()
+    import servidor.agenda as mod
+
+    original = mod.estado
+    mod.estado = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("banco fora do ar")
+    )
+    try:
+        corpo = cliente.get("/saude").json()
+    finally:
+        mod.estado = original
+    checa(corpo["ok"] is False,
+          f"disse ok sem conseguir ler o estado do trabalho: {corpo}")
+    checa(bool(corpo.get("estado_ilegivel")),
+          f"não disse que não conseguiu ler: {corpo}")
+    print("  ok     não saber não é estar bem")
+
+
+def teste_a_saude_fica_boa_quando_o_trabalho_roda():
+    from servidor import agenda
+
+    cliente, ent, _raiz = _servidor()
+    for tarefa in agenda.TAREFAS:
+        agenda.registrar(URL, ent.apelido, tarefa, ok=True, detalhe="ok")
+    corpo = cliente.get("/saude").json()
+    checa(corpo["ok"] is True, f"continuou ruim depois de rodar: {corpo}")
+    checa(corpo["atrasados"] == 0, f"{corpo}")
+    print("  ok     depois de rodar, a saúde fica boa")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1182,6 +1263,10 @@ TESTES = [
     teste_o_processo_coletado_fica_conhecido,
     teste_o_aviso_marcado_nao_se_repete_e_e_por_pessoa,
     teste_o_aviso_nao_atravessa_entidade,
+    teste_o_coletor_enxerga_o_processo_que_veio_da_planilha,
+    teste_a_saude_denuncia_o_agendador_parado,
+    teste_saude_nao_diz_ok_quando_nao_consegue_ler_o_estado,
+    teste_a_saude_fica_boa_quando_o_trabalho_roda,
     teste_a_leitura_de_dado_nominal_fica_registrada,
     teste_o_registro_de_leitura_nao_guarda_cpf_em_claro,
     teste_a_auditoria_tambem_respeita_a_politica,

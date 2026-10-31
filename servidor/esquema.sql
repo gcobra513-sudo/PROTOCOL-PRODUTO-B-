@@ -169,6 +169,33 @@ CREATE TABLE IF NOT EXISTS movimento (
     PRIMARY KEY (entidade, numero, grau, data, nome)
 );
 
+-- O TRABALHO DE FUNDO: quando rodou, como foi, e quem está rodando agora.
+--
+-- Existe por uma razão só, e não é organização: **agendador que morre calado
+-- é pior que agendador nenhum**. Sem este registro, o produto continua
+-- prometendo aviso na tela de cadastro, a pessoa continua marcando o opt-in,
+-- e ninguém recebe nada — até o primeiro telefonema perguntando por uma
+-- sentença de três meses atrás.
+--
+-- `arrendado_ate` é a trava entre instâncias. De BANCO e não de memória:
+-- duas instâncias do servidor não compartilham memória, e é justamente com
+-- duas que o problema aparece. E ela EXPIRA, para que um processo morto no
+-- meio não trave o trabalho para sempre.
+CREATE TABLE IF NOT EXISTS execucao (
+    entidade      text NOT NULL,
+    tarefa        text NOT NULL,
+    arrendado_ate timestamptz,
+    -- A ÚLTIMA BOA é coluna própria, e não a última linha: contar a
+    -- tentativa como sucesso faria o painel dizer "rodou hoje" enquanto
+    -- ninguém é avisado há semanas.
+    ultima_boa    timestamptz,
+    ultima_em     timestamptz,
+    ultima_ok     boolean,
+    ultimo_detalhe text NOT NULL DEFAULT '',
+    PRIMARY KEY (entidade, tarefa)
+);
+
+
 -- O QUE JÁ FOI AVISADO A CADA PESSOA.
 --
 -- Por PESSOA e não por processo: numa ação coletiva o mesmo processo alcança
@@ -268,7 +295,7 @@ BEGIN
     FOREACH t IN ARRAY ARRAY[
         'recebimento', 'pessoa_afirmacao', 'pessoa', 'documento', 'achado',
         'processo', 'vinculo', 'movimento', 'oportunidade', 'leitura',
-        'aviso_enviado', 'tombstone'
+        'aviso_enviado', 'execucao', 'tombstone'
     ]
     LOOP
         -- O log de leitura e o tombstone são só INSERT e SELECT: a aplicação

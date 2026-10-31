@@ -62,7 +62,7 @@ PAPEL = "protocol_app"
 TABELAS = (
     "recebimento", "pessoa_afirmacao", "pessoa", "documento", "achado",
     "processo", "vinculo", "movimento", "oportunidade", "leitura",
-    "aviso_enviado", "tombstone",
+    "aviso_enviado", "execucao", "tombstone",
 )
 
 
@@ -570,6 +570,19 @@ def achados_do_cpf(url: str, entidade: str, cpf: str) -> list:
                        posicao=pos, metodo=m)
             for t, v, c, tr, pos, m in cur.fetchall()
         ]
+
+
+def processos_para_acompanhar(url: str, entidade: str) -> list[str]:
+    """Todos os processos desta entidade, de qualquer fonte.
+
+    O COLETOR LIA SÓ O DIÁRIO DE CADASTRO, e por isso não enxergava os
+    números que vieram da PLANILHA do sindicato — justamente os que a pessoa
+    não precisou digitar. O ciclo ficava quebrado no meio: a planilha trazia
+    o processo, o `vinculo` guardava, e a coleta não ia buscar.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute("SELECT numero FROM processo ORDER BY numero")
+        return [n for (n,) in cur.fetchall()]
 
 
 def processos_do_cpf(url: str, entidade: str, cpf: str) -> list[str]:
