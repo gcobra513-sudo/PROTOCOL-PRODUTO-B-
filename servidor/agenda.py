@@ -115,28 +115,50 @@ def estado(url: str, entidade: str) -> list[dict]:
     """
     with sessao(url, entidade) as cur:
         cur.execute(
-            "SELECT tarefa, ultima_boa, ultima_em, ultima_ok, ultimo_detalhe "
-            "FROM execucao"
+            "SELECT tarefa, ultima_boa, ultima_em, ultima_ok FROM execucao"
         )
-        por_tarefa = {t: (b, e, k, d) for t, b, e, k, d in cur.fetchall()}
+        por_tarefa = {t: (b, e, k) for t, b, e, k in cur.fetchall()}
 
     agora = dt.datetime.now(dt.UTC)
     saida = []
     for tarefa in TAREFAS:
-        boa, em, ok, detalhe = por_tarefa.get(tarefa, (None, None, None, ""))
+        boa, em, ok = por_tarefa.get(tarefa, (None, None, None))
         atrasado = (
             boa is None
             or (agora - boa) > dt.timedelta(hours=TOLERANCIA_HORAS)
         )
+        # `ultimo_detalhe` NÃO SAI DAQUI, e a coluna continua existindo.
+        # Esta função alimenta `/saude`, que não exige sessão, e o detalhe
+        # era o stdout cru do subprocesso: o de `avisar_movimentacao.py`
+        # termina listando CPF e e-mail de quem ficou sem aviso, e o do
+        # caminho de tempo esgotado carregava a linha de comando inteira,
+        # com a URL do banco e a senha. Auditoria independente leu os dois
+        # por um GET sem cabeçalho nenhum. "Estado" é se a tarefa rodou e
+        # quando; o conteúdo da execução é outra coisa, e tem outro dono.
         saida.append({
             "tarefa": tarefa,
             "ultima_boa": boa.isoformat() if boa else None,
             "ultima_em": em.isoformat() if em else None,
             "ultima_falhou": ok is False,
-            "ultimo_detalhe": detalhe or "",
             "atrasado": atrasado,
         })
     return saida
+
+
+def detalhe(url: str, entidade: str, tarefa: str) -> str:
+    """O detalhe da última execução — CANAL DE OPERADOR, não de monitor.
+
+    Existe separado de `estado` de propósito. `estado` alimenta `/saude`,
+    que não exige sessão; este detalhe pode conter o que a execução disse,
+    e quem o lê tem de ser alguém com direito a ler. Chamar daqui é a
+    decisão explícita de que o chamador é esse alguém.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT ultimo_detalhe FROM execucao WHERE tarefa = %s", (tarefa,)
+        )
+        linha = cur.fetchone()
+    return (linha[0] if linha else "") or ""
 
 
 def rodar_uma_vez(url: str, entidade: str, tarefas: dict) -> None:
@@ -156,13 +178,19 @@ def rodar_uma_vez(url: str, entidade: str, tarefas: dict) -> None:
                      tarefa, entidade)
             continue
         try:
-            detalhe = funcao(entidade) or ""
+            saiu = funcao(entidade) or ""
         except Exception as e:  # noqa: BLE001
             log.exception("tarefa %s de %s falhou", tarefa, entidade)
+            # SÓ O TIPO DA EXCEÇÃO, nunca a mensagem. A mensagem de uma
+            # exceção arbitrária carrega o que ela quiser: a de
+            # `TimeoutExpired` carrega a linha de comando inteira, e assim
+            # a URL do banco COM SENHA chegou a esta coluna e saiu por uma
+            # rota sem sessão. O texto completo está no log, uma linha
+            # acima, que é onde o operador olha.
             registrar(url, entidade, tarefa, ok=False,
-                      detalhe=f"{type(e).__name__}: {e}")
+                      detalhe=f"falhou: {type(e).__name__}")
             continue
-        registrar(url, entidade, tarefa, ok=True, detalhe=str(detalhe))
+        registrar(url, entidade, tarefa, ok=True, detalhe=str(saiu)[:200])
 
 
 # =====================================================================
@@ -196,6 +224,7 @@ def tarefas_padrao(cfg):
     segundo caminho para a mesma coisa. Dois caminhos divergem, e o que roda
     sozinho é o que ninguém olha.
     """
+    import os as _os
     import subprocess
     import sys as _sys
     from pathlib import Path as _Path
@@ -208,27 +237,44 @@ def tarefas_padrao(cfg):
                 _sys.executable, str(raiz_do_repo / "ferramentas" / programa),
                 "--entidade", entidade, "--raiz", str(cfg.raiz),
             ] + extra
+            # A CREDENCIAL VAI PELO AMBIENTE, NÃO PELA LINHA DE COMANDO.
+            # Em `argv` ela aparecia em `/proc/<pid>/cmdline` e, pior, no
+            # `str()` de `TimeoutExpired`, que carrega a lista inteira de
+            # argumentos — e esse texto era gravado e servido sem sessão.
+            # As duas ferramentas já leem PROTOCOL_DATABASE_URL por padrão;
+            # passar explícito mantém o comportamento mesmo quando a
+            # `Config` foi montada em código, e não só lida do ambiente.
+            ambiente = dict(_os.environ)
+            if cfg.banco_url:
+                ambiente["PROTOCOL_DATABASE_URL"] = cfg.banco_url
             r = subprocess.run(comando, capture_output=True, text=True,
-                               timeout=ARRENDAMENTO_SEGUNDOS - 60)
-            saida = (r.stdout or "").strip().replace("\n", " ")[-400:]
+                               timeout=ARRENDAMENTO_SEGUNDOS - 60,
+                               env=ambiente)
+            # O STDOUT DESTAS FERRAMENTAS É RELATÓRIO PARA HUMANO, e por
+            # desenho contém CPF e e-mail de quem ficou sem aviso, e
+            # números de processo. Ele vai para o LOG, que é canal de
+            # operador, e nunca para o `detalhe`, que é coluna lida por
+            # quem monitora. O agendador precisa do código de saída.
+            if r.stdout and r.stdout.strip():
+                log.info("%s em %s: %s", programa, entidade,
+                         r.stdout.strip())
+            if r.stderr and r.stderr.strip():
+                log.warning("%s em %s (stderr): %s", programa, entidade,
+                            r.stderr.strip())
             if r.returncode not in (0, 1):
-                raise RuntimeError(
-                    f"{programa} saiu com {r.returncode}: "
-                    f"{(r.stderr or saida)[-300:]}"
-                )
+                raise RuntimeError(f"{programa} saiu com {r.returncode}")
             # Código 1 é "rodou, mas algo ficou de fora" — e isso É uma falha
             # para o registro: alguém tem de olhar, e é o registro que avisa.
+            # O QUE ficou de fora está no log, não aqui.
             if r.returncode == 1:
-                raise RuntimeError(f"{programa}: {saida}")
-            return saida
+                raise RuntimeError(f"{programa} saiu com 1")
+            return f"{programa} saiu com 0"
         return executar
 
     return {
-        "coletar": _rodar("coletar_movimentacao.py",
-                          ["--banco", cfg.banco_url]),
+        "coletar": _rodar("coletar_movimentacao.py", []),
         "avisar": _rodar("avisar_movimentacao.py",
-                         ["--banco", cfg.banco_url] +
-                         (["--portal", cfg.portal] if cfg.portal else [])),
+                         ["--portal", cfg.portal] if cfg.portal else []),
     }
 
 

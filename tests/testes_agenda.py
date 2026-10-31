@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -133,17 +134,63 @@ def teste_a_execucao_que_falhou_nao_vira_ultima_boa():
 
 
 def teste_o_detalhe_da_falha_sobrevive():
-    """Quem for olhar precisa saber o que aconteceu, não só que deu errado."""
+    """Quem for olhar precisa saber o que aconteceu, não só que deu errado.
+
+    MUDOU O CANAL, NÃO A EXIGÊNCIA. Este teste lia o detalhe por
+    `agenda.estado`, que é o que alimenta `/saude` — rota sem sessão. O
+    detalhe continua tendo de sobreviver, e continua sendo conferido aqui;
+    só passa a ser lido por `agenda.detalhe`, que é canal de operador e
+    declara isso no nome.
+    """
     from servidor import agenda
 
     agenda.registrar(URL, "demo-a", "coletar", ok=False,
                      detalhe="tribunal TRF1 devolveu 503")
+    checa("TRF1" in agenda.detalhe(URL, "demo-a", "coletar"),
+          "o detalhe da falha sumiu do canal de operador")
     estado = agenda.estado(URL, "demo-a")
     coletar = [e for e in estado if e["tarefa"] == "coletar"][0]
-    checa("TRF1" in (coletar["ultimo_detalhe"] or ""),
-          f"o detalhe sumiu: {coletar}")
     checa(coletar["ultima_falhou"] is True, f"{coletar}")
-    print("  ok     o detalhe da falha sobrevive")
+    checa("ultimo_detalhe" not in coletar,
+          f"o detalhe voltou para o canal do monitor: {coletar}")
+    print("  ok     o detalhe sobrevive, no canal de operador")
+
+
+def teste_a_falha_nao_grava_a_mensagem_da_excecao():
+    """A MENSAGEM DE UMA EXCEÇÃO CARREGA O QUE ELA QUISER.
+
+    `subprocess.TimeoutExpired.__str__` embute a lista inteira de
+    argumentos. Como a URL do banco ia em `--banco`, a senha chegava a esta
+    coluna e saía por `/saude`, que não exige sessão. Auditoria independente
+    leu a credencial completa por um GET anônimo.
+
+    Gravar o tipo basta para quem monitora; o texto inteiro está no log.
+    """
+    from servidor import agenda
+
+    SENHA = "SENHA-FICTICIA-DE-EXEMPLO"
+    CPF = "11144477735"       # CPF de teste; não é de ninguém
+
+    def estoura(entidade):
+        raise subprocess.TimeoutExpired(
+            ["python3", "--banco",
+             f"postgresql://postgres:{SENHA}@exemplo.invalid/x",
+             "--cpf", CPF],
+            3540,
+        )
+
+    agenda.rodar_uma_vez(URL, "demo-a", {"coletar": estoura})
+    guardado = agenda.detalhe(URL, "demo-a", "coletar")
+    checa(SENHA not in guardado,
+          f"a senha do banco foi gravada na coluna: {guardado}")
+    checa(CPF not in guardado, f"o CPF foi gravado na coluna: {guardado}")
+    checa("TimeoutExpired" in guardado,
+          f"perdeu a informação de QUE tipo de falha foi: {guardado}")
+    estado = [e for e in agenda.estado(URL, "demo-a")
+              if e["tarefa"] == "coletar"][0]
+    checa(estado["ultima_falhou"] is True,
+          f"perdeu o sinal de que falhou: {estado}")
+    print("  ok     a falha grava o tipo, nunca a mensagem")
 
 
 # ------------------------------------------------- o silêncio é o inimigo
@@ -237,6 +284,7 @@ TESTES = [
     teste_a_execucao_boa_fica_registrada,
     teste_a_execucao_que_falhou_nao_vira_ultima_boa,
     teste_o_detalhe_da_falha_sobrevive,
+    teste_a_falha_nao_grava_a_mensagem_da_excecao,
     teste_quem_nunca_rodou_aparece_como_atrasado,
     teste_quem_rodou_agora_nao_esta_atrasado,
     teste_o_atraso_tem_limite_declarado_nao_chutado,

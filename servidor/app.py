@@ -299,27 +299,56 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         # lugar que alguém olhe. `ok: false` quando alguma tarefa está
         # atrasada — monitor que só confere se a porta responde não percebe
         # que os avisos pararam.
-        trabalhos: list[dict] = []
-        ilegivel: list[str] = []
+        # AGREGADO POR TAREFA, NÃO UMA LINHA POR SINDICATO. Esta rota não
+        # exige sessão, e uma linha por entidade entregava a um anônimo a
+        # lista de todos os clientes — informação comercial, e o apelido é
+        # a chave das rotas públicas. A pergunta que o monitor faz é "o
+        # trabalho parou?", e ela se responde sem nomear ninguém.
+        por_tarefa: dict[str, dict] = {
+            t: {"tarefa": t, "entidades": 0, "atrasadas": 0,
+                "ultima_boa": None, "alguma_falhou": False}
+            for t in agenda.TAREFAS
+        }
+        ilegivel = 0
+        atrasados = 0
         if cfg.tem_banco:
             for ent in cadastro.todas():
                 try:
                     for e in agenda.estado(cfg.banco_url, ent.apelido):
-                        trabalhos.append({"entidade": ent.apelido, **e})
-                except Exception as erro:  # noqa: BLE001
+                        linha = por_tarefa.setdefault(
+                            e["tarefa"],
+                            {"tarefa": e["tarefa"], "entidades": 0,
+                             "atrasadas": 0, "ultima_boa": None,
+                             "alguma_falhou": False},
+                        )
+                        linha["entidades"] += 1
+                        if e["atrasado"]:
+                            linha["atrasadas"] += 1
+                            atrasados += 1
+                        if e["ultima_falhou"]:
+                            linha["alguma_falhou"] = True
+                        boa = e["ultima_boa"]
+                        # A MAIS ANTIGA MANDA. Se UMA entidade parou, a
+                        # tarefa está parada; a mais recente esconderia
+                        # exatamente a que precisa aparecer.
+                        if boa and (linha["ultima_boa"] is None
+                                    or boa < linha["ultima_boa"]):
+                            linha["ultima_boa"] = boa
+                except Exception:  # noqa: BLE001
                     # NÃO ENGOLIR. Visto no vivo, com a tabela ainda não
                     # criada: a consulta falhava, a lista ficava vazia, e a
                     # saúde respondia `ok: true` — exatamente o silêncio que
                     # este checkpoint existe para impedir. Não saber como
                     # está o trabalho é um estado RUIM, não um estado bom.
+                    # O apelido e o tipo do erro vão para o LOG, que é
+                    # canal de operador; para fora sai só a contagem.
                     log.exception("estado do agendador falhou para %s",
                                   ent.apelido)
-                    ilegivel.append(f"{ent.apelido}: {type(erro).__name__}")
-        atrasados = [t for t in trabalhos if t["atrasado"]]
+                    ilegivel += 1
         return {
             "ok": not atrasados and not ilegivel,
-            "trabalho_de_fundo": trabalhos,
-            "atrasados": len(atrasados),
+            "trabalho_de_fundo": list(por_tarefa.values()),
+            "atrasados": atrasados,
             "estado_ilegivel": ilegivel,
             "modo_ensaio": cfg.modo_ensaio,
             "envio_de_email": "smtp" if cfg.tem_remetente else "arquivo",

@@ -1222,6 +1222,58 @@ def teste_a_saude_fica_boa_quando_o_trabalho_roda():
     print("  ok     depois de rodar, a saúde fica boa")
 
 
+def teste_saude_nao_publica_o_detalhe_a_quem_nao_tem_sessao():
+    """O DETALHE DA EXECUÇÃO NÃO É PÚBLICO.
+
+    `/saude` não exige sessão. O `ultimo_detalhe` que ela publicava era o
+    stdout cru do subprocesso — e o stdout de `avisar_movimentacao.py`
+    termina listando, uma linha por pessoa, o CPF e o e-mail de quem ficou
+    sem aviso. Auditoria independente reproduziu de ponta a ponta: um GET
+    sem cabeçalho nenhum devolvia CPF, e-mail e o apelido de todos os
+    sindicatos atendidos.
+
+    Pelo caminho do tempo esgotado saía pior: `TimeoutExpired` carrega a
+    linha de comando inteira, e nela ia `--banco <URL com a senha>` — a
+    credencial que ignora a política de entidade.
+
+    O que o monitor precisa saber — se o trabalho parou — cabe em `ok`,
+    `atrasado` e `ultima_boa`, que não carregam conteúdo nenhum. O detalhe
+    fica no log do servidor, que é canal de operador.
+    """
+    from servidor import agenda
+
+    cliente, ent, _raiz = _servidor()
+    CPF = "11144477735"        # CPF de teste; não é de ninguém
+    SENHA = "SENHA-FICTICIA-DE-EXEMPLO"
+    agenda.registrar(
+        URL, ent.apelido, "avisar", ok=False,
+        detalhe=(f"RuntimeError: avisar_movimentacao.py: 1 ficaram SEM "
+                 f"aviso: {CPF}: o e-mail não serve ('x@exemplo.invalid')"),
+    )
+    agenda.registrar(
+        URL, ent.apelido, "coletar", ok=False,
+        detalhe=(f"TimeoutExpired: Command '['python3', '--banco', "
+                 f"'postgresql://postgres:{SENHA}@exemplo.invalid/x']' "
+                 f"timed out after 3540 seconds"),
+    )
+
+    resposta = cliente.get("/saude")       # sem cabeçalho Authorization
+    cru = resposta.text
+    checa(CPF not in cru, f"o CPF saiu na saúde pública: {cru[:300]}")
+    checa(SENHA not in cru, f"a senha do banco saiu na saúde: {cru[:300]}")
+    checa("ultimo_detalhe" not in cru,
+          f"o detalhe da execução continua público: {cru[:300]}")
+    checa(ent.apelido not in cru,
+          f"a saúde pública enumera os sindicatos atendidos: {cru[:300]}")
+
+    # E NADA DISSO PODE CUSTAR O SINAL: um trabalho parado continua
+    # aparecendo, que é a razão de a rota existir.
+    corpo = resposta.json()
+    checa(corpo["ok"] is False, f"perdeu o sinal de que algo falhou: {corpo}")
+    checa(corpo["atrasados"] >= 1, f"perdeu a contagem de atrasados: {corpo}")
+    print("  ok     a saúde não publica CPF, senha, detalhe nem apelido")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1267,6 +1319,7 @@ TESTES = [
     teste_a_saude_denuncia_o_agendador_parado,
     teste_saude_nao_diz_ok_quando_nao_consegue_ler_o_estado,
     teste_a_saude_fica_boa_quando_o_trabalho_roda,
+    teste_saude_nao_publica_o_detalhe_a_quem_nao_tem_sessao,
     teste_a_leitura_de_dado_nominal_fica_registrada,
     teste_o_registro_de_leitura_nao_guarda_cpf_em_claro,
     teste_a_auditoria_tambem_respeita_a_politica,
