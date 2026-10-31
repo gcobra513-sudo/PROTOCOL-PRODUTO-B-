@@ -340,3 +340,87 @@ BEGIN
         EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %I TO protocol_app', t);
     END LOOP;
 END $$;
+
+
+-- =====================================================================
+-- O QUE A SUPABASE EXIGE A MAIS, e nada disto se descobre em Postgres local
+-- =====================================================================
+
+-- 1. QUEM APLICA O ESQUEMA PRECISA PODER ASSUMIR O PAPEL.
+--
+-- Em Postgres local o dono costuma ser superusuário e `SET ROLE` sempre
+-- funciona. **Na Supabase o `postgres` NÃO é superusuário**, e a aplicação
+-- levanta "permission denied to set role protocol_app" na PRIMEIRA consulta
+-- — descoberto aplicando o esquema lá, não aqui.
+--
+-- `current_user` e não `postgres` literal: quem aplica varia por hospedagem,
+-- e nomear um papel que pode não existir faria o esquema falhar inteiro.
+--
+-- Isto não enfraquece nada: o papel que aplica já é o mais privilegiado do
+-- projeto, e `protocol_app` é NOBYPASSRLS — assumi-lo sempre REDUZ
+-- privilégio.
+DO $$
+BEGIN
+    EXECUTE format('GRANT protocol_app TO %I', current_user);
+EXCEPTION WHEN OTHERS THEN
+    -- Já é membro, ou é superusuário e não precisa. Seguir é o certo.
+    NULL;
+END $$;
+
+-- 2. O PAPEL PODE LOGAR, e é assim que ele deve ser usado.
+--
+--   conectar como o dono e dar SET ROLE  -> esquecer o SET ROLE fura o RLS
+--                                           inteiro, calado
+--   conectar DIRETO como `protocol_app`  -> não há o que esquecer
+--
+-- A SENHA NÃO É DEFINIDA AQUI. Segredo em arquivo versionado é segredo
+-- queimado. Sem senha o papel não loga, e a aplicação segue pelo SET ROLE.
+ALTER ROLE protocol_app WITH LOGIN;
+GRANT USAGE ON SCHEMA public TO protocol_app;
+
+-- 3. FECHA A DATA API.
+--
+-- A Supabase dá, por padrão, acesso ao schema `public` inteiro para `anon`,
+-- `authenticated` e `service_role` — os papéis que atendem HTTP. Medido no
+-- projeto de São Paulo: as 13 tabelas estavam alcançáveis pelos três.
+--
+-- O RLS segurava `anon` e `authenticated`. Mas **`service_role` tem
+-- BYPASSRLS**: quem tiver essa chave lê a base de TODOS os sindicatos,
+-- ignorando cada política acima.
+--
+-- E o risco que não é de hoje: enquanto o GRANT existir, uma tabela nova
+-- criada sem RLS nasce exposta na internet. Confiar em "lembrar de ligar o
+-- RLS" é confiar em memória.
+--
+-- Por GRANT e não por configuração de painel: configuração alguém reverte
+-- sem saber o que estava protegendo.
+DO $$
+DECLARE t text;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+        RETURN;   -- não é Supabase; nada a fechar
+    END IF;
+    FOREACH t IN ARRAY ARRAY[
+        'recebimento', 'pessoa_afirmacao', 'pessoa', 'documento', 'achado',
+        'processo', 'vinculo', 'movimento', 'oportunidade', 'leitura',
+        'aviso_enviado', 'execucao', 'tombstone'
+    ]
+    LOOP
+        EXECUTE format(
+            'REVOKE ALL ON %I FROM anon, authenticated, service_role', t
+        );
+    END LOOP;
+    FOR t IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
+    LOOP
+        EXECUTE format(
+            'REVOKE ALL ON SEQUENCE %I FROM anon, authenticated, service_role',
+            t
+        );
+    END LOOP;
+    -- O que ainda não existe também nasce fechado: quem criar a próxima
+    -- tabela não vai lembrar desta linha.
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public '
+            'REVOKE ALL ON TABLES FROM anon, authenticated, service_role';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public '
+            'REVOKE ALL ON SEQUENCES FROM anon, authenticated, service_role';
+END $$;

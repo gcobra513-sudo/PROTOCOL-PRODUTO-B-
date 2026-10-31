@@ -215,6 +215,46 @@ sempre", e essa é a pior resposta possível numa negociação com sindicato.
 
 ---
 
+## O banco de São Paulo, aplicado em 31/10/2026
+
+`PROTOCOL DATABASE`, região **`sa-east-1`**. 13 tabelas, RLS **ligado e
+forçado** em todas, uma política por tabela, `leitura` e `tombstone` sem
+DELETE para a aplicação. Zero alertas de segurança no verificador da própria
+Supabase.
+
+**O isolamento foi provado nele, não só no Postgres local**, com cadastro
+declaradamente fictício: a sessão da entidade A enxergou 1 pessoa, 0 da
+entidade B; a escrita cruzada foi recusada; e a aplicação não conseguiu
+apagar o próprio log de auditoria.
+
+### Três coisas que só apareceram lá
+
+**1. O `postgres` da Supabase NÃO é superusuário.** `SET ROLE protocol_app`
+falhava com *permission denied*, e a aplicação teria quebrado na primeira
+consulta. Resolvido com `GRANT protocol_app TO current_user` no esquema.
+
+**2. As 13 tabelas estavam abertas para a Data API.** A Supabase concede o
+schema `public` inteiro a `anon`, `authenticated` e `service_role`. O RLS
+segurava os dois primeiros — mas **`service_role` tem `BYPASSRLS`**: quem
+tiver essa chave lê a base de todos os sindicatos, ignorando cada política.
+Revogado, com `ALTER DEFAULT PRIVILEGES` para que a próxima tabela também
+nasça fechada.
+
+**3. A URL padrão conecta como `postgres`, que tem `BYPASSRLS`.** Isso já se
+sabia e agora está medido no projeto: `rolbypassrls = true`. Enquanto a
+aplicação usar essa URL, o RLS depende de ela nunca esquecer o `SET LOCAL
+ROLE` — que ela faz, e é testado, mas é uma trava que depende de disciplina.
+
+### O que falta fazer no banco, e é seu
+
+`protocol_app` já pode logar, e **não tem senha** — de propósito: segredo que
+passa por uma conversa é segredo queimado. Defina uma no SQL editor da
+Supabase e use-a na `PROTOCOL_DATABASE_URL`. Aí o RLS deixa de depender de
+disciplina: conectando direto como `protocol_app`, não há `SET ROLE` para
+esquecer.
+
+---
+
 ## O que falta, para não parecer pronto
 
 1. **O ACERVO não é projetado.** Só o cadastro entra no banco. Por isso
