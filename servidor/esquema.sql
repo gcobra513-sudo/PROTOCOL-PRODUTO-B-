@@ -169,6 +169,33 @@ CREATE TABLE IF NOT EXISTS movimento (
     PRIMARY KEY (entidade, numero, grau, data, nome)
 );
 
+-- O QUE JÁ FOI AVISADO A CADA PESSOA.
+--
+-- Por PESSOA e não por processo: numa ação coletiva o mesmo processo alcança
+-- milhares, e cada uma tem o seu estado — quem se cadastrou ontem não pode
+-- receber o histórico de 2006 porque alguém já foi avisado dele.
+--
+-- A chave primária é o que impede o aviso repetido, e ela é a defesa de
+-- verdade: o trabalho roda todo dia, e avisar duas vezes o mesmo andamento
+-- faz a pessoa desligar o aviso — e aí ela volta a ligar.
+CREATE TABLE IF NOT EXISTS aviso_enviado (
+    entidade   text NOT NULL,
+    cpf        text NOT NULL,
+    -- numero|grau|data|nome: o DataJud não dá identificador estável.
+    chave      text NOT NULL,
+    -- `enviado`: a pessoa recebeu e-mail sobre este andamento.
+    -- `estreia`: NÃO recebeu, e não vai receber — é histórico de um processo
+    --            visto pela primeira vez. Marcar a estreia como "enviado"
+    --            seria mentir no log de um aviso que nunca saiu, e é
+    --            justamente neste log que alguém vai procurar quando a
+    --            pessoa disser "não fui avisada".
+    motivo     text NOT NULL DEFAULT 'enviado'
+               CHECK (motivo IN ('enviado', 'estreia')),
+    enviado_em timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (entidade, cpf, chave)
+);
+
+
 -- O VEREDICTO DO MOTOR, e `catalogo_versao` é o que torna o produto
 -- auditável: quando o STJ julgar o Tema 1.302, a gente reavalia e quem
 -- estava FALTA vira PODE — com a prova de por que mudou. Sem este campo, o
@@ -241,7 +268,7 @@ BEGIN
     FOREACH t IN ARRAY ARRAY[
         'recebimento', 'pessoa_afirmacao', 'pessoa', 'documento', 'achado',
         'processo', 'vinculo', 'movimento', 'oportunidade', 'leitura',
-        'tombstone'
+        'aviso_enviado', 'tombstone'
     ]
     LOOP
         -- O log de leitura e o tombstone são só INSERT e SELECT: a aplicação

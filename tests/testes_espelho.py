@@ -100,7 +100,8 @@ def preparar():
     for entidade in ("demo-a", "demo-b"):
         with banco.sessao(URL, entidade) as cur:
             for tabela in ("achado", "documento", "vinculo", "processo",
-                           "pessoa", "pessoa_afirmacao", "recebimento"):
+                           "pessoa", "pessoa_afirmacao", "aviso_enviado",
+                           "movimento", "recebimento"):
                 cur.execute(f"DELETE FROM {tabela}")
 
 
@@ -1041,6 +1042,105 @@ def teste_a_correcao_da_pessoa_nao_apaga_o_sindicato():
     print("  ok     correção vira divergência, não sobrescrita")
 
 
+# ===================================== o aviso de movimentação, no banco
+
+
+def teste_so_entra_na_lista_de_aviso_quem_marcou():
+    secao("o aviso de movimentação")
+    from servidor import banco
+
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "QUER AVISO (EXEMPLO)", "a@sindicato.exemplo.org", "2004-03", ""),
+        (B, "NAO QUER (EXEMPLO)", "b@sindicato.exemplo.org", "2004-03", ""),
+    ]))
+    banco.reconstruir(URL, "demo-a", [
+        registro(A, quer_aviso="sim"),
+        registro(B, quer_aviso=""),
+    ])
+    quem = banco.destinatarios(URL, "demo-a")
+    checa({d.cpf for d in quem} == {A},
+          f"a lista de aviso não respeitou o opt-in: "
+          f"{[(d.cpf, d.quer_aviso) for d in quem]}")
+    print("  ok     só quem marcou entra na lista")
+
+
+def teste_o_email_do_aviso_vem_do_sindicato_nao_do_digitado():
+    """Se viesse do digitado, bastaria cadastrar o CPF de outra pessoa com o
+    próprio e-mail para passar a receber a movimentação do processo dela."""
+    from servidor import banco
+
+    banco.projetar_acervo(URL, "demo-a", _pessoas_do_acervo([
+        (A, "FULANA (EXEMPLO)", "oficial@sindicato.exemplo.org",
+         "2004-03", ""),
+    ]))
+    banco.reconstruir(URL, "demo-a", [
+        registro(A, quer_aviso="sim", email="outro@qualquer.exemplo.org"),
+    ])
+    quem = banco.destinatarios(URL, "demo-a")
+    checa(quem[0].email_do_sindicato == "oficial@sindicato.exemplo.org",
+          f"o destino veio do digitado: {quem[0].email_do_sindicato}")
+    print("  ok     destino é o e-mail da planilha do sindicato")
+
+
+def teste_o_opt_in_e_dela_o_sindicato_nao_marca_por_ela():
+    """O acervo pode trazer uma coluna chamada `quer_aviso`. Ela não vale:
+    consentimento é da pessoa, e o sindicato declarar por ela transformaria
+    a planilha numa lista de mala direta."""
+    from servidor import banco
+    from servidor import acervo as mod
+
+    banco.projetar_acervo(URL, "demo-a", [mod.Pessoa(
+        cpf=A, linha_no_arquivo=2, campos={
+            "cpf": A, "email": "a@sindicato.exemplo.org",
+            "nome_completo": "FULANA (EXEMPLO)", "quer_aviso": "sim",
+        })])
+    quem = banco.destinatarios(URL, "demo-a")
+    checa(quem == [],
+          f"o sindicato marcou o opt-in no lugar da pessoa: {quem}")
+    print("  ok     o opt-in só vale vindo da pessoa")
+
+
+def teste_o_processo_coletado_fica_conhecido():
+    """É o que separa estreia de novidade. Sem isso, o primeiro dia de cada
+    sindicato manda a cada pessoa o histórico inteiro do processo dela."""
+    from nucleo import aviso as mod
+    from servidor import banco
+
+    checa(banco.processos_coletados(URL, "demo-a") == set(),
+          "havia processo conhecido numa base limpa")
+    banco.guardar_movimentos(URL, "demo-a", [
+        mod.Movimento(numero="00103912420064013400", grau="G1",
+                      data="2026-10-30", nome="Juntada"),
+    ])
+    checa(banco.processos_coletados(URL, "demo-a")
+          == {"00103912420064013400"}, "o processo não ficou conhecido")
+    print("  ok     processo coletado passa a ser conhecido")
+
+
+def teste_o_aviso_marcado_nao_se_repete_e_e_por_pessoa():
+    """Por PESSOA e não por processo: numa coletiva o mesmo processo alcança
+    milhares, e quem se cadastrou ontem não pode herdar o 'já avisado' de
+    quem está há meses."""
+    from servidor import banco
+
+    banco.marcar_avisado(URL, "demo-a", A, ["proc|G1|2026-10-30|Juntada"])
+    banco.marcar_avisado(URL, "demo-a", A, ["proc|G1|2026-10-30|Juntada"])
+    checa(banco.chaves_ja_avisadas(URL, "demo-a", A)
+          == {"proc|G1|2026-10-30|Juntada"}, "duplicou a marca")
+    checa(banco.chaves_ja_avisadas(URL, "demo-a", B) == set(),
+          "a marca de uma pessoa valeu para a outra")
+    print("  ok     marca por pessoa, sem duplicar")
+
+
+def teste_o_aviso_nao_atravessa_entidade():
+    from servidor import banco
+
+    banco.marcar_avisado(URL, "demo-b", A, ["x|G1|2026-10-30|Y"])
+    checa(banco.chaves_ja_avisadas(URL, "demo-a", A) == set(),
+          "a entidade A enxergou a marca da entidade B")
+    print("  ok     a marca de aviso não atravessa entidade")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1076,6 +1176,12 @@ TESTES = [
     teste_quem_nao_esta_na_base_recebe_vazio_e_nao_erro,
     teste_a_consulta_do_proprio_cadastro_fica_registrada,
     teste_a_correcao_da_pessoa_nao_apaga_o_sindicato,
+    teste_so_entra_na_lista_de_aviso_quem_marcou,
+    teste_o_email_do_aviso_vem_do_sindicato_nao_do_digitado,
+    teste_o_opt_in_e_dela_o_sindicato_nao_marca_por_ela,
+    teste_o_processo_coletado_fica_conhecido,
+    teste_o_aviso_marcado_nao_se_repete_e_e_por_pessoa,
+    teste_o_aviso_nao_atravessa_entidade,
     teste_a_leitura_de_dado_nominal_fica_registrada,
     teste_o_registro_de_leitura_nao_guarda_cpf_em_claro,
     teste_a_auditoria_tambem_respeita_a_politica,

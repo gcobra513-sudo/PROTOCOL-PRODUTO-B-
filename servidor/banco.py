@@ -62,7 +62,7 @@ PAPEL = "protocol_app"
 TABELAS = (
     "recebimento", "pessoa_afirmacao", "pessoa", "documento", "achado",
     "processo", "vinculo", "movimento", "oportunidade", "leitura",
-    "tombstone",
+    "aviso_enviado", "tombstone",
 )
 
 
@@ -602,6 +602,118 @@ def documentos_do_cpf(url: str, entidade: str, cpf: str) -> tuple[str, ...]:
             (digitos,),
         )
         return tuple(t for (t,) in cur.fetchall())
+
+
+def guardar_movimentos(url: str, entidade: str, movimentos) -> int:
+    """A movimentação coletada, no banco. Devolve quantas linhas são novas.
+
+    `movimento` existia no esquema e ninguém escrevia nela — a coleta ficava
+    só no diário em arquivo. Sem ela no banco não há como saber quais
+    processos JÁ FORAM COLETADOS ANTES, e sem isso o aviso não consegue
+    distinguir estreia de novidade.
+    """
+    novas = 0
+    with sessao(url, entidade) as cur:
+        for m in movimentos or ():
+            cur.execute(
+                "INSERT INTO movimento (entidade, numero, grau, data, nome) "
+                "VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                (entidade, m.numero, m.grau, m.data, m.nome),
+            )
+            novas += cur.rowcount
+    return novas
+
+
+def processos_coletados(url: str, entidade: str) -> set[str]:
+    """Os processos de que já se viu movimentação alguma vez.
+
+    É o que separa ESTREIA de novidade. Um processo que não está aqui está
+    sendo coletado pela primeira vez, e o histórico dele — a GIFA tem 600
+    movimentos — não pode virar e-mail para ninguém.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute("SELECT DISTINCT numero FROM movimento")
+        return {n for (n,) in cur.fetchall()}
+
+
+def chaves_ja_avisadas(url: str, entidade: str, cpf: str = "") -> set[str]:
+    with sessao(url, entidade) as cur:
+        if cpf:
+            cur.execute(
+                "SELECT chave FROM aviso_enviado WHERE cpf = %s", (cpf,)
+            )
+        else:
+            cur.execute("SELECT cpf, chave FROM aviso_enviado")
+            return {f"{c}|{k}" for c, k in cur.fetchall()}
+        return {k for (k,) in cur.fetchall()}
+
+
+def marcar_avisado(url: str, entidade: str, cpf: str, chaves,
+                   motivo: str = "enviado") -> None:
+    """Marca DEPOIS de a mensagem sair.
+
+    A ordem é uma escolha com custo, e a escolha é esta: marcar antes e
+    falhar o envio deixa a pessoa sem saber da sentença dela para sempre;
+    enviar antes e falhar a marcação a faz receber duas vezes amanhã. Entre
+    nunca saber e saber duas vezes, saber duas vezes.
+
+    `motivo='estreia'` marca o histórico de um processo visto pela primeira
+    vez — que NÃO foi avisado e não deve ser. Sem essa marca, a proteção da
+    estreia dura um dia: o processo fica "conhecido", o histórico continua
+    não-avisado, e na rodada seguinte a pessoa recebe os 600 movimentos que
+    a estreia tinha evitado. Medido no vivo.
+    """
+    with sessao(url, entidade) as cur:
+        for k in chaves or ():
+            cur.execute(
+                "INSERT INTO aviso_enviado (entidade, cpf, chave, motivo) "
+                "VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                (entidade, cpf, k, motivo),
+            )
+
+
+def destinatarios(url: str, entidade: str) -> list:
+    """Quem pediu aviso, com o e-mail do SINDICATO e os processos dele.
+
+    O e-mail sai do acervo — a planilha do sindicato —, nunca do que a pessoa
+    digitou: se fosse o digitado, bastaria alguém cadastrar o CPF de outra
+    pessoa com o próprio e-mail para passar a receber a movimentação do
+    processo dela.
+    """
+    from nucleo import aviso as mod
+
+    quer: dict[str, bool] = {}
+    email: dict[str, str] = {}
+    nome: dict[str, str] = {}
+    processos: dict[str, list[str]] = {}
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (cpf, campo, fonte) cpf, campo, fonte, valor "
+            "FROM pessoa_afirmacao WHERE campo IN "
+            "('quer_aviso', 'email', 'nome_completo') "
+            "ORDER BY cpf, campo, fonte, afirmado_em DESC, id DESC"
+        )
+        for cpf, campo, fonte, valor in cur.fetchall():
+            if campo == "quer_aviso":
+                # O opt-in é DELA: o sindicato não marca por ela.
+                if fonte == "cadastro":
+                    quer[cpf] = str(valor or "").strip().lower() == "sim"
+            elif campo == "email" and fonte == "acervo":
+                email[cpf] = valor
+            elif campo == "nome_completo" and not nome.get(cpf):
+                nome[cpf] = valor
+        cur.execute("SELECT cpf, numero FROM vinculo")
+        for cpf, numero in cur.fetchall():
+            processos.setdefault(cpf, []).append(numero)
+
+    return [
+        mod.Destinatario(
+            cpf=cpf, nome=nome.get(cpf, ""),
+            email_do_sindicato=email.get(cpf, ""),
+            quer_aviso=True, processos=tuple(sorted(processos.get(cpf, []))),
+        )
+        for cpf, pediu in sorted(quer.items()) if pediu
+    ]
 
 
 def registrar_leitura(url: str, entidade: str, *, quem_hash: str,

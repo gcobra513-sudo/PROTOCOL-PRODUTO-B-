@@ -40,6 +40,17 @@ class Remetente(Protocol):
         self, destino: str, codigo: str, entidade: str, minutos: int
     ) -> None: ...
 
+    def enviar_mensagem(
+        self, destino: str, assunto: str, corpo: str
+    ) -> None:
+        """Uma mensagem qualquer, não o código.
+
+        Existe porque o aviso de movimentação não é um código de acesso: ele
+        tem assunto e corpo próprios, e espremê-lo no formato do código
+        obrigaria a inventar um "código" que não existe.
+        """
+        ...
+
 
 class ParaArquivo:
     """Escreve em `<raiz>/codigos_enviados.log`. Desenvolvimento apenas."""
@@ -54,6 +65,15 @@ class ParaArquivo:
         agora = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
         with open(self.caminho, "a", encoding="utf-8") as fh:
             fh.write(f"{agora}\t{entidade}\t{destino}\t{codigo}\n")
+
+    def enviar_mensagem(
+        self, destino: str, assunto: str, corpo: str
+    ) -> None:
+        caminho = self.caminho.parent / "mensagens_enviadas.log"
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        agora = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+        with open(caminho, "a", encoding="utf-8") as fh:
+            fh.write(f"=== {agora}\t{destino}\t{assunto}\n{corpo}\n")
 
 
 class PorSmtp:
@@ -79,6 +99,19 @@ class PorSmtp:
         msg["From"] = self.remetente
         msg["To"] = destino
         msg.set_content(corpo(codigo, entidade, minutos))
+        self._entregar(msg)
+
+    def enviar_mensagem(
+        self, destino: str, assunto: str, corpo: str
+    ) -> None:
+        msg = EmailMessage()
+        msg["Subject"] = assunto
+        msg["From"] = self.remetente
+        msg["To"] = destino
+        msg.set_content(corpo)
+        self._entregar(msg)
+
+    def _entregar(self, msg: EmailMessage) -> None:
         # 465 é SMTPS do primeiro byte; 587 começa em claro e sobe para TLS.
         # Mandar STARTTLS no 465 falha, e não mandar no 587 passa a senha em
         # claro — por isso a porta decide, e não uma opção a mais.
