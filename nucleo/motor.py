@@ -68,6 +68,15 @@ class Fatos:
 
     #: Tem sentença transitada em nome dela, ou é substituída em coletiva?
     tem_titulo: bool | None = None
+    #: QUAIS DOCUMENTOS ELA JÁ ENTREGOU, por tipo (`sentenca`,
+    #: `certidao_transito`, `contribuicao`). Não diz o que eles contêm — diz
+    #: que chegaram.
+    #:
+    #: Existe porque a pendência muda de dono. Sem isto, "falta a sentença"
+    #: aparecia para toda a base, inclusive para quem já tinha mandado a
+    #: dela — e, no painel do sindicato, isso vira um número falso dito a um
+    #: diretor. Quem já entregou está esperando leitura, não providência.
+    documentos_entregues: tuple[str, ...] = ()
     #: Consta do rol de substituídos da ação coletiva?
     no_rol: bool | None = None
     #: Já executou este título antes, por nós ou por terceiro?
@@ -227,12 +236,23 @@ def _avaliar_executar(
             "determinou, e sem sentença transitada não há o que cobrar"
         )
     elif fatos.tem_titulo is None:
-        j.falta_saber(
-            pendencia.VOCE,
-            "a sentença e a certidão de trânsito em julgado",
-            "não se sabe se há título. Sem essa resposta não dá para dizer "
-            "que pode executar",
-        )
+        if "sentenca" in fatos.documentos_entregues:
+            # Chegou e ainda não foi lida, ou foi lida e não deu para
+            # concluir. Nos dois casos a pessoa já fez a parte dela.
+            j.falta_saber(
+                pendencia.CONFERENCIA,
+                "a leitura da sentença já entregue",
+                "a sentença foi entregue e ainda não se pôde concluir se há "
+                "título. Sem essa resposta não dá para dizer que pode "
+                "executar",
+            )
+        else:
+            j.falta_saber(
+                pendencia.VOCE,
+                "a sentença e a certidão de trânsito em julgado",
+                "não se sabe se há título. Sem essa resposta não dá para "
+                "dizer que pode executar",
+            )
 
     if not acao.transitada:
         j.falta_saber(

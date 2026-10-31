@@ -45,6 +45,15 @@ TITULOS = {
     TRIBUNAL: "O que depende do tribunal",
 }
 
+#: O mesmo dono, curto o bastante para caber no meio de uma frase.
+#: "O que o sindicato está conferindo" é título de cartão; numa manchete ele
+#: ocupa a linha inteira e empurra o número para fora da vista.
+ROTULO_CURTO = {
+    VOCE: "depende do filiado",
+    CONFERENCIA: "depende do sindicato",
+    TRIBUNAL: "depende do tribunal",
+}
+
 EXPLICACOES = {
     VOCE: (
         "Você consegue resolver estes itens agora, e cada um melhora a "

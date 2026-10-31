@@ -408,3 +408,72 @@ export async function minhasAcoes(token: string): Promise<MinhasAcoes> {
     aviso: corpo.aviso ?? "",
   };
 }
+
+// -------------------------------------------- panorama do sindicato (8)
+
+export interface Gargalo {
+  /** VOCE | CONFERENCIA | TRIBUNAL — ver `nucleo/pendencia.py`. */
+  quem: string;
+  titulo: string;
+  explicacao: string;
+  o_que: string;
+  pessoas: number;
+  exemplos: string[];
+}
+
+export interface AcaoNaBase {
+  acao: string;
+  rotulo: string;
+  participam: number;
+  indeterminados: number;
+  nao_participam: number;
+  meses_somados: number;
+}
+
+export interface Panorama {
+  entidade: string;
+  nome: string;
+  manchete: string;
+  pessoas: number;
+  aptos: number;
+  categorias: string[];
+  catalogo: string;
+  leu_documentos: boolean;
+  por_acao: AcaoNaBase[];
+  /** Do maior para o menor. A ORDEM É A INFORMAÇÃO. */
+  gargalos: Gargalo[];
+  limite: string;
+}
+
+/** O que o sindicato resolve primeiro. Só para gestor da própria entidade:
+ *  o servidor confere a sessão antes de conferir se é gestor, e nessa
+ *  ordem. */
+export async function verPanorama(
+  apelido: string,
+  token: string,
+): Promise<Panorama> {
+  const r = await fetch(
+    `${BASE}/api/entidade/${encodeURIComponent(apelido)}/panorama`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      corpo?.detail?.erro ?? "não foi possível abrir o panorama",
+      r.status,
+    );
+  }
+  return {
+    entidade: corpo.entidade ?? "",
+    nome: corpo.nome ?? "",
+    manchete: corpo.manchete ?? "",
+    pessoas: corpo.pessoas ?? 0,
+    aptos: corpo.aptos ?? 0,
+    categorias: corpo.categorias ?? [],
+    catalogo: corpo.catalogo ?? "",
+    leu_documentos: Boolean(corpo.leu_documentos),
+    por_acao: corpo.por_acao ?? [],
+    gargalos: corpo.gargalos ?? [],
+    limite: corpo.limite ?? "",
+  };
+}

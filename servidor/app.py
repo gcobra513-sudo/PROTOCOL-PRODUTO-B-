@@ -29,7 +29,8 @@ from fastapi.responses import JSONResponse
 # `conta` e não `cadastro`: `entidades.Cadastro` já ocupa esse nome aqui,
 # e a colisão deixava o módulo do contrato invisível em silêncio.
 from nucleo import cadastro as conta
-from nucleo import entendimentos, leitura, motor, participacao, pendencia
+from nucleo import entendimentos, leitura, motor, panorama
+from nucleo import participacao, pendencia
 
 from . import (
     acervo,
@@ -653,14 +654,17 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
     # -------------------------------------------------------- painel do gestor
 
-    @app.get("/api/entidade/{apelido}/completude")
-    def ver_completude(apelido: str, pedido: Request) -> dict:
-        """O retrato da base, para o gestor da PRÓPRIA entidade.
+    def _gestor_de(apelido: str, pedido: Request) -> entidades.Entidade:
+        """A entidade, se quem abriu a sessão é gestor DELA.
 
-        Duas conferências, nesta ordem, e a ordem importa: primeiro que a
-        sessão é da entidade pedida, depois que quem abriu é gestor dela. A
-        ordem inversa diria a um gestor de outra entidade se o CPF dele
-        consta como gestor aqui.
+        DUAS CONFERÊNCIAS, NESTA ORDEM, E A ORDEM É O QUE IMPORTA: primeiro
+        que a sessão é da entidade pedida, depois que quem abriu é gestor
+        dela. A ordem inversa diria a um gestor de outra entidade se o CPF
+        dele consta como gestor aqui.
+
+        Está num ajudante porque passou a ter dois usos, e as duas
+        conferências copiadas à mão divergem — a segunda cópia é sempre a que
+        esquece a ordem.
         """
         sessao = _sessao_de(pedido)
         if sessao.entidade != apelido:
@@ -684,7 +688,81 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             for cpf in gestores.por_cpf
         ):
             raise _problema(403, "esta sessão não é de um gestor desta entidade")
+        return ent
 
+    @app.get("/api/entidade/{apelido}/panorama")
+    def ver_panorama(apelido: str, pedido: Request) -> dict:
+        """O que o sindicato faz primeiro.
+
+        `completude` conta o estado da BASE — quem não se alcança, que campo
+        falta —, que é o retrato da primeira semana. Este responde a pergunta
+        da terceira: **o que eu resolvo primeiro?** A resposta útil não é uma
+        lista de 4.812 pessoas, é uma frase: "homologar a GIFA destrava 1.204
+        pessoas". Uma decisão, mil pessoas.
+
+        NÃO LÊ DOCUMENTO, e o diz na resposta. Rodar a leitura de PDF da base
+        inteira a cada carregamento de painel é consulta de minutos para
+        responder uma tela — e o que decide participação (cargo e período de
+        filiação) está no cadastro. Para as pendências basta saber QUAIS
+        arquivos chegaram, que o diário já guarda.
+        """
+        ent = _gestor_de(apelido, pedido)
+        catalogo = entendimentos.carregar_categorias(
+            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        )
+        visao = panorama.montar(
+            deposito.ler_diario(ent.pasta(cfg.raiz)), catalogo
+        )
+        return {
+            "entidade": ent.apelido,
+            "nome": ent.nome,
+            "manchete": visao.manchete(),
+            "pessoas": visao.pessoas,
+            "aptos": visao.aptos,
+            "categorias": list(visao.categorias),
+            "catalogo": visao.catalogo,
+            "leu_documentos": visao.leu_documentos,
+            "por_acao": [
+                {
+                    "acao": a.acao,
+                    "rotulo": a.rotulo,
+                    "participam": a.participam,
+                    "indeterminados": a.indeterminados,
+                    "nao_participam": a.nao_participam,
+                    "meses_somados": a.meses_somados,
+                }
+                for a in visao.por_acao
+            ],
+            "gargalos": [
+                {
+                    "quem": g.quem,
+                    "titulo": pendencia.TITULOS[g.quem],
+                    "explicacao": pendencia.EXPLICACOES[g.quem],
+                    "o_que": g.o_que,
+                    "pessoas": g.pessoas,
+                    "exemplos": list(g.exemplos),
+                }
+                for g in visao.gargalos
+            ],
+            # Dito na resposta, não só na tela: quem consumir esta API por
+            # fora recebe o limite junto com o número.
+            "limite": (
+                "Apurado a partir do CADASTRO e da lista de arquivos "
+                "entregues. Nenhum documento foi lido para montar este "
+                "panorama, e nada aqui é parecer."
+            ),
+        }
+
+    @app.get("/api/entidade/{apelido}/completude")
+    def ver_completude(apelido: str, pedido: Request) -> dict:
+        """O retrato da base, para o gestor da PRÓPRIA entidade.
+
+        Duas conferências, nesta ordem, e a ordem importa: primeiro que a
+        sessão é da entidade pedida, depois que quem abriu é gestor dela. A
+        ordem inversa diria a um gestor de outra entidade se o CPF dele
+        consta como gestor aqui.
+        """
+        ent = _gestor_de(apelido, pedido)
         pasta = ent.pasta(cfg.raiz)
         caminho_acervo = pasta / "acervo.jsonl"
         pessoas: list[acervo.Pessoa] = []

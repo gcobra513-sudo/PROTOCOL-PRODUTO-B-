@@ -106,6 +106,9 @@ from nucleo import processo_cnj
 CPF = "526.018.159-06"
 CPF_DIGITOS = "52601815906"
 OUTRO_CPF = "111.444.777-35"
+#: Um terceiro, para os cenários com filiado + gestor + mais alguém. Dígito
+#: válido e declaradamente fictício, como os outros.
+TERCEIRO_CPF = "529.982.247-25"
 
 
 def numero(sequencial: str, tribunal: str, origem: str, ano: str = "2019") -> str:
@@ -1317,6 +1320,170 @@ TESTES.extend([
     teste_toda_pendencia_chega_com_dono_e_as_tres_chaves,
     teste_a_resposta_diz_que_nao_e_parecer,
     teste_quem_nao_tem_cadastro_recebe_lista_vazia_e_nao_erro,
+])
+
+
+# ========================================== panorama do sindicato (8)
+#
+# A MESMA RESPOSTA DO FILIADO, SOMADA. `completude` conta o estado da BASE —
+# quem não se alcança, que campo falta —, que é o retrato da primeira semana.
+# O panorama responde a pergunta da terceira: "o que eu faço primeiro?".
+#
+# As travas são as do painel, inteiras: é lista NOMINAL de quem tem o quê, e
+# "é só um resumo" não a torna menos sensível.
+
+
+def teste_panorama_exige_token_de_gestor():
+    secao("panorama do sindicato")
+    c = Cenario()
+    r = c.cliente.get("/api/entidade/demo-teste/panorama")
+    checa(r.status_code == 401,
+          f"panorama aberto sem autenticação: {r.status_code}")
+    r = c.cliente.get("/api/entidade/demo-teste/panorama",
+                      headers={"Authorization": f"Bearer {c.token(CPF)}"})
+    checa(r.status_code == 403,
+          f"token de filiado abriu o panorama: {r.status_code}")
+    print("  ok     sem token, 401; com token de filiado, 403")
+
+
+def teste_panorama_nao_atravessa_entidade():
+    c = Cenario(entidades_extra=(("demo-outra", "Outro Sindicato"),))
+    c.escrever_gestores("demo-teste", [(OUTRO_CPF, "gestor@exemplo.org")])
+    c.escrever_gestores("demo-outra", [(OUTRO_CPF, "gestor@exemplo.org")])
+    c.escrever_rol("demo-outra", [(CPF, "fulano@exemplo.org")])
+    token = c.token(OUTRO_CPF, apelido="demo-teste")
+    r = c.cliente.get("/api/entidade/demo-outra/panorama",
+                      headers={"Authorization": f"Bearer {token}"})
+    # O MESMO CPF É GESTOR DAS DUAS, e ainda assim a sessão não atravessa:
+    # a sessão é de UMA entidade, e quem quer ver a outra entra por ela.
+    checa(r.status_code in (401, 403, 404),
+          f"sessão de demo-teste abriu o panorama de demo-outra: "
+          f"{r.status_code}")
+    print("  ok     nem o gestor das duas atravessa com uma sessão só")
+
+
+def teste_gestor_ve_o_panorama_da_propria_base():
+    c = Cenario()
+    c.escrever_rol("demo-teste", [(CPF, "fulano@exemplo.org"),
+                                  (OUTRO_CPF, "gestor@exemplo.org")])
+    c.escrever_gestores("demo-teste", [(OUTRO_CPF, "gestor@exemplo.org")])
+    c.cadastrar(CPF)
+
+    r = c.cliente.get("/api/entidade/demo-teste/panorama",
+                      headers={"Authorization": f"Bearer {c.token(OUTRO_CPF)}"})
+    checa(r.status_code == 200,
+          f"não respondeu: {r.status_code} {r.text[:300]}")
+    corpo = r.json()
+    checa(corpo["pessoas"] == 1, f"contou {corpo['pessoas']} pessoas")
+    checa("GIFA-2006" in [a["acao"] for a in corpo["por_acao"]],
+          f"a ação da categoria contratada não apareceu: {corpo['por_acao']}")
+    checa(bool(corpo["gargalos"]), "nenhum gargalo apurado")
+    checa(bool(corpo["manchete"].strip()), "veio sem manchete")
+    checa(corpo["leu_documentos"] is False,
+          "disse que leu documentos, e o panorama não abre PDF")
+    print(f"  ok     {corpo['manchete']}")
+
+
+def teste_os_gargalos_vem_do_maior_para_o_menor_com_dono():
+    from nucleo import pendencia
+
+    c = Cenario()
+    c.escrever_rol("demo-teste", [(CPF, "a@exemplo.org"),
+                                  (OUTRO_CPF, "b@exemplo.org"),
+                                  (TERCEIRO_CPF, "c@exemplo.org")])
+    c.escrever_gestores("demo-teste", [(TERCEIRO_CPF, "c@exemplo.org")])
+    c.cadastrar(CPF)
+    c.cadastrar(OUTRO_CPF)
+
+    r = c.cliente.get("/api/entidade/demo-teste/panorama",
+                      headers={"Authorization":
+                               f"Bearer {c.token(TERCEIRO_CPF)}"})
+    gargalos = r.json()["gargalos"]
+    quantidades = [g["pessoas"] for g in gargalos]
+    checa(quantidades == sorted(quantidades, reverse=True),
+          f"não vieram do maior para o menor: {quantidades}")
+    for g in gargalos:
+        checa(g["quem"] in pendencia.DONOS, f"gargalo sem dono: {g}")
+        checa(g["titulo"] and g["explicacao"],
+              f"gargalo sem texto para o gestor ler: {g}")
+    checa(gargalos[0]["pessoas"] == 2,
+          f"o maior gargalo devia segurar as 2 pessoas: {gargalos[0]}")
+    print(f"  ok     {len(gargalos)} gargalos, maior com "
+          f"{gargalos[0]['pessoas']} pessoas")
+
+
+def teste_o_panorama_so_mostra_gente_da_propria_entidade():
+    """A trava que importa, e ela é NOMINAL: os exemplos trazem nome."""
+    c = Cenario(entidades_extra=(("demo-outra", "Outro Sindicato"),))
+    c.escrever_rol("demo-teste", [(CPF, "a@exemplo.org"),
+                                  (TERCEIRO_CPF, "c@exemplo.org")])
+    c.escrever_rol("demo-outra", [(OUTRO_CPF, "b@exemplo.org")])
+    c.escrever_gestores("demo-teste", [(TERCEIRO_CPF, "c@exemplo.org")])
+    c.cadastrar(CPF, nome_completo="FULANA DAQUI (CADASTRO DE EXEMPLO)")
+    c.enviar(c.token(OUTRO_CPF, apelido="demo-outra"),
+             linha(OUTRO_CPF, nome_completo="BELTRANO DE FORA (EXEMPLO)"),
+             pacote(OUTRO_CPF))
+
+    r = c.cliente.get("/api/entidade/demo-teste/panorama",
+                      headers={"Authorization":
+                               f"Bearer {c.token(TERCEIRO_CPF)}"})
+    corpo = r.json()
+    nomes = [n for g in corpo["gargalos"] for n in g["exemplos"]]
+    checa(corpo["pessoas"] == 1,
+          f"contou gente de outra entidade: {corpo['pessoas']}")
+    checa(not any("FORA" in n for n in nomes),
+          f"VAZOU nome de outra entidade: {nomes}")
+    checa(any("DAQUI" in n for n in nomes),
+          f"não trouxe o nome de quem é desta entidade: {nomes}")
+    print("  ok     só gente da própria entidade, e com nome")
+
+
+def teste_entidade_sem_categoria_tem_panorama_vazio_e_nao_erro():
+    c = Cenario(categorias=())
+    c.escrever_rol("demo-teste", [(CPF, "a@exemplo.org"),
+                                  (OUTRO_CPF, "b@exemplo.org")])
+    c.escrever_gestores("demo-teste", [(OUTRO_CPF, "b@exemplo.org")])
+    c.cadastrar(CPF)
+    r = c.cliente.get("/api/entidade/demo-teste/panorama",
+                      headers={"Authorization": f"Bearer {c.token(OUTRO_CPF)}"})
+    checa(r.status_code == 200, f"deu erro em vez de resposta: {r.status_code}")
+    corpo = r.json()
+    checa(corpo["por_acao"] == [] and corpo["gargalos"] == [],
+          f"entidade sem categoria recebeu panorama: {corpo}")
+    checa("categoria" in corpo["manchete"].lower(),
+          f"a manchete não explica o vazio: {corpo['manchete']!r}")
+    print("  ok     sem categoria: vazio com explicação, não erro")
+
+
+def teste_quem_entregou_sentenca_nao_e_cobrado_dela_no_painel():
+    """O número falso que quase foi dito ao diretor: sem olhar os arquivos
+    entregues, "falta a sentença" apareceria para a base inteira."""
+    from nucleo import pendencia
+
+    c = Cenario()
+    c.escrever_rol("demo-teste", [(CPF, "a@exemplo.org"),
+                                  (OUTRO_CPF, "b@exemplo.org")])
+    c.escrever_gestores("demo-teste", [(OUTRO_CPF, "b@exemplo.org")])
+    # `pacote(com_judicial=True)` manda sentença e certidão junto.
+    c.enviar(c.token(CPF), linha(CPF), pacote(CPF, com_judicial=True))
+
+    r = c.cliente.get("/api/entidade/demo-teste/panorama",
+                      headers={"Authorization": f"Bearer {c.token(OUTRO_CPF)}"})
+    donos = {g["quem"] for g in r.json()["gargalos"]
+             if "sentença" in g["o_que"].lower()}
+    checa(pendencia.VOCE not in donos,
+          f"cobrou a sentença de quem já entregou: {donos}")
+    print("  ok     sentença entregue não é cobrada da pessoa")
+
+
+TESTES.extend([
+    teste_panorama_exige_token_de_gestor,
+    teste_panorama_nao_atravessa_entidade,
+    teste_gestor_ve_o_panorama_da_propria_base,
+    teste_os_gargalos_vem_do_maior_para_o_menor_com_dono,
+    teste_o_panorama_so_mostra_gente_da_propria_entidade,
+    teste_entidade_sem_categoria_tem_panorama_vazio_e_nao_erro,
+    teste_quem_entregou_sentenca_nao_e_cobrado_dela_no_painel,
 ])
 
 
