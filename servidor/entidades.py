@@ -197,3 +197,96 @@ class Cadastro:
         tmp.replace(self._arquivo)
         self._assinatura = None
         return self.resolver(chave)
+
+
+# =====================================================================
+# QUEM ESTE SERVIDOR PODE ATENDER
+# =====================================================================
+#
+# UMA DECISÃO, NÃO DUAS. As três travas de código viviam dentro de
+# `app._entidade`, e `_entidade` só é chamada por rota HTTP. O laço do
+# agendador resolvia entidade por `Cadastro.todas()` e não passava por
+# nenhuma delas — então o MESMO servidor devolvia 403 para um sindicato e,
+# no mesmo processo, lia os dados nominais dele e mandava o e-mail com
+# movimentação processual. Achado por auditoria independente.
+#
+# A regra estava escrita numa porta e não na outra, que é como este tipo de
+# defeito nasce sempre. Agora é uma função, e quem tocar dado nominal por
+# um caminho novo tem de passar por ela — ou explicar por que não.
+
+#: Apelido de demonstração. A demonstração passa nas três travas porque lá
+#: não há dado pessoal: fechá-la não protegeria ninguém.
+PREFIXO_DEMO = "demo-"
+
+
+@dataclass(frozen=True)
+class Recusa:
+    """Por que este servidor não atende esta entidade.
+
+    `estado` é o código HTTP que o adaptador usa, e mora aqui porque a
+    distinção importa: 403 é "este servidor não serve para isto" e 503 é
+    "este servidor não está pronto para isto". Quem chama de fora do HTTP
+    ignora o campo e usa `motivo`.
+    """
+
+    motivo: str       #: curto, para log e registro
+    estado: int       #: o código HTTP correspondente
+    explicacao: str   #: o texto que vai para quem recebe a resposta
+
+
+def atendivel(ent: "Entidade", cfg) -> Recusa | None:
+    """`None` quando pode atender; a `Recusa` quando não.
+
+    Na ordem: ensaio, região, auditoria. Ensaio primeiro porque em ensaio a
+    região é irrelevante — aquele servidor devolve o código de acesso na
+    resposta HTTP e recusa entidade real de qualquer jeito, e a mensagem
+    dele explica a situação de verdade.
+    """
+    from . import banco
+
+    real = not ent.apelido.startswith(PREFIXO_DEMO)
+    if not real:
+        return None
+
+    if cfg.modo_ensaio:
+        return Recusa(
+            "ensaio", 403,
+            f"este servidor está em MODO ENSAIO, e em ensaio o código de "
+            f"acesso volta na própria resposta — o que não pode valer para "
+            f"pessoas de verdade. Só entidades de demonstração (apelido "
+            f"começando com {PREFIXO_DEMO!r}) são atendidas. Para atender "
+            f"{ent.apelido!r}, suba o servidor sem PROTOCOL_MODO_ENSAIO e "
+            f"configure o envio de e-mail",
+        )
+
+    # É de código pelo mesmo motivo que as outras: procedimento se esquece.
+    # "Migrar para São Paulo antes do primeiro sindicato" é uma promessa;
+    # isto é uma impossibilidade.
+    if not banco.regiao_e_brasileira(cfg.regiao):
+        return Recusa(
+            "regiao", 503,
+            f"este servidor roda na região "
+            f"{cfg.regiao or '(não declarada)'}, e entidade real só é "
+            f"atendida em região brasileira. Dado de filiado em nuvem "
+            f"estrangeira é transferência internacional, que desde "
+            f"23/08/2025 exige as cláusulas-padrão da ANPD (Res. CD/ANPD "
+            f"19/2024). Declare PROTOCOL_REGIAO como uma região brasileira "
+            f"({', '.join(sorted(banco.REGIOES_BRASILEIRAS))}), ou atenda "
+            f"só entidades de demonstração",
+        )
+
+    # E ESTA É SOBRE AUDITORIA. O esquema tem a tabela `leitura` porque num
+    # produto de consulta o vazamento é um `read`: sem ela, "quem viu o dado
+    # de quem" é pergunta sem resposta, e é a primeira que alguém faz depois
+    # de um incidente.
+    if not cfg.tem_banco:
+        return Recusa(
+            "auditoria", 503,
+            "este servidor está sem banco de dados, e por isso não registra "
+            "quem leu o dado de quem. Entidade real não é atendida assim: o "
+            "registro de leitura é o que torna um vazamento investigável. "
+            "Defina PROTOCOL_DATABASE_URL, ou atenda só entidades de "
+            "demonstração",
+        )
+
+    return None

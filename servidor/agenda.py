@@ -278,6 +278,49 @@ def tarefas_padrao(cfg):
     }
 
 
+def uma_rodada(cfg, tarefas) -> None:
+    """Uma passada por todas as entidades do cadastro.
+
+    FORA DO LAÇO de propósito, para poder ser exercitada por teste. Era um
+    fecho dentro de `subir`, e foi exatamente onde o defeito morou sem ser
+    visto: nenhum teste conseguia chegar aqui.
+
+    APLICA AS MESMAS TRAVAS DO HTTP. Elas moravam em `app._entidade`, que só
+    é chamada por rota, e este caminho resolvia entidade por
+    `Cadastro.todas()`. O mesmo servidor recusava um sindicato por HTTP e
+    aqui lia os dados nominais dele e mandava o e-mail.
+    """
+    from . import entidades as mod_entidades
+
+    cadastro = mod_entidades.Cadastro(cfg.raiz)
+    for ent in cadastro.todas():
+        if not ent.ativa:
+            continue
+        recusa = mod_entidades.atendivel(ent, cfg)
+        if recusa is not None:
+            log.error("agendador recusou %s: %s", ent.apelido, recusa.motivo)
+            # REGISTRA, NÃO PULA CALADO. Entidade que desaparece do painel
+            # é o silêncio que este módulo existe para impedir: quem olhar
+            # tem de ver que há um sindicato no arquivo que este servidor
+            # não pode atender. Registrada como falha, ela aparece como
+            # atrasada — que é a verdade.
+            if cfg.tem_banco:
+                for nome in TAREFAS:
+                    try:
+                        registrar(cfg.banco_url, ent.apelido, nome, ok=False,
+                                  detalhe=f"recusada: {recusa.motivo}")
+                    except Exception:  # noqa: BLE001
+                        log.exception("não deu para registrar a recusa de %s",
+                                      ent.apelido)
+            continue
+        pendentes = {
+            nome: f for nome, f in tarefas.items()
+            if _vencida(cfg.banco_url, ent.apelido, nome)
+        }
+        if pendentes:
+            rodar_uma_vez(cfg.banco_url, ent.apelido, pendentes)
+
+
 def subir(app, cfg) -> None:
     """Põe o laço para rodar junto com o servidor.
 
@@ -291,8 +334,6 @@ def subir(app, cfg) -> None:
     """
     import threading
 
-    from . import entidades as mod_entidades
-
     parar = threading.Event()
 
     def laco() -> None:
@@ -303,16 +344,7 @@ def subir(app, cfg) -> None:
         tarefas = tarefas_padrao(cfg)
         while not parar.is_set():
             try:
-                cadastro = mod_entidades.Cadastro(cfg.raiz)
-                for ent in cadastro.todas():
-                    if not ent.ativa:
-                        continue
-                    pendentes = {
-                        nome: f for nome, f in tarefas.items()
-                        if _vencida(cfg.banco_url, ent.apelido, nome)
-                    }
-                    if pendentes:
-                        rodar_uma_vez(cfg.banco_url, ent.apelido, pendentes)
+                uma_rodada(cfg, tarefas)
             except Exception:  # noqa: BLE001
                 # O LAÇO NÃO MORRE. Se morresse, o produto continuaria
                 # prometendo aviso e ninguém receberia nada — calado.

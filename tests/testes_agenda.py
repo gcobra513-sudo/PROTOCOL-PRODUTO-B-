@@ -277,6 +277,128 @@ def teste_a_ordem_e_coletar_depois_avisar():
     print("  ok     coleta primeiro, aviso depois")
 
 
+# ------------------------------------- as travas valem em TODO caminho
+
+def _cfg(raiz, *, modo_ensaio: bool, regiao: str, banco: str = ""):
+    from servidor import config
+
+    return config.Config(
+        raiz=raiz, segredo="segredo-de-teste", modo_ensaio=modo_ensaio,
+        origens=(), smtp_host="", smtp_porta=0, smtp_usuario="",
+        smtp_senha="", smtp_remetente="",
+        regiao=regiao, banco_url=banco if banco else URL,
+    )
+
+
+def teste_o_laco_recusa_a_entidade_que_o_http_recusa():
+    """AS TRAVAS NÃO PODEM VALER SÓ NO HTTP.
+
+    As três travas de código — ensaio, região e auditoria — viviam dentro de
+    `app._entidade`, e `_entidade` só é chamada por rota HTTP. O laço deste
+    módulo resolvia entidade por `Cadastro.todas()` e não passava por
+    nenhuma delas. Auditoria independente observou o MESMO servidor devolver
+    403 para um sindicato e, no mesmo processo, ler os dados nominais dele e
+    MANDAR O E-MAIL com movimentação processual.
+
+    `MAPA.md` diz, sobre o servidor que roda fora do Brasil: "não é
+    promessa, é impedimento". Era impedimento no HTTP; no caminho que manda
+    e-mail, não era.
+
+    E a demonstração continua rodando nos dois casos, que é o ponto: a
+    correção não pode ser desligar o laço.
+    """
+    secao("as travas valem em todo caminho")
+    import tempfile
+
+    from servidor import agenda, entidades
+
+    with tempfile.TemporaryDirectory() as tmp:
+        raiz = Path(tmp)
+        cad = entidades.Cadastro(raiz)
+        cad.criar("demo-a", "Demonstração")
+        cad.criar("sindicato-ficticio", "Sindicato Fictício de Exemplo")
+
+        from servidor import banco
+
+        for rotulo, cfg in (
+            ("ensaio", _cfg(raiz, modo_ensaio=True, regiao="sa-east-1")),
+            ("região", _cfg(raiz, modo_ensaio=False, regiao="us-east-1")),
+        ):
+            # ZERA O ESTADO ENTRE OS DOIS CASOS. Sem isto o segundo caso
+            # encontrava `demo-a` como já rodada no primeiro, portanto não
+            # vencida, e a demonstração "não rodava" por um motivo que não
+            # era o do teste.
+            for quem in ("demo-a", "sindicato-ficticio"):
+                with banco.sessao(URL, quem) as cur:
+                    cur.execute("DELETE FROM execucao")
+            rodou: list[str] = []
+
+            def anota(ent, _r=rodou):
+                _r.append(ent)
+                return "ok"
+
+            agenda.uma_rodada(cfg, {"coletar": anota, "avisar": anota})
+            checa("sindicato-ficticio" not in rodou,
+                  f"[{rotulo}] o laço processou entidade que o HTTP recusa: "
+                  f"{rodou}")
+            checa("demo-a" in rodou,
+                  f"[{rotulo}] a correção derrubou a demonstração junto: "
+                  f"{rodou}")
+
+        # E A RECUSA APARECE. Pular calado faria a entidade desaparecer do
+        # painel, e é o silêncio que este módulo existe para impedir.
+        estado = agenda.estado(URL, "sindicato-ficticio")
+        checa(all(e["atrasado"] for e in estado),
+              f"a entidade recusada não aparece como atrasada: {estado}")
+        guardado = agenda.detalhe(URL, "sindicato-ficticio", "avisar")
+        checa("recus" in guardado.lower(),
+              f"o registro não diz que foi recusada: {guardado!r}")
+    print("  ok     o laço aplica as mesmas travas do HTTP")
+
+
+def teste_a_trava_e_uma_so_decisao_para_os_dois_caminhos():
+    """Uma trava copiada em dois lugares divergente é questão de tempo.
+
+    Foi exatamente assim que este defeito nasceu: a regra estava escrita
+    numa porta e não na outra. A decisão passa a ser UMA função, e os dois
+    caminhos a chamam.
+    """
+    from servidor import entidades
+
+    checa(hasattr(entidades, "atendivel"),
+          "não existe uma decisão única sobre atender a entidade")
+
+    with __import__("tempfile").TemporaryDirectory() as tmp:
+        raiz = Path(tmp)
+        cad = entidades.Cadastro(raiz)
+        demo = cad.criar("demo-a", "Demonstração")
+        real = cad.criar("sindicato-ficticio", "Sindicato Fictício")
+
+        em_ensaio = _cfg(raiz, modo_ensaio=True, regiao="sa-east-1")
+        checa(entidades.atendivel(demo, em_ensaio) is None,
+              "a demonstração foi recusada em ensaio")
+        recusa = entidades.atendivel(real, em_ensaio)
+        checa(recusa is not None and recusa.estado == 403,
+              f"ensaio devia recusar entidade real com 403: {recusa}")
+
+        fora = _cfg(raiz, modo_ensaio=False, regiao="us-east-1")
+        recusa = entidades.atendivel(real, fora)
+        checa(recusa is not None and recusa.estado == 503,
+              f"região estrangeira devia recusar com 503: {recusa}")
+
+        sem_banco = _cfg(raiz, modo_ensaio=False, regiao="sa-east-1",
+                         banco="-")
+        sem_banco = __import__("dataclasses").replace(sem_banco, banco_url="")
+        recusa = entidades.atendivel(real, sem_banco)
+        checa(recusa is not None and recusa.estado == 503,
+              f"sem banco devia recusar com 503: {recusa}")
+
+        bom = _cfg(raiz, modo_ensaio=False, regiao="sa-east-1")
+        checa(entidades.atendivel(real, bom) is None,
+              "recusou entidade real num servidor que cumpre as três travas")
+    print("  ok     uma decisão, dois caminhos")
+
+
 TESTES = [
     teste_duas_instancias_so_uma_roda,
     teste_o_arrendamento_expira,
@@ -290,6 +412,8 @@ TESTES = [
     teste_o_atraso_tem_limite_declarado_nao_chutado,
     teste_tarefa_que_estoura_nao_derruba_o_agendador,
     teste_a_ordem_e_coletar_depois_avisar,
+    teste_o_laco_recusa_a_entidade_que_o_http_recusa,
+    teste_a_trava_e_uma_so_decisao_para_os_dois_caminhos,
 ]
 
 

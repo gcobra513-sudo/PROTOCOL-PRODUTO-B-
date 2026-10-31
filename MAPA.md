@@ -147,8 +147,16 @@ não produz veredicto até alguém marcar `"S"`.
 | Render `protocol-servidor-demo` | o servidor | builda do GitHub, branch `main`, **região Virginia (EUA)** |
 
 Antes do primeiro sindicato real o servidor precisa ir para região
-brasileira. Já existe trava de código que recusa entidade real fora do
-Brasil — não é promessa, é impedimento.
+brasileira. Existe trava de código que recusa entidade real fora do Brasil —
+não é promessa, é impedimento.
+
+**Esta frase já foi falsa pela metade, e vale registrar.** A trava morava em
+`app._entidade`, que só é chamada por rota HTTP; o laço do agendador
+resolvia entidade por `Cadastro.todas()` e não passava por ela. Auditoria
+independente observou o mesmo servidor devolver 403 para um sindicato e, no
+mesmo processo, ler os dados nominais dele e mandar o e-mail com
+movimentação processual. A decisão agora é uma só — `entidades.atendivel` —
+e os dois caminhos a chamam.
 
 ---
 

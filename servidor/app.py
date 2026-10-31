@@ -93,7 +93,11 @@ _NOME_DE_DOCUMENTO = re.compile(r"^[a-z_]+(-\d{1,2})?\.pdf$")
 #:
 #: Então, em ensaio, só se atende entidade cujo apelido começa com isto. A
 #: trava é de código, não de procedimento: procedimento se esquece.
-PREFIXO_DEMO = "demo-"
+#:
+#: REEXPORTADO, não redefinido. Uma segunda cópia desta constante é uma
+#: divergência esperando acontecer, e foi uma regra escrita em dois lugares
+#: que deixou o agendador atender quem o HTTP recusava.
+PREFIXO_DEMO = entidades.PREFIXO_DEMO
 
 
 def _problema(status: int, mensagem: str, **extra) -> HTTPException:
@@ -213,80 +217,20 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             raise _problema(
                 403, "esta entidade não está recebendo cadastros agora"
             ) from None
-        if cfg.modo_ensaio and not ent.apelido.startswith(PREFIXO_DEMO):
-            log.error(
-                "ENSAIO recusou a entidade %s: em ensaio o código de acesso "
-                "volta na resposta HTTP, e isso não pode valer para gente "
-                "real", ent.apelido,
-            )
-            raise _problema(
-                403,
-                f"este servidor está em MODO ENSAIO, e em ensaio o código de "
-                f"acesso volta na própria resposta — o que não pode valer "
-                f"para pessoas de verdade. Só entidades de demonstração "
-                f"(apelido começando com {PREFIXO_DEMO!r}) são atendidas. "
-                f"Para atender {ent.apelido!r}, suba o servidor sem "
-                f"PROTOCOL_MODO_ENSAIO e configure o envio de e-mail",
-            )
-        # A TRAVA DE REGIÃO, depois da de ensaio porque em ensaio a
-        # região é irrelevante: aquele servidor devolve o código na
-        # resposta HTTP e recusa entidade real de qualquer jeito, e a
-        # mensagem dele explica a situação de verdade.
+        # AS TRÊS TRAVAS VIVEM EM `entidades.atendivel`, e não aqui.
         #
-        # É de código pelo mesmo motivo que a outra: procedimento se
-        # esquece. "Migrar para São Paulo antes do
-        # primeiro sindicato" é uma promessa; isto é uma impossibilidade.
-        #
-        # A demonstração passa em qualquer região porque lá não há dado
-        # pessoal — fechar a demonstração não protegeria ninguém e tiraria do
-        # ar a única coisa que já está pronta.
-        if (
-            not ent.apelido.startswith(PREFIXO_DEMO)
-            and not banco.regiao_e_brasileira(cfg.regiao)
-        ):
-            log.error(
-                "REGIAO recusou a entidade %s: PROTOCOL_REGIAO=%r nao e "
-                "brasileira, e entidade real trata dado pessoal",
-                ent.apelido, cfg.regiao,
-            )
-            raise _problema(
-                503,
-                f"este servidor roda na região "
-                f"{cfg.regiao or '(não declarada)'}, e entidade real só é "
-                f"atendida em região brasileira. Dado de filiado em nuvem "
-                f"estrangeira é transferência internacional, que desde "
-                f"23/08/2025 exige as cláusulas-padrão da ANPD (Res. CD/ANPD "
-                f"19/2024). Declare PROTOCOL_REGIAO como uma região "
-                f"brasileira ({', '.join(sorted(banco.REGIOES_BRASILEIRAS))}), "
-                f"ou atenda só entidades de demonstração",
-            )
-
-        # A SEGUNDA TRAVA, e ela é sobre AUDITORIA.
-        #
-        # O esquema tem a tabela `leitura` porque num produto de consulta o
-        # vazamento é um `read`: sem ela, "quem viu o dado de quem" é
-        # pergunta sem resposta, e é a primeira que alguém faz depois de um
-        # incidente. Sem banco não há onde registrá-la — e aí a frase
-        # "registramos toda leitura de dado nominal" passa a ser falsa
-        # justamente no servidor que atende gente de verdade.
-        #
-        # De código, como as outras duas, e pelo mesmo motivo: "configurar o
-        # banco antes do primeiro sindicato" é promessa; isto é
-        # impossibilidade. A demonstração segue sem banco porque lá não há
-        # dado pessoal.
-        if not ent.apelido.startswith(PREFIXO_DEMO) and not cfg.tem_banco:
-            log.error(
-                "AUDITORIA recusou a entidade %s: sem PROTOCOL_DATABASE_URL "
-                "não há onde registrar quem leu dado nominal", ent.apelido,
-            )
-            raise _problema(
-                503,
-                "este servidor está sem banco de dados, e por isso não "
-                "registra quem leu o dado de quem. Entidade real não é "
-                "atendida assim: o registro de leitura é o que torna um "
-                "vazamento investigável. Defina PROTOCOL_DATABASE_URL, ou "
-                "atenda só entidades de demonstração",
-            )
+        # Viviam aqui, e por isso valiam só no HTTP: o laço do agendador
+        # resolve entidade por `Cadastro.todas()` e não passava por esta
+        # função. O MESMO servidor devolvia 403 para um sindicato e, no
+        # mesmo processo, lia os dados nominais dele e mandava o e-mail.
+        # Uma regra escrita numa porta e não na outra é como este defeito
+        # nasce. A decisão é uma; aqui fica só a tradução para HTTP.
+        recusa = entidades.atendivel(ent, cfg)
+        if recusa is not None:
+            log.error("%s recusou a entidade %s (regiao=%r, ensaio=%s, "
+                      "banco=%s)", recusa.motivo.upper(), ent.apelido,
+                      cfg.regiao, cfg.modo_ensaio, cfg.tem_banco)
+            raise _problema(recusa.estado, recusa.explicacao)
 
         return ent
 
