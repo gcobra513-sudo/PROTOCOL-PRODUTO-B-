@@ -78,6 +78,19 @@ class Config:
     #: e-mail não inventa link — link errado num e-mail sobre processo
     #: judicial é o melhor jeito de ensinar a pessoa a clicar em link falso.
     portal: str = ""
+    #: Endereços dos proxies de quem este servidor aceita
+    #: `X-Forwarded-For`. VAZIO é o padrão, e o padrão é não acreditar no
+    #: cabeçalho.
+    #:
+    #: O limite de emissões por origem era contado sobre o primeiro valor
+    #: desse cabeçalho, que quem pede escolhe: girando o valor, cada pedido
+    #: caía num balde novo e o limite nunca fechava. Medido: com o limite em
+    #: 3, oito pedidos com o cabeçalho variando deram oito 202.
+    #:
+    #: Declarar aqui é dizer "confio no que ESTE endereço acrescenta ao
+    #: cabeçalho" — e é uma afirmação sobre a implantação, que só quem a
+    #: monta pode fazer. Por isso não tem padrão útil.
+    proxies_confiaveis: tuple[str, ...] = ()
 
     @property
     def tem_banco(self) -> bool:
@@ -141,6 +154,11 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
 
     regiao = amb.get("PROTOCOL_REGIAO", "").strip()
 
+    proxies_cru = amb.get("PROTOCOL_PROXIES_CONFIAVEIS", "").strip()
+    proxies_confiaveis = tuple(
+        p.strip() for p in proxies_cru.split(",") if p.strip()
+    )
+
     origens_cru = amb.get("PROTOCOL_ORIGENS", "").strip()
     if origens_cru:
         origens = tuple(o.strip() for o in origens_cru.split(",") if o.strip())
@@ -190,6 +208,7 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
         segredo=segredo,
         modo_ensaio=modo_ensaio,
         origens=origens,
+        proxies_confiaveis=proxies_confiaveis,
         smtp_host=amb.get("PROTOCOL_SMTP_HOST", "").strip(),
         smtp_porta=smtp_porta,
         smtp_usuario=amb.get("PROTOCOL_SMTP_USUARIO", "").strip(),

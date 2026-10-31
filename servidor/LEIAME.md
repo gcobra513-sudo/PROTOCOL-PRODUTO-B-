@@ -45,6 +45,7 @@ padrão é o mesmo que nenhum, com a desvantagem de parecer que existe.
 | `PROTOCOL_SMTP_*` | `HOST`, `PORTA`, `USUARIO`, `SENHA`, `REMETENTE` |
 | `PROTOCOL_EMISSOES_POR_CPF_HORA` | padrão 3 |
 | `PROTOCOL_EMISSOES_POR_ORIGEM_HORA` | padrão 20. **Suba** se o sindicato atende vários filiados do mesmo computador da sede |
+| `PROTOCOL_PROXIES_CONFIAVEIS` | endereços, separados por vírgula, de quem este servidor aceita `X-Forwarded-For`. **Vazio por padrão, e vazio significa não acreditar no cabeçalho.** Se o servidor fica atrás de proxy reverso e isto não estiver preenchido, a contagem acima vale para todos juntos — e aí o portão fecha para a fila. Se estiver preenchido com o endereço errado, a contagem volta a ser escolhida por quem pede |
 | `PROTOCOL_MODO_ENSAIO` | `1` dispensa segredo e devolve o código na resposta. Nunca com gente de verdade |
 
 ## Cadastrar uma entidade

@@ -121,17 +121,41 @@ async def _ler_limitado(arquivo: UploadFile, teto: int) -> bytes:
     return b"".join(pedacos)
 
 
-def _origem(pedido: Request) -> str:
+def _origem(pedido: Request, cfg: Config) -> str:
     """Quem está pedindo, para a contagem por hora.
 
-    Atrás de proxy o IP do socket é o do proxy, e aí a contagem por origem
-    vale para o mundo inteiro junto. Por isso olhamos o cabeçalho que o proxy
-    põe — e só o primeiro valor, que é o cliente; os seguintes são os proxies.
+    O ENDEREÇO DO SOCKET MANDA, e o cabeçalho só entra quando quem fala com
+    este servidor é um proxy DECLARADO em `PROTOCOL_PROXIES_CONFIAVEIS`.
+
+    Antes era o contrário: devolvia o primeiro valor de `X-Forwarded-For`
+    sempre que o cabeçalho existia. Como é cabeçalho de PEDIDO, quem pede
+    escolhia a chave da contagem — girando o valor, cada pedido caía num
+    balde novo. Medido: com o limite em 3, oito pedidos com o cabeçalho
+    variando deram oito 202. E a contagem por origem é o que `acesso.py`
+    declara como a defesa contra varrer CPFs para descobrir quem é filiado.
+
+    O comentário antigo dizia que o primeiro valor é o cliente. É o
+    contrário: proxy conforme ACRESCENTA ao fim o endereço de quem lhe
+    falou, preservando o que veio antes. Então o que o cliente escreveu
+    fica no começo, e o que o nosso proxy observou fica no FIM. Por isso o
+    último, e por isso só de um proxy que a gente declarou.
+
+    Ignorar o cabeçalho sempre não serve: atrás de proxy todo mundo viraria
+    uma origem só, e o primeiro sindicato com atendimento presencial
+    fecharia o portão para a fila inteira.
+
+    Supõe UM salto confiável, que é a implantação descrita. Com dois proxies
+    nossos em série, o último valor passa a ser o do proxy de dentro, e aqui
+    é o lugar de consertar isso — não no cabeçalho.
     """
-    encaminhado = pedido.headers.get("x-forwarded-for", "")
-    if encaminhado:
-        return encaminhado.split(",")[0].strip()
-    return pedido.client.host if pedido.client else "desconhecido"
+    peer = pedido.client.host if pedido.client else ""
+    if peer and peer in cfg.proxies_confiaveis:
+        encaminhado = pedido.headers.get("x-forwarded-for", "")
+        if encaminhado:
+            partes = [p.strip() for p in encaminhado.split(",") if p.strip()]
+            if partes:
+                return partes[-1]
+    return peer or "desconhecido"
 
 
 def criar_app(cfg: Config | None = None) -> FastAPI:
@@ -337,7 +361,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
         marca = portao.marcar_cpf(cpf)[:12]
         try:
-            codigo = portao.emitir(ent.apelido, cpf, _origem(pedido))
+            codigo = portao.emitir(ent.apelido, cpf, _origem(pedido, cfg))
         except acesso.ExcessoDeTentativas as e:
             log.info("codigo recusado por contagem ent=%s cpf=%s", ent.apelido, marca)
             raise _problema(429, str(e)) from None

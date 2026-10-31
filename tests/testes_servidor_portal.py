@@ -215,6 +215,8 @@ class Cenario:
         com_rol: bool = True,
         entidades_extra: tuple = (),
         limite_de_emissoes: int = 0,
+        limite_por_origem: int = 0,
+        proxies: tuple[str, ...] = (),
         origens: tuple[str, ...] = (),
         categorias: tuple[str, ...] = ("auditor-fiscal-receita-federal",),
     ) -> None:
@@ -233,8 +235,12 @@ class Cenario:
             "PROTOCOL_MODO_ENSAIO": "1",
             "PROTOCOL_RAIZ": str(self.raiz),
             "PROTOCOL_EMISSOES_POR_CPF_HORA": str(limite_de_emissoes or 50),
-            "PROTOCOL_EMISSOES_POR_ORIGEM_HORA": str(limite_de_emissoes or 500),
+            "PROTOCOL_EMISSOES_POR_ORIGEM_HORA": str(
+                limite_por_origem or limite_de_emissoes or 500
+            ),
         }
+        if proxies:
+            ambiente["PROTOCOL_PROXIES_CONFIAVEIS"] = ",".join(proxies)
         if origens:
             ambiente["PROTOCOL_ORIGENS"] = ",".join(origens)
         self.cfg = carregar(ambiente)
@@ -389,6 +395,72 @@ def teste_limite_de_emissoes():
         f"esperava três emissões e um 429, veio {vistos}",
     )
     print("  ok     três códigos por hora, o quarto é recusado")
+
+
+def teste_o_limite_por_origem_nao_e_escolhido_por_quem_pede():
+    """A CHAVE DA CONTAGEM NÃO PODE SER UM CABEÇALHO DO PEDIDO.
+
+    `/api/acesso/codigo` é a única rota aberta que emite credencial, e a
+    única contagem global que ela tem é a de emissões por origem por hora.
+    `acesso.py` declara o que essa contagem sustenta: "impede varrer CPFs
+    para descobrir quem é filiado. Sem ela, a resposta 'não está no rol'
+    entrega o rol inteiro a quem tiver paciência."
+
+    `_origem` devolvia o primeiro valor de `X-Forwarded-For` sempre que o
+    cabeçalho existia. Como é cabeçalho de pedido, quem pede escolhia a
+    chave: trocando o valor, cada pedido caía num balde novo. Auditoria
+    independente mediu — com o limite em 3, vinte pedidos com o cabeçalho
+    variando deram vinte 202.
+
+    E a hipótese do comentário era falsa nas duas implantações possíveis:
+    sem proxy o cabeçalho vem do atacante; com proxy conforme, o proxy
+    ACRESCENTA ao fim da lista, então o primeiro valor continua sendo o que
+    o cliente escreveu.
+    """
+    secao("limite por origem")
+    c = Cenario(limite_por_origem=3)
+    vistos = []
+    for i in range(8):
+        r = c.cliente.post(
+            "/api/acesso/codigo",
+            json={"entidade": "demo-teste", "cpf": CPF},
+            headers={"X-Forwarded-For": f"203.0.113.{i}"},
+        )
+        vistos.append(r.status_code)
+    checa(vistos[:3] == [202, 202, 202] and set(vistos[3:]) == {429},
+          f"girar X-Forwarded-For furou o limite por origem: {vistos}")
+    print("  ok     o cabeçalho não escolhe o balde da contagem")
+
+
+def teste_atras_de_proxy_declarado_o_cabecalho_volta_a_valer():
+    """A CORREÇÃO NÃO PODE QUEBRAR QUEM ESTÁ ATRÁS DE PROXY.
+
+    Ignorar o cabeçalho sempre faria a contagem por origem valer para o
+    mundo inteiro junto — e aí o primeiro sindicato com atendimento
+    presencial fecharia o portão para a fila toda. O cabeçalho volta a
+    valer, mas só quando quem fala com o servidor é um proxy DECLARADO na
+    configuração, e aí o valor que conta é o ÚLTIMO, que é o que aquele
+    proxy acrescentou.
+    """
+    c = Cenario(limite_por_origem=3, proxies=("testclient",))
+    # Dois clientes distintos atrás do mesmo proxy contam separado: cada um
+    # gasta a sua cota e nenhum derruba o outro.
+    for cliente_real in ("198.51.100.7", "198.51.100.8"):
+        vistos = []
+        for _ in range(4):
+            r = c.cliente.post(
+                "/api/acesso/codigo",
+                json={"entidade": "demo-teste", "cpf": CPF},
+                headers={"X-Forwarded-For": f"9.9.9.9, {cliente_real}"},
+            )
+            vistos.append(r.status_code)
+        checa(vistos[:3] == [202, 202, 202] and vistos[3] == 429,
+              f"atrás de proxy declarado a contagem não valeu para "
+              f"{cliente_real}: {vistos}")
+    # E O VALOR MENTIDO PELO CLIENTE NÃO CONTA: os dois laços acima mandaram
+    # `9.9.9.9` como primeiro valor. Se fosse ele a chave, o segundo cliente
+    # já teria chegado recusado no primeiro pedido.
+    print("  ok     atrás de proxy declarado, vale o último valor")
 
 
 def teste_cadastro_exige_sessao():
@@ -636,6 +708,8 @@ TESTES = [
     teste_cpf_fora_do_rol_nao_se_distingue,
     teste_codigo_errado_e_forca_bruta,
     teste_limite_de_emissoes,
+    teste_o_limite_por_origem_nao_e_escolhido_por_quem_pede,
+    teste_atras_de_proxy_declarado_o_cabecalho_volta_a_valer,
     teste_cadastro_exige_sessao,
     teste_cpf_do_formulario_tem_que_bater_com_a_sessao,
     teste_arquivos_recusados,
