@@ -21,7 +21,7 @@
 | 7b | Catálogo por categoria: atender vários sindicatos | **pronto** | `0afa698` |
 | 7c | Mostrar ao filiado de quais ações ele participa | **pronto** | `09af14c` |
 | 8 | Painel do sindicato: o que resolver primeiro | **pronto** | `6700a89` |
-| 9 | Banco ligado: diário é a autoridade, banco é a projeção | **pronto** | `HEAD` |
+| 9 | Banco ligado: diário é a autoridade, banco é a projeção | **pronto** | `dfca8a6` |
 | 10 | **Migração para região brasileira** | **agora** | — |
 | 11 | O valor: quanto, com assinatura humana | a fazer | — |
 
