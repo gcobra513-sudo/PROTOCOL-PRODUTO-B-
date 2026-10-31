@@ -23,7 +23,7 @@
 | 8 | Painel do sindicato: o que resolver primeiro | **pronto** | `6700a89` |
 | 9 | Banco ligado: diário é a autoridade, banco é a projeção | **pronto** | `dfca8a6` |
 | 10 | **Migração para região brasileira** | **agora** | — |
-| 16 | O agendador, e o silêncio que ele podia criar | **pronto** | `HEAD` |
+| 16 | O agendador, e o silêncio que ele podia criar | **pronto** | `deb55ce` |
 | 15 | O aviso de movimentação: a promessa do formulário, cumprida | **pronto** | `e1bc2ab` |
 | 14 | O portal reconhece quem já está na base | **pronto** | `5c3aef4` |
 | 13 | Os documentos que o sindicato já tem entram | **pronto** | `5c3aef4` |
