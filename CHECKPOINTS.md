@@ -20,7 +20,7 @@
 | 7 | Portal do filiado pedindo o que o B pede | **pronto** | `73df604` |
 | 7b | Catálogo por categoria: atender vários sindicatos | **pronto** | `0afa698` |
 | 7c | Mostrar ao filiado de quais ações ele participa | **pronto** | `09af14c` |
-| 8 | Painel do sindicato: o que resolver primeiro | **pronto** | `HEAD` |
+| 8 | Painel do sindicato: o que resolver primeiro | **pronto** | `6700a89` |
 | 9 | **Banco ligado à aplicação (hoje lê de arquivo)** | **agora** | — |
 | 10 | Migração para região brasileira | a fazer | — |
 | 11 | O valor: quanto, com assinatura humana | a fazer | — |
