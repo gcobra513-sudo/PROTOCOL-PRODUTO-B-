@@ -168,6 +168,19 @@ def _campos_do_contrato() -> tuple[str, ...]:
     return conta.CAMPOS
 
 
+def _digitos(valor) -> str:
+    """Só os dígitos. Era esta expressão, embutida em quatro lugares.
+
+    Quatro cópias de uma normalização é a forma de divergirem. (Há ainda
+    duas implementações de `so_digitos` FORA deste módulo, em
+    `nucleo/cadastro.py` e `servidor/validacao.py`, e elas divergem de
+    verdade: uma usa `isdigit()`, que aceita caracteres como o expoente
+    dois, e a outra uma expressão regular de não-dígito, que não. Unificar as três é
+    conserto de outro dia; aqui pelo menos não acrescento a quinta.)
+    """
+    return "".join(c for c in str(valor or "") if c.isdigit())
+
+
 def _impressao(registro: dict) -> str:
     """A impressão digital do registro. É a chave de idempotência.
 
@@ -216,7 +229,7 @@ def reconstruir(url: str, entidade: str, registros) -> int:
             linha = registro.get("linha")
             if not isinstance(linha, dict):
                 continue
-            cpf = "".join(c for c in str(linha.get("cpf") or "") if c.isdigit())
+            cpf = _digitos(linha.get("cpf"))
             if not cpf:
                 continue
 
@@ -457,38 +470,92 @@ def base(url: str, entidade: str) -> list[dict]:
     quantos da base já mandaram documento — são dois números diferentes, e o
     gestor precisa dos dois.
     """
-    linhas: dict[str, dict] = {}
-    fontes: dict[str, set] = {}
-    arquivos: dict[str, dict] = {}
+    linhas, fontes, arquivos = {}, {}, {}
     with sessao(url, entidade) as cur:
         cur.execute(
             "SELECT DISTINCT ON (cpf, campo, fonte) cpf, campo, fonte, valor "
             "FROM pessoa_afirmacao "
             "ORDER BY cpf, campo, fonte, afirmado_em DESC, id DESC"
         )
-        for cpf, campo, fonte, valor in cur.fetchall():
-            fontes.setdefault(cpf, set()).add(fonte)
-            alvo = linhas.setdefault(cpf, {"cpf": cpf})
-            # O acervo vence, e o preenchido vence o vazio.
-            atual = alvo.get(campo, "")
-            if fonte == "acervo":
-                if str(valor or "").strip() or not atual:
-                    alvo[campo] = valor
-            elif not str(atual or "").strip():
-                alvo[campo] = valor
+        _consolidar(cur.fetchall(), linhas, fontes)
         cur.execute("SELECT cpf, tipo, sha256 FROM documento")
         for cpf, tipo, soma in cur.fetchall():
             arquivos.setdefault(cpf, {})[tipo] = soma
 
     return [
-        {
-            "protocolo": "",
-            "linha": linha,
-            "arquivos": arquivos.get(cpf, {}),
-            "fonte_cadastro": "cadastro" in fontes.get(cpf, set()),
-        }
+        _registro(cpf, linha, arquivos, fontes)
         for cpf, linha in sorted(linhas.items())
     ]
+
+
+def _consolidar(filas, linhas: dict, fontes: dict) -> None:
+    """A REGRA DE PRECEDÊNCIA, num lugar só.
+
+    "O acervo vence, e o preenchido vence o vazio" é regra de PRODUTO, e
+    estava escrita só aqui dentro. `registro_do_cpf` precisa exatamente
+    dela, e reimplementá-la lá daria duas regras que divergem — foi
+    justamente regra escrita em dois lugares que produziu metade dos
+    achados da auditoria. Então sai de dentro de `base` e passa a ser
+    chamada pelas duas.
+    """
+    for cpf, campo, fonte, valor in filas:
+        fontes.setdefault(cpf, set()).add(fonte)
+        alvo = linhas.setdefault(cpf, {"cpf": cpf})
+        atual = alvo.get(campo, "")
+        if fonte == "acervo":
+            if str(valor or "").strip() or not atual:
+                alvo[campo] = valor
+        elif not str(atual or "").strip():
+            alvo[campo] = valor
+
+
+def _registro(cpf: str, linha: dict, arquivos: dict, fontes: dict) -> dict:
+    """A forma em que a base sai. Uma função para as duas leituras darem a
+    MESMA forma — forma divergente é divergência que nenhum teste pega."""
+    return {
+        "protocolo": "",
+        "linha": linha,
+        "arquivos": arquivos.get(cpf, {}),
+        "fonte_cadastro": "cadastro" in fontes.get(cpf, set()),
+    }
+
+
+def registro_do_cpf(url: str, entidade: str, cpf: str) -> dict | None:
+    """O registro de UMA pessoa, filtrado no banco. `None` se não está lá.
+
+    `/api/meu-cadastro` chamava `base()` — a base nominal inteira da
+    entidade — e descartava tudo menos uma linha com `next(...)`. O pedido
+    de uma pessoa pelos dados DELA transportava a base completa do sindicato
+    para a memória do processo, a cada carregamento de tela. Medido pela
+    auditoria: 21 MB de pico para 4.000 pessoas, para responder uma linha.
+
+    As rotas irmãs já faziam certo — `achados_do_cpf`, `documentos_do_cpf` e
+    `processos_do_cpf` filtram `WHERE cpf = %s`. Esta era a única que
+    filtrava em Python, depois do banco.
+
+    A precedência é a de `_consolidar`, a mesma de `base`, de propósito.
+    """
+    digitos = _digitos(cpf)
+    if len(digitos) != 11:
+        return None
+    linhas, fontes, arquivos = {}, {}, {}
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT DISTINCT ON (cpf, campo, fonte) cpf, campo, fonte, valor "
+            "FROM pessoa_afirmacao WHERE cpf = %s "
+            "ORDER BY cpf, campo, fonte, afirmado_em DESC, id DESC",
+            (digitos,),
+        )
+        _consolidar(cur.fetchall(), linhas, fontes)
+        if not linhas:
+            return None
+        cur.execute(
+            "SELECT cpf, tipo, sha256 FROM documento WHERE cpf = %s",
+            (digitos,),
+        )
+        for c, tipo, soma in cur.fetchall():
+            arquivos.setdefault(c, {})[tipo] = soma
+    return _registro(digitos, linhas[digitos], arquivos, fontes)
 
 
 def cadastros(url: str, entidade: str) -> list[dict]:
@@ -559,7 +626,7 @@ def achados_do_cpf(url: str, entidade: str, cpf: str) -> list:
     """
     from nucleo import leitura as mod
 
-    digitos = "".join(c for c in str(cpf or "") if c.isdigit())
+    digitos = _digitos(cpf)
     with sessao(url, entidade) as cur:
         cur.execute(
             "SELECT tipo, valor, confianca, trecho, posicao, metodo "
@@ -593,7 +660,7 @@ def processos_do_cpf(url: str, entidade: str, cpf: str) -> list[str]:
     a uma aposentada que ache 20 dígitos numa papelada e digite no celular é
     pedir que ela desista.
     """
-    digitos = "".join(c for c in str(cpf or "") if c.isdigit())
+    digitos = _digitos(cpf)
     with sessao(url, entidade) as cur:
         cur.execute(
             "SELECT numero FROM vinculo WHERE cpf = %s ORDER BY numero",
@@ -608,7 +675,7 @@ def documentos_do_cpf(url: str, entidade: str, cpf: str) -> tuple[str, ...]:
     É o que faz a pendência mudar de dono: quem mandou a sentença está
     esperando leitura, não providência.
     """
-    digitos = "".join(c for c in str(cpf or "") if c.isdigit())
+    digitos = _digitos(cpf)
     with sessao(url, entidade) as cur:
         cur.execute(
             "SELECT DISTINCT tipo FROM documento WHERE cpf = %s ORDER BY tipo",

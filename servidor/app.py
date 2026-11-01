@@ -205,7 +205,23 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         except semente.SementeRecusada as e:
             log.error("SEMENTE recusada: %s", e)
 
-    app = FastAPI(title="Portal de execução", docs_url=None, redoc_url=None)
+    # O ESQUEMA DA API SÓ EM ENSAIO.
+    #
+    # `docs_url` e `redoc_url` já estavam desligados, mas `openapi_url` fica
+    # em `/openapi.json` por padrão — e ele publica, a um anônimo, a lista de
+    # rotas, a forma de cada corpo e de cada resposta, e os nomes internos.
+    # Não é vulnerabilidade por si: é o mapa que torna todo o resto mais
+    # fácil, inclusive achar rota que ninguém divulgou.
+    #
+    # Em ensaio continua ligado porque lá não há dado de pessoa e quem
+    # desenvolve precisa dele. Desligar nos dois seria pagar conveniência
+    # por nada.
+    app = FastAPI(
+        title="Portal de execução",
+        docs_url=None,
+        redoc_url=None,
+        openapi_url="/openapi.json" if cfg.modo_ensaio else None,
+    )
 
     # O TRABALHO DE FUNDO SOBE COM O SERVIDOR.
     #
@@ -733,11 +749,15 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         if not cpf or not cfg.tem_banco:
             return vazio
         try:
-            registro = next(
-                (r for r in banco.base(cfg.banco_url, ent.apelido)
-                 if conta.so_digitos(r["linha"].get("cpf", "")) == cpf),
-                None,
-            )
+            # FILTRA NO BANCO, não em Python. Esta linha era
+            # `next(... for r in banco.base(...))`: lia a base nominal
+            # INTEIRA da entidade e descartava tudo menos uma linha. O
+            # pedido de uma pessoa pelos dados dela transportava a base
+            # completa do sindicato para a memória do processo, a cada
+            # carregamento de tela — medido, 21 MB de pico para 4.000
+            # pessoas, para responder uma linha. As rotas irmãs já filtravam
+            # no banco; esta era a única que não.
+            registro = banco.registro_do_cpf(cfg.banco_url, ent.apelido, cpf)
         except Exception:  # noqa: BLE001
             log.exception("MEU-CADASTRO falhou ent=%s", ent.apelido)
             return vazio

@@ -1410,6 +1410,116 @@ def teste_reconstruir_continua_recuperando_o_diario_inteiro():
     print("  ok     a recuperação pelo diário inteiro continua funcionando")
 
 
+def teste_meu_cadastro_nao_le_a_base_inteira():
+    """UMA PESSOA PEDINDO OS DADOS DELA NÃO PODE CUSTAR A BASE DO SINDICATO.
+
+    `/api/meu-cadastro` chamava `banco.base(...)` — que lê
+    `pessoa_afirmacao` e `documento` da entidade inteira e monta um
+    dicionário por CPF — e logo descartava tudo menos uma linha, com
+    `next(...)`. O pedido de UMA pessoa transportava do Postgres para a
+    memória do processo a base nominal completa, a cada carregamento de
+    tela, sem limite de frequência.
+
+    Medido pela auditoria: 21 MB de pico para uma base de 4.000 pessoas,
+    para responder uma linha.
+
+    As rotas irmãs já faziam certo — `achados_do_cpf`, `documentos_do_cpf` e
+    `processos_do_cpf` filtram `WHERE cpf = %s` no banco. Esta era a única
+    que filtrava em Python, depois do banco.
+
+    O teste conta LINHAS LIDAS do banco, em duas bases de tamanhos
+    diferentes: é a grandeza que cresce, e um tamanho só não distingue
+    "ficou menor" de "ficou plano".
+    """
+    import psycopg
+
+    secao("o custo de ler o próprio cadastro")
+
+    def linhas_lidas_com_base_de(quantas: int) -> int:
+        from servidor import acervo, banco
+
+        cliente, ent, raiz = _servidor()
+        _por_no_rol(raiz, ent.apelido, [A])
+        # Semeia pelo acervo, que é o caminho barato: o que está sob teste é
+        # a LEITURA, não a escrita.
+        pessoas = [
+            acervo.Pessoa(cpf=_cpf_sintetico(2000 + i), linha_no_arquivo=i + 2,
+                          campos={"nome_completo": f"EXEMPLO {i} (FICTICIO)",
+                                  "email": f"e{i}@exemplo.invalid"})
+            for i in range(quantas)
+        ]
+        banco.projetar_acervo(URL, ent.apelido, pessoas)
+        _cadastrar(cliente, A)
+
+        original = psycopg.Cursor.fetchall
+        conta = {"linhas": 0}
+
+        def espiao(self):
+            filas = original(self)
+            conta["linhas"] += len(filas)
+            return filas
+
+        psycopg.Cursor.fetchall = espiao
+        try:
+            r = cliente.get("/api/meu-cadastro",
+                            headers={"Authorization": f"Bearer "
+                                                      f"{_token(cliente, A)}"})
+        finally:
+            psycopg.Cursor.fetchall = original
+        checa(r.status_code == 200,
+              f"a rota falhou: {r.status_code} {r.text[:200]}")
+        checa(r.json().get("campos", {}).get("nome_completo"),
+              f"a rota devolveu vazio, então o teste não mediu nada: "
+              f"{r.json()}")
+        return conta["linhas"]
+
+    poucas, muitas = 3, 30
+    com_poucas = linhas_lidas_com_base_de(poucas)
+    com_muitas = linhas_lidas_com_base_de(muitas)
+
+    checa(com_muitas <= com_poucas + 5,
+          f"ler o próprio cadastro custa a base inteira: {com_poucas} "
+          f"linhas com {poucas} pessoas, {com_muitas} com {muitas}")
+    print(f"  ok     {com_poucas} linhas com {poucas} pessoas na base, "
+          f"{com_muitas} com {muitas} — plano")
+
+
+def teste_o_registro_por_cpf_concorda_com_a_base_inteira():
+    """A MESMA REGRA DE PRECEDÊNCIA, NÃO UMA SEGUNDA CÓPIA DELA.
+
+    "O acervo vence, e o preenchido vence o vazio" é regra de produto. Se
+    `registro_do_cpf` a reimplementasse, as duas divergiriam — e foi
+    exatamente regra escrita em dois lugares que produziu metade dos
+    achados desta auditoria. Este teste compara as duas saídas para a mesma
+    pessoa, com acervo E cadastro presentes, que é onde a precedência
+    aparece.
+    """
+    from servidor import acervo, banco
+
+    cliente, ent, raiz = _servidor()
+    _por_no_rol(raiz, ent.apelido, [A])
+    banco.projetar_acervo(URL, ent.apelido, [
+        acervo.Pessoa(cpf=A, linha_no_arquivo=2, campos={
+            "nome_completo": "NOME DO ACERVO (FICTICIO)",
+            "unidade": "UNIDADE DO ACERVO",
+        }),
+    ])
+    _cadastrar(cliente, A)
+
+    pela_base = next((r for r in banco.base(URL, ent.apelido)
+                      if r["linha"].get("cpf") == A), None)
+    por_cpf = banco.registro_do_cpf(URL, ent.apelido, A)
+    checa(por_cpf == pela_base,
+          f"as duas leituras divergem.\n  base:   {pela_base}\n"
+          f"  por cpf: {por_cpf}")
+
+    # E quem não existe devolve None nas duas, não uma linha vazia.
+    ausente = _cpf_sintetico(999_999)
+    checa(banco.registro_do_cpf(URL, ent.apelido, ausente) is None,
+          "inventou registro para CPF que não está na base")
+    print("  ok     a leitura por CPF concorda com a base inteira")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1457,6 +1567,8 @@ TESTES = [
     teste_a_saude_fica_boa_quando_o_trabalho_roda,
     teste_saude_nao_publica_o_detalhe_a_quem_nao_tem_sessao,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
+    teste_meu_cadastro_nao_le_a_base_inteira,
+    teste_o_registro_por_cpf_concorda_com_a_base_inteira,
     teste_reconstruir_continua_recuperando_o_diario_inteiro,
     teste_a_leitura_de_dado_nominal_fica_registrada,
     teste_o_registro_de_leitura_nao_guarda_cpf_em_claro,

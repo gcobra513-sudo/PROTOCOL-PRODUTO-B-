@@ -1348,6 +1348,61 @@ def teste_terceiro_nao_tranca_o_filiado_fora_do_portao():
     print("  ok     recusa só enquanto há código vivo; o dono sempre entra")
 
 
+def teste_openapi_nao_fica_aberto_em_producao():
+    """O ESQUEMA DA API NÃO É DOCUMENTAÇÃO PÚBLICA DESTE PRODUTO.
+
+    `criar_app` já desligava `docs_url` e `redoc_url`, mas `openapi_url`
+    fica em `/openapi.json` por padrão — e ele publica, a um anônimo, a
+    lista de rotas, a forma de cada corpo e cada resposta, e os nomes
+    internos. Não é vulnerabilidade por si: é o mapa que torna todo o resto
+    mais fácil, inclusive enumerar rotas que ninguém divulgou.
+
+    Em MODO ENSAIO continua ligado de propósito: lá não há dado de pessoa, e
+    quem está desenvolvendo precisa dele. A diferença entre os dois é o
+    ponto do teste — desligar nos dois seria pagar conveniência por nada.
+    """
+    secao("o esquema da API não é público")
+    import tempfile as _tempfile
+
+    from fastapi.testclient import TestClient
+
+    from servidor import entidades as mod_entidades
+    from servidor.app import criar_app
+    from servidor.config import carregar
+
+    # Em ensaio: continua servindo, porque é ferramenta de quem desenvolve.
+    c = Cenario()
+    r = c.cliente.get("/openapi.json")
+    checa(r.status_code == 200,
+          f"o ensaio perdeu o esquema, que é ferramenta de desenvolvimento: "
+          f"{r.status_code}")
+
+    # Fora do ensaio: não serve.
+    raiz = Path(_tempfile.mkdtemp(prefix="openapi-teste-"))
+    _NASCIDOS.append(raiz)
+    mod_entidades.Cadastro(raiz).criar("demo-prod", "Demonstração")
+    cfg = carregar({
+        "PROTOCOL_RAIZ": str(raiz),
+        "PROTOCOL_SEGREDO": "segredo-de-teste-com-tamanho-suficiente",
+        "PROTOCOL_SMTP_HOST": "smtp.exemplo.invalid",
+        "PROTOCOL_SMTP_REMETENTE": "naoresponda@exemplo.invalid",
+        "PROTOCOL_REGIAO": "sa-east-1",
+        "PROTOCOL_AGENDAR": "0",
+    })
+    checa(cfg.modo_ensaio is False, "o cenário de produção saiu em ensaio")
+    producao = TestClient(criar_app(cfg))
+    for rota in ("/openapi.json", "/docs", "/redoc"):
+        r = producao.get(rota)
+        checa(r.status_code == 404,
+              f"{rota} responde {r.status_code} em produção, e devia ser 404")
+
+    # E O QUE O MONITOR PRECISA CONTINUA DE PÉ: desligar o esquema não pode
+    # ter derrubado a saúde junto.
+    r = producao.get("/saude")
+    checa(r.status_code == 200, f"a saúde caiu junto: {r.status_code}")
+    print("  ok     esquema servido em ensaio, 404 em produção")
+
+
 def teste_rol_em_latin1_nao_fecha_o_portao():
     """I5 — ACHADO NA REVISÃO.
 
@@ -1404,6 +1459,7 @@ def teste_acompanhar_aceita_20_numeros_formatados():
 TESTES.extend([
     teste_pedir_codigo_responde_igual_dentro_e_fora_do_rol,
     teste_falha_de_envio_nao_revela_filiacao,
+    teste_openapi_nao_fica_aberto_em_producao,
     teste_terceiro_nao_tranca_o_filiado_fora_do_portao,
     teste_rol_em_latin1_nao_fecha_o_portao,
     teste_acompanhar_aceita_20_numeros_formatados,
