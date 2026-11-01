@@ -130,6 +130,105 @@ async def _ler_limitado(arquivo: UploadFile, teto: int) -> bytes:
     return b"".join(pedacos)
 
 
+class TetoDeCorpo:
+    """Recusa requisição acima do teto ANTES de o corpo ser lido.
+
+    POR QUE NA APLICAÇÃO, E NÃO NO PROXY.
+
+    Numa requisição `multipart`, o FastAPI precisa ler o corpo INTEIRO para
+    montar os parâmetros do handler, e o Starlette, ao ler, derrama cada
+    arquivo: até 1 MiB em memória, acima disso num arquivo em `/tmp`. Só
+    depois disso o corpo da rota roda — e é lá que o token é conferido e que
+    os tetos de `LIMITE_ARQUIVO_BYTES` e `LIMITE_PACOTE_BYTES` são
+    aplicados. A ordem estava errada: quem não tem token nenhum fazia o
+    servidor escrever em disco antes de levar 401.
+
+    A auditoria classificou isso como dependente da implantação, e com
+    razão: com um proxy reverso na frente — o nginx recusa acima de 1 MB por
+    padrão — a requisição nem chega. Mas `servidor/__main__.py` sobe o
+    uvicorn direto, e uma defesa que mora fora do repositório é a mesma
+    hipótese não medida que produziu os outros achados desta auditoria. Aqui
+    o teto vale em qualquer implantação, inclusive no dia em que alguém
+    trocar o proxy sem avisar.
+
+    DOIS CAMINHOS, e os dois MEDIDOS contra um uvicorn de verdade em
+    loopback, com 200 MiB tentados contra um teto de 60 MiB:
+
+    - Com `Content-Length` — o que todo navegador manda, e o que o nosso
+      portal manda: **413, e o cliente enviou 0 byte de corpo**. A recusa
+      sai do cabeçalho, antes de qualquer leitura.
+    - Sem `Content-Length`, corpo em pedaços: só dá para contar enquanto
+      chega. Medido, a conexão foi cortada depois de **2,7 MiB** dos 200 MiB
+      tentados — o controle de fluxo do uvicorn para de puxar quando
+      deixamos de alimentar o corpo. Em nenhum dos dois caminhos ficou
+      arquivo temporário em disco.
+
+    A primeira versão deste docstring afirmava que a conexão cai no segundo
+    caminho, sem que eu tivesse medido. Era o mesmo tipo de hipótese não
+    verificada que produziu os sete achados desta auditoria, e só por sorte
+    estava na direção certa. Os números acima vieram da medição.
+    """
+
+    def __init__(self, app, teto: int) -> None:
+        self.app = app
+        self.teto = teto
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        declarado = self._declarado(scope)
+        if declarado is not None and declarado > self.teto:
+            await self._recusar(send)
+            return
+
+        lidos = 0
+
+        async def contando():
+            nonlocal lidos
+            evento = await receive()
+            if evento.get("type") == "http.request":
+                lidos += len(evento.get("body", b"") or b"")
+                if lidos > self.teto:
+                    # Corta o fornecimento. O corpo da rota vê o pedido
+                    # morrer e nada chega a disco além do que já passou,
+                    # que é no máximo um pedaço.
+                    return {"type": "http.disconnect"}
+            return evento
+
+        await self.app(scope, contando, send)
+
+    def _declarado(self, scope) -> int | None:
+        for nome, valor in scope.get("headers") or ():
+            if nome == b"content-length":
+                try:
+                    return int(valor)
+                except ValueError:
+                    # Cabeçalho ilegível não vale como declaração; o
+                    # contador adiante resolve. Não dá para confiar nele
+                    # para liberar, só para recusar.
+                    return None
+        return None
+
+    async def _recusar(self, send) -> None:
+        corpo = json.dumps({
+            "detail": {
+                "erro": f"o pedido passa do limite de "
+                        f"{self.teto // (1024 * 1024)} MB por envio"
+            }
+        }).encode("utf-8")
+        await send({
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(corpo)).encode("ascii")),
+            ],
+        })
+        await send({"type": "http.response.body", "body": corpo})
+
+
 def _origem(pedido: Request, cfg: Config) -> str:
     """Quem está pedindo, para a contagem por hora.
 
@@ -256,6 +355,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             # origens diferentes, que é como eles vivem em produção.
             allow_headers=["content-type", "authorization"],
         )
+
+    # O TETO DE CORPO VAI POR FORA DE TUDO, e por isso é o ÚLTIMO a ser
+    # acrescentado.
+    #
+    # `Starlette.add_middleware` faz `insert(0, ...)`: quem entra depois fica
+    # mais por fora e roda primeiro — conferido no fonte, não suposto. Este
+    # tem de decidir antes de qualquer outra camada tocar o corpo.
+    app.add_middleware(TetoDeCorpo, teto=LIMITE_PACOTE_BYTES)
 
     def _entidade(apelido: str) -> entidades.Entidade:
         try:

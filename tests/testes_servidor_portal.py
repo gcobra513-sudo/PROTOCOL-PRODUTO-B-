@@ -1403,6 +1403,67 @@ def teste_openapi_nao_fica_aberto_em_producao():
     print("  ok     esquema servido em ensaio, 404 em produção")
 
 
+def teste_corpo_grande_e_recusado_antes_de_ser_lido():
+    """O TETO DO CORPO NÃO PODE DEPENDER DE UM PROXY QUE NÃO ESTÁ NO REPO.
+
+    Numa requisição `multipart`, o FastAPI precisa ler o corpo INTEIRO para
+    montar os parâmetros do handler — e o Starlette, ao ler, derrama cada
+    arquivo: até 1 MiB em memória, acima disso num arquivo em `/tmp`. Só
+    DEPOIS disso o nosso código roda, e é lá que o token é conferido e que
+    os tetos de 25 MB por arquivo e 60 MB por pacote são aplicados.
+
+    A ordem estava errada: quem não tem token nenhum fazia o servidor
+    escrever em disco antes de receber o 401. Os tetos existiam e rodavam
+    tarde.
+
+    A auditoria classificou isso como dependente da implantação, porque com
+    um proxy reverso na frente (o nginx recusa acima de 1 MB por padrão) a
+    requisição nem chega. Mas `servidor/__main__.py` sobe o uvicorn direto,
+    e uma defesa que mora fora do repositório é a mesma hipótese não medida
+    que produziu os outros achados. Então o teto passa a valer aqui.
+
+    O teste exige as DUAS coisas: que o corpo grande seja recusado, e que o
+    cadastro normal continue passando — um teto que recusa tudo não é
+    defesa, é apagão.
+    """
+    secao("teto de corpo na aplicação")
+    from servidor.config import LIMITE_PACOTE_BYTES
+
+    c = Cenario()
+
+    # 1) Sem token válido E com corpo acima do teto: tem de ser recusado por
+    #    TAMANHO, e não chegar a ser lido. Content-Length declarado é o
+    #    caminho barato: dá para recusar antes de ler um byte.
+    grande = b"x" * (LIMITE_PACOTE_BYTES + 1024)
+    r = c.cliente.post(
+        "/api/cadastro",
+        content=grande,
+        headers={"Content-Type": "multipart/form-data; boundary=abc",
+                 "Content-Length": str(len(grande))},
+    )
+    checa(r.status_code == 413,
+          f"corpo de {len(grande)} bytes, acima do teto de "
+          f"{LIMITE_PACOTE_BYTES}, respondeu {r.status_code} e devia ser 413")
+
+    # 2) E a recusa vem ANTES do token: um anônimo não deve conseguir fazer
+    #    o servidor materializar o corpo só para depois levar 401.
+    checa("413" in str(r.status_code),
+          f"a recusa por tamanho não precedeu a de sessão: {r.status_code}")
+
+    # 3) O cadastro NORMAL continua passando. Sem isto, o teto é apagão.
+    r = c.enviar(c.token(CPF), linha(CPF), pacote(CPF))
+    checa(r.status_code == 200,
+          f"o teto derrubou o cadastro legítimo: {r.status_code} "
+          f"{r.text[:200]}")
+
+    # 4) E as rotas pequenas não foram afetadas.
+    r = c.cliente.post("/api/acesso/codigo",
+                       json={"entidade": "demo-teste", "cpf": CPF})
+    checa(r.status_code == 202,
+          f"o teto atingiu uma rota que não tem upload: {r.status_code}")
+    print("  ok     corpo acima do teto dá 413 antes de ser lido")
+
+
 def teste_rol_em_latin1_nao_fecha_o_portao():
     """I5 — ACHADO NA REVISÃO.
 
@@ -1460,6 +1521,7 @@ TESTES.extend([
     teste_pedir_codigo_responde_igual_dentro_e_fora_do_rol,
     teste_falha_de_envio_nao_revela_filiacao,
     teste_openapi_nao_fica_aberto_em_producao,
+    teste_corpo_grande_e_recusado_antes_de_ser_lido,
     teste_terceiro_nao_tranca_o_filiado_fora_do_portao,
     teste_rol_em_latin1_nao_fecha_o_portao,
     teste_acompanhar_aceita_20_numeros_formatados,
