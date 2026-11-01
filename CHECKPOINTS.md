@@ -22,13 +22,76 @@
 | 7c | Mostrar ao filiado de quais ações ele participa | **pronto** | `09af14c` |
 | 8 | Painel do sindicato: o que resolver primeiro | **pronto** | `6700a89` |
 | 9 | Banco ligado: diário é a autoridade, banco é a projeção | **pronto** | `dfca8a6` |
-| 10 | **Migração para região brasileira** | **agora** | — |
+| 10 | **Migração para região brasileira** | **decidido, a contratar** | — |
+| 17 | Auditoria de segurança independente: 13 achados, todos fechados | **pronto** | `a338473` |
 | 16 | O agendador, e o silêncio que ele podia criar | **pronto** | `deb55ce` |
 | 15 | O aviso de movimentação: a promessa do formulário, cumprida | **pronto** | `e1bc2ab` |
 | 14 | O portal reconhece quem já está na base | **pronto** | `5c3aef4` |
 | 13 | Os documentos que o sindicato já tem entram | **pronto** | `5c3aef4` |
 | 12 | A planilha do sindicato vira a base, não um relatório | **pronto** | `3597873` |
 | 11 | O valor: a prescrição, e a recusa de dizer quanto | **pronto** | `f4ae30d` |
+
+---
+
+## Onde isto vai rodar — decidido em 01/11/2026
+
+**AWS Lightsail `sa-east-1` (São Paulo) + Supabase Pro.** R$ 181,47/mês à
+PTAX venda de 30/10/2026 (R$ 5,4212/USD). Os números e as alternativas
+estão em `docs/hospedagem.md` e `docs/custo_da_operacao.md`.
+
+A razão não é preço — é que **a invariante de isolamento já está provada
+neste par exato, ao vivo**: entidade A vê só a linha dela, escrita cruzada
+recusada, e a aplicação não consegue apagar o próprio registro de leitura.
+Trocar o banco significa reprovar isso num modelo de privilégio diferente
+(`neon_superuser`, `azure_pg_admin`, `rds_superuser` — cada um muda quem
+assume papel). Não é custo em dinheiro: é risco sobre a promessa de que um
+sindicato nunca vê o dado de outro.
+
+O que foi medido e eliminou os outros:
+
+| | por quê |
+|---|---|
+| Render | sem região na América do Sul |
+| AWS App Runner | não existe em `sa-east-1` |
+| Cloud Run | o agendador em thread exige CPU sempre alocada: US$ 59/mês, e sem disco persistente |
+| Oracle Always Free | *"Idle Always Free compute instances may be reclaimed"* — a nossa carga é a definição de ociosa |
+| Supabase Free · Neon Free | pausam por inatividade; o Neon em 5 min, sem opção de desligar |
+| Azure Postgres Burstable | a própria Azure: *"Not recommended for production workloads"*. Produção começa em ~R$ 1.900/mês |
+| Vultr | preço não confirmado: API exige credencial, páginas devolvem 403 |
+| DigitalOcean · Scaleway · Hetzner · Railway · Heroku | nenhuma região no Brasil |
+
+**A alternativa, se o Supabase um dia incomodar:** Akamai/Linode `br-gru`,
+R$ 86,74/mês, 9 GB de disco e 14 dias de backup inclusos, com regra
+literal a favor (*"charges accrue even if it's powered off"*).
+
+**Duas coisas no primeiro dia, não depois:** renovação automática de TLS (o
+certificado do Let's Encrypt vence em 90 dias) e snapshot diário
+(US$ 0,05/GB/mês). Sem as duas, em três meses o portal cai e o PDF de
+sentença está sem cópia.
+
+**Atenção a um limite de São Paulo:** o bundle de US$ 7,00 anuncia 2 TB de
+transferência, mas em `sa-east-1` a AWS entrega **metade**.
+
+---
+
+## Números medidos, que corrigem suposições anteriores
+
+| | medido | onde |
+|---|---|---|
+| Cadência do agendador | **24 h**, não as 20 h da constante — o despertar é de 6 h, e o primeiro vencimento depois de 20 h cai em 24 | `servidor/agenda.py` |
+| Banco por pessoa | **4,6 KB** pela planilha; ~9 KB com o envio do portal. A 100 mil pessoas o banco não chega a 1 GB | semeado e lido com `pg_database_size` |
+| Custo de um cadastro | **27 comandos SQL**, independente do tamanho do diário (era 21 por registro já existente) | contador em `psycopg.Cursor.execute` |
+| Ler o próprio cadastro | **18 linhas**, independente do tamanho da base (eram 78 com 30 pessoas) | contador em `fetchall` |
+| Requisições ao DataJud | **1.470/mês** para 4.812 processos (lote de 100, 30 rodadas). O limite do CNJ é 120/min | `servidor/acompanhamento.py` |
+| E-mails | **3.600/mês** no pior caso medido. Custa R$ 1,95 | cálculo sobre volume medido |
+| Teto de corpo HTTP | 413 com **0 byte** enviado; sem `Content-Length`, conexão cortada em **2,7 MiB** de 200 MiB | uvicorn real em loopback |
+
+**O gargalo de escala não é o banco: é o disco da máquina, por causa dos
+PDFs.** Os 40 GB do Lightsail comportam ~45.000 pessoas supondo 0,9 MB por
+pessoa — e **esses 0,9 MB são suposição minha, não medição**. O teto que o
+código impõe é 60 MB por envio, o que no pior caso daria 282 GB. A
+diferença entre 4 GB e 282 GB decide o plano de disco, e só um lote real
+responde.
 
 ---
 
@@ -59,6 +122,17 @@ PROTOCOL_DATABASE_URL='postgresql://...' python3 tests/rodar_todos.py
 
 Verde não quer dizer "produto pronto": quer dizer "o que está escrito aqui
 faz o que diz". O que não existe não tem teste, e está na tabela acima.
+
+Hoje são **382 grupos em Python e 79 testes no portal**, e 10.320 linhas de
+teste contra 10.357 de código.
+
+E uma coisa que a auditoria ensinou e que vale mais que o número:
+**comentário não é teste.** Em sete dos doze defeitos encontrados havia um
+comentário meu afirmando exatamente a propriedade que a medição derrubou —
+que o tamanho do zip era conferido antes de descompactar, que CPF nunca
+entrava no log, que a resposta nunca dizia se alguém está no rol, que a
+trava de região era impedimento e não promessa. Cada uma era hipótese
+nunca medida. O registro completo está em `docs/auditoria_seguranca.md`.
 
 ---
 
