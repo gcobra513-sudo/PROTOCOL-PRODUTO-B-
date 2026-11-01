@@ -1165,6 +1165,119 @@ def teste_pedir_codigo_responde_igual_dentro_e_fora_do_rol():
     print(f"  ok     resposta idêntica em {len(estados)} estados do gestores.csv")
 
 
+def _expirar_codigos(c) -> None:
+    """Envelhece os códigos vivos, para não esperar 15 minutos no teste."""
+    import sqlite3
+
+    from servidor.acesso import ARQUIVO
+
+    cx = sqlite3.connect(c.raiz / ARQUIVO)
+    cx.execute("UPDATE codigos SET expira_em = '2000-01-01T00:00:00+00:00' "
+               "WHERE usado_em IS NULL")
+    cx.commit()
+    cx.close()
+
+
+def teste_falha_de_envio_nao_revela_filiacao():
+    """O 502 ERA ALCANÇÁVEL SÓ PARA QUEM ESTÁ NO ROL.
+
+    `pedir_codigo` devolve 202 e para, logo, quando `destino is None` — CPF
+    fora dos dois róis. Só depois disso vinha o `correio.enviar`, e o
+    `except` dele levantava 502. Ou seja: qualquer falha de entrega era, por
+    construção, uma AFIRMAÇÃO de que aquele CPF está no cadastro.
+
+    E não é estado exótico. Em produção o remetente é sempre SMTP, e
+    `send_message` levanta quando o relay recusa o destinatário — um e-mail
+    velho ou digitado errado numa linha de `filiados.csv`, que é rotina numa
+    base de sindicato, dá um 502 permanente e estável para exatamente aquele
+    CPF.
+
+    `app.py` abre dizendo: "O QUE A RESPOSTA NUNCA DIZ: se um CPF está ou não
+    no rol da entidade." O teste estrutural que existia percorre cinco
+    estados do `gestores.csv` — mas nenhum deles passa pelo ramo de ENVIO, e
+    era ali que a igualdade caía.
+    """
+    secao("falha de envio não revela filiação")
+    from servidor import remetente as mod_remetente
+
+    original = mod_remetente.ParaArquivo.enviar
+
+    def quebrado(self, *a, **k):
+        raise RuntimeError("relay recusou o destinatário")
+
+    mod_remetente.ParaArquivo.enviar = quebrado
+    try:
+        c = Cenario()
+        dentro = _corpo_comparavel(c.cliente.post(
+            "/api/acesso/codigo",
+            json={"entidade": "demo-teste", "cpf": CPF}))
+        fora = _corpo_comparavel(c.cliente.post(
+            "/api/acesso/codigo",
+            json={"entidade": "demo-teste", "cpf": OUTRO_CPF}))
+    finally:
+        mod_remetente.ParaArquivo.enviar = original
+
+    checa(dentro == fora,
+          f"com o envio falhando, a resposta revela filiação: "
+          f"dentro={dentro} fora={fora}")
+    checa(dentro[0] == 202,
+          f"a falha de envio virou status próprio: {dentro}")
+    print("  ok     envio quebrado responde igual dentro e fora do rol")
+
+
+def teste_terceiro_nao_tranca_o_filiado_fora_do_portao():
+    """TRÊS PEDIDOS ANÔNIMOS TIRAVAM UMA PESSOA NOMEADA DO PORTÃO.
+
+    O teto por CPF é contado por `cpf_hash`, e `/api/acesso/codigo` é
+    anônima: quem pede não prova relação nenhuma com aquele CPF. Então um
+    terceiro gastava a cota de um filiado com três pedidos.
+
+    E o bloqueio era completo, não uma corrida, porque as duas janelas não
+    se encaixavam: o código vale 15 minutos e a contagem olha 60. Do minuto
+    15 ao 60 a vítima não tinha código válido E não conseguia emitir outro.
+    Este portão é a única porta: sem ele a pessoa não envia cadastro, não lê
+    o próprio cadastro, não lê as próprias ações nem os próprios processos.
+
+    A regra passa a ser: recusa ENQUANTO existe código vivo — e aí a
+    mensagem é verdadeira, porque o código está na caixa de entrada dela.
+    Sem código vivo, recusar não protege ninguém e só tranca o dono.
+    """
+    secao("o teto não tranca o dono do CPF")
+    # O teto por ORIGEM fica alto de propósito: o que está sob teste é o
+    # teto por CPF, e esbarrar no outro faria o teste falhar por motivo
+    # errado — que foi o que aconteceu na primeira tentativa.
+    c = Cenario(limite_de_emissoes=3, limite_por_origem=500)
+
+    for _ in range(3):
+        c.cliente.post("/api/acesso/codigo",
+                       json={"entidade": "demo-teste", "cpf": CPF})
+
+    # Enquanto o código VIVE, recusar é honesto: ela tem um na caixa.
+    r = c.cliente.post("/api/acesso/codigo",
+                       json={"entidade": "demo-teste", "cpf": CPF})
+    checa(r.status_code == 429,
+          f"deixou de limitar o volume de e-mail: {r.status_code}")
+
+    # Expirado o código, a vítima TEM de conseguir entrar.
+    _expirar_codigos(c)
+    r = c.cliente.post("/api/acesso/codigo",
+                       json={"entidade": "demo-teste", "cpf": CPF})
+    checa(r.status_code == 202,
+          f"a pessoa ficou trancada fora do portão sem ter código válido: "
+          f"{r.status_code} {r.text[:200]}")
+
+    # E o código tem de SERVIR — 202 com código inútil não é acesso.
+    codigo = r.json().get("codigo_do_ensaio")
+    checa(bool(codigo), f"202 sem código utilizável: {r.json()}")
+    r2 = c.cliente.post("/api/acesso/conferir",
+                        json={"entidade": "demo-teste", "cpf": CPF,
+                              "codigo": codigo})
+    checa(r2.status_code == 200 and r2.json().get("token"),
+          f"o código novo não abriu sessão: {r2.status_code} "
+          f"{r2.text[:200]}")
+    print("  ok     recusa só enquanto há código vivo; o dono sempre entra")
+
+
 def teste_rol_em_latin1_nao_fecha_o_portao():
     """I5 — ACHADO NA REVISÃO.
 
@@ -1220,6 +1333,8 @@ def teste_acompanhar_aceita_20_numeros_formatados():
 
 TESTES.extend([
     teste_pedir_codigo_responde_igual_dentro_e_fora_do_rol,
+    teste_falha_de_envio_nao_revela_filiacao,
+    teste_terceiro_nao_tranca_o_filiado_fora_do_portao,
     teste_rol_em_latin1_nao_fecha_o_portao,
     teste_acompanhar_aceita_20_numeros_formatados,
 ])

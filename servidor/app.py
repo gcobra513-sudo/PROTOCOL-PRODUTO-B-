@@ -11,6 +11,15 @@ automático.
 O QUE A RESPOSTA NUNCA DIZ: se um CPF está ou não no rol da entidade. Pedir
 código devolve a mesma coisa nos dois casos. A diferença é que num deles sai
 e-mail. Qualquer outra escolha transforma o portal numa consulta de filiação.
+
+Essa frase já foi falsa por um ramo. A falha de ENTREGA virava 502, e o 502
+só era alcançável quando o CPF está num dos róis — o de fora já tinha
+voltado 202 antes. Hoje a falha de entrega vai para o log e a resposta não
+muda. FICA UM CANAL ABERTO, e é melhor dizer do que esconder: o ramo de quem
+está no rol executa a entrega DENTRO do pedido, então ele demora mais.
+Medido com o remetente mais barato que existe, a diferença de mediana foi de
+0,855 ms; com SMTP de verdade é maior. Fechar isso exige tirar a entrega do
+caminho do pedido, e isso é mudança de desenho, não ajuste de ramo.
 """
 
 from __future__ import annotations
@@ -421,12 +430,27 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         try:
             correio.enviar(destino, codigo, ent.nome, MINUTOS_DO_CODIGO)
         except Exception:
-            # Sem o texto da exceção na resposta: ele costuma trazer o
-            # endereço de destino.
+            # FALHA DE ENTREGA NÃO VIRA STATUS, e isto é a correção de um
+            # oráculo de filiação.
+            #
+            # Este ramo só é alcançado quando `destino` existe — isto é, só
+            # para quem ESTÁ num dos dois róis; o CPF de fora já voltou 202
+            # acima. Então o 502 que havia aqui era, por construção, uma
+            # AFIRMAÇÃO de que aquele CPF está no cadastro do sindicato,
+            # dada a um anônimo. Filiação sindical é dado sensível (LGPD,
+            # art. 11), e é o próprio dado que este produto existe para
+            # proteger.
+            #
+            # E não era estado exótico: em produção o remetente é sempre
+            # SMTP, e `send_message` levanta quando o relay recusa o
+            # destinatário. Um e-mail velho numa linha de `filiados.csv` —
+            # rotina numa base de sindicato — dava um 502 permanente e
+            # estável para exatamente aquele CPF.
+            #
+            # Falha de entrega é problema do operador, e o lugar dela é o
+            # log. Sem o texto da exceção em resposta nenhuma: ele costuma
+            # trazer o endereço de destino.
             log.exception("falha ao enviar código ent=%s cpf=%s", ent.apelido, marca)
-            raise _problema(
-                502, "não conseguimos enviar o código agora; tente de novo"
-            ) from None
 
         if cfg.modo_ensaio:
             resposta["codigo_do_ensaio"] = codigo

@@ -19,7 +19,12 @@ AS TRÊS CONTAGENS, e o que cada uma impede
    bruta. Na 5ª errada o código morre — não "espera um pouco", morre. Pedir
    outro é barato para quem é dono do e-mail e caro para quem não é;
 2. **emissões por CPF por hora** (3): impede usar o portal como máquina de
-   mandar e-mail para a caixa de outra pessoa;
+   mandar e-mail para a caixa de outra pessoa. Esgotada a cota, a recusa
+   vale **só enquanto existe um código vivo** para aquele CPF — porque a
+   rota é anônima e o teto é contado pelo CPF da VÍTIMA: três pedidos de um
+   terceiro trancavam uma pessoa nomeada fora da única porta do produto.
+   Com código vivo, recusar é honesto (ela o tem na caixa); sem código
+   vivo, recusar não protege ninguém;
 3. **emissões por origem por hora** (20): impede varrer CPFs para descobrir
    quem é filiado. Sem ela, a resposta "não está no rol" entrega o rol inteiro
    a quem tiver paciência.
@@ -191,10 +196,34 @@ class Portao:
                 (entidade, cpf_hash, limite),
             )
             if por_cpf >= self._por_cpf:
-                raise ExcessoDeTentativas(
-                    f"já pedimos código para este cadastro {self._por_cpf} "
-                    f"vezes nesta hora; confira a sua caixa de entrada e o spam"
+                # RECUSA SÓ ENQUANTO EXISTE CÓDIGO VIVO.
+                #
+                # Este teto é contado por `cpf_hash`, e a rota que o aciona
+                # é anônima: quem pede não prova relação nenhuma com aquele
+                # CPF. Então um terceiro gastava a cota de um filiado
+                # nomeado com três pedidos — e o bloqueio era completo, não
+                # uma corrida, porque as janelas não se encaixavam: o
+                # código vale 15 minutos e a contagem olha 60. Do minuto 15
+                # ao 60 a pessoa não tinha código válido E não conseguia
+                # emitir outro. Este portão é a única porta do produto.
+                #
+                # Recusar com um código vivo na caixa dela é honesto: ela
+                # TEM o que precisa, e o teto segue protegendo a caixa de
+                # ser usada como máquina de mandar e-mail — que é o que o
+                # cabeçalho deste módulo diz que ele protege. Recusar SEM
+                # código vivo não protege ninguém: só tranca o dono.
+                vivos = self._contar(
+                    cx,
+                    "SELECT COUNT(*) FROM codigos WHERE entidade = ? "
+                    "AND cpf_hash = ? AND usado_em IS NULL AND expira_em >= ?",
+                    (entidade, cpf_hash, _iso(agora)),
                 )
+                if vivos:
+                    raise ExcessoDeTentativas(
+                        "já enviamos um código para o e-mail que o cadastro "
+                        "tem, e ele ainda vale; confira a sua caixa de "
+                        "entrada e o spam"
+                    )
 
             # Seis dígitos, sorteados com secrets. `randint` do módulo random
             # é previsível e aqui o número é credencial.
