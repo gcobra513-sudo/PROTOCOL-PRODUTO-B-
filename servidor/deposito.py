@@ -152,6 +152,37 @@ def ler_diario(pasta_entidade: pathlib.Path) -> list[dict]:
     return registros
 
 
+#: O que faz uma planilha tratar a célula como FÓRMULA em vez de texto.
+#: Excel, LibreOffice e Google Sheets concordam nos quatro primeiros; a
+#: tabulação e o retorno de carro entram porque alguns importadores comem o
+#: espaço em branco inicial e caem no caractere seguinte.
+_GATILHOS_DE_FORMULA = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _sem_formula(valor: str) -> str:
+    """Neutraliza uma célula que uma planilha interpretaria como fórmula.
+
+    `manifesto.csv` é escrito PARA SER ABERTO POR GENTE — é por isso que
+    este módulo escolhe `\\r\\n`, "porque esta planilha é aberta por gente,
+    no Excel em português". E quem abre é o gestor do sindicato, que confia
+    no arquivo porque fomos nós que o geramos.
+
+    Sem isto, um filiado que digitasse `=HYPERLINK(...)` no nome tinha
+    aquilo executado na máquina de quem abrisse o arquivo. A fronteira
+    atravessada é filiado -> gestor, por um canal em que o gestor não tem
+    como desconfiar.
+
+    NÃO APAGA NADA. O apóstrofo vai na frente e o texto da pessoa continua
+    inteiro, visível e legível — inclusive para quem ler o CSV por
+    programa, que só precisa saber desta regra. Apagar seria esconder do
+    sindicato o que a pessoa escreveu, e o que a pessoa escreveu é
+    justamente o que ele precisa ver.
+    """
+    if valor.startswith(_GATILHOS_DE_FORMULA):
+        return "'" + valor
+    return valor
+
+
 def _csv_do_diario(registros: list[dict]) -> str:
     """O manifesto: último envio de cada CPF, na ordem das colunas do contrato."""
     por_cpf: dict[str, dict[str, str]] = {}
@@ -175,7 +206,10 @@ def _csv_do_diario(registros: list[dict]) -> str:
     )
     escritor.writeheader()
     for cpf in sorted(por_cpf):
-        escritor.writerow({c: por_cpf[cpf].get(c, "") for c in conta.CAMPOS})
+        escritor.writerow({
+            c: _sem_formula(str(por_cpf[cpf].get(c, "")))
+            for c in conta.CAMPOS
+        })
     return buffer.getvalue()
 
 

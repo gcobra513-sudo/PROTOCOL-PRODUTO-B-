@@ -651,6 +651,75 @@ def teste_isolamento_entre_entidades():
     print("  ok     cada entidade escreve só na própria pasta")
 
 
+def teste_o_manifesto_nao_entrega_formula_viva_ao_excel():
+    """O CAMPO DE TEXTO DO FILIADO VIRAVA FÓRMULA NA PLANILHA DO SINDICATO.
+
+    `manifesto.csv` é escrito para ser ABERTO POR GENTE — o próprio código
+    diz isso, ao escolher `\r\n` "porque esta planilha é aberta por gente,
+    no Excel em português". E o Excel, o LibreOffice e o Google Sheets
+    tratam uma célula que começa com `=`, `+`, `-` ou `@` como fórmula.
+
+    Então um filiado que digitasse `=HYPERLINK(...)` no nome tinha isso
+    executado na máquina de quem abrisse o arquivo — e quem abre é o gestor
+    do sindicato, que confia no arquivo porque fomos nós que o geramos.
+    Travessia de fronteira: filiado -> gestor, por um canal em que o gestor
+    não tem como desconfiar.
+
+    O conteúdo NÃO É ALTERADO: o nome continua sendo o que a pessoa
+    escreveu, e quem lê o CSV por programa lê o mesmo texto. O que muda é
+    que a célula deixa de ser interpretada como fórmula.
+    """
+    secao("o manifesto não vira fórmula")
+    import json as _json
+
+    c = Cenario()
+    perigosos = {
+        "nome_completo": '=HYPERLINK("http://exemplo.invalid","clique")',
+        "unidade": "+1+1",
+        "cargo": "-2-2",
+        "telefone": "@SUM(1,1)",
+    }
+    dados = linha(CPF)
+    dados.update(perigosos)
+    r = c.enviar(c.token(CPF), dados, pacote(CPF))
+    checa(r.status_code == 200,
+          f"o cadastro falhou: {r.status_code} {r.text[:200]}")
+
+    bruto = (c.raiz / "demo-teste" / "entrega" / "manifesto.csv").read_text(
+        encoding="utf-8")
+
+    # Nenhuma CÉLULA pode começar com um dos gatilhos de fórmula. Olho
+    # célula por célula, com o leitor de CSV de verdade: procurar a string
+    # no arquivo inteiro confundiria `=` dentro de um texto com `=` no
+    # começo da célula, que é o que importa.
+    import csv as _csv
+    import io as _io
+
+    gatilhos = ("=", "+", "-", "@", "\t", "\r")
+    for numero, registro in enumerate(
+        _csv.reader(_io.StringIO(bruto, newline="")), start=1
+    ):
+        for coluna, celula in enumerate(registro):
+            checa(not celula.startswith(gatilhos),
+                  f"linha {numero}, coluna {coluna}: a célula {celula!r} "
+                  f"começa com gatilho de fórmula e o Excel vai executá-la")
+
+    # E O DADO NÃO PODE TER SIDO PERDIDO. Neutralizar não é apagar: o
+    # sindicato tem de continuar vendo o que a pessoa escreveu.
+    #
+    # A comparação é sobre as células JÁ LIDAS, não sobre o texto cru do
+    # arquivo: um valor com aspas sai do escritor de CSV com as aspas
+    # duplicadas, e procurá-lo cru acusaria perda que não houve. Foi o que
+    # aconteceu na primeira versão deste teste.
+    celulas = {c for registro in _csv.reader(_io.StringIO(bruto, newline=""))
+               for c in registro}
+    for valor in perigosos.values():
+        checa(valor in celulas or f"'{valor}" in celulas,
+              f"o valor {valor!r} desapareceu do manifesto — neutralizar "
+              f"não é apagar. Células: {sorted(celulas)[:6]}")
+    print("  ok     nenhuma célula do manifesto começa com fórmula")
+
+
 def teste_manifesto_se_refaz_do_diario():
     secao("manifesto derivado")
     from servidor import deposito, entidades as mod_entidades
@@ -717,6 +786,7 @@ TESTES = [
     teste_token_vale_um_envio,
     teste_reenvio_guarda_o_anterior,
     teste_isolamento_entre_entidades,
+    teste_o_manifesto_nao_entrega_formula_viva_ao_excel,
     teste_manifesto_se_refaz_do_diario,
 ]
 

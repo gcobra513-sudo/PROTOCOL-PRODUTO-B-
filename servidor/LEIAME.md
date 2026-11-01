@@ -97,6 +97,24 @@ dados_portal/
 O manifesto é **derivado**, nunca acumulado: apagá-lo não perde nada
 (`deposito.reconstruir_manifesto`). O diário é que não se mexe.
 
+### Uma regra do `manifesto.csv` que quem lê por programa precisa saber
+
+O manifesto é feito para ser **aberto por gente, no Excel**. Célula que
+começa com `=`, `+`, `-`, `@`, tabulação ou retorno de carro é tratada como
+**fórmula** por Excel, LibreOffice e Google Sheets — então um filiado que
+digitasse `=HYPERLINK(...)` no nome tinha aquilo executado na máquina de
+quem abrisse o arquivo. E quem abre é o gestor do sindicato, que confia no
+arquivo porque fomos nós que o geramos.
+
+Por isso, no manifesto, **célula que começa com um desses caracteres sai com
+um apóstrofo na frente** (`'=HYPERLINK(...)`). Nada é apagado: o texto da
+pessoa continua inteiro e visível, inclusive para o gestor, que é quem
+precisa ver o que ela escreveu.
+
+Quem consome o manifesto por programa deve remover um apóstrofo inicial
+quando ele existir. O **diário** (`recebidos.jsonl`) não tem essa
+transformação: ele guarda o que chegou, exatamente, e é a autoridade.
+
 ## Verificar
 
 ```bash
