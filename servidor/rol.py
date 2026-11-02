@@ -122,3 +122,42 @@ def _carregar(caminho: pathlib.Path) -> Rol:
                 continue
             por_cpf[digitos] = email
     return Rol(caminho=caminho, por_cpf=por_cpf, recusados=tuple(recusados))
+
+
+def remover(pasta_entidade: pathlib.Path, cpf: str) -> int:
+    """Tira este CPF dos dois róis. Devolve quantas linhas saíram.
+
+    REESCREVE PRESERVANDO O DIALETO. O rol vem do Excel em português, com
+    `;`, e em latin-1 com frequência — `_carregar` aprendeu isso derrubando
+    o portão inteiro uma vez. Reescrever em utf-8 com vírgula faria o
+    arquivo parar de ser legível para quem o mantém, e o sintoma apareceria
+    como "nenhum filiado entra".
+
+    Só a LINHA sai; o cabeçalho e as outras linhas ficam como estavam.
+    """
+    from . import acervo
+
+    digitos = so_digitos(cpf)
+    sairam = 0
+    for nome in (ARQUIVO, ARQUIVO_GESTORES):
+        caminho = pasta_entidade / nome
+        if not caminho.is_file():
+            continue
+        texto = acervo._decodificar(caminho.read_bytes())
+        linhas = texto.splitlines()
+        if not linhas:
+            continue
+        separador = acervo._separador(linhas[0])
+        guardadas = [linhas[0]]
+        for linha in linhas[1:]:
+            if not linha.strip():
+                continue
+            primeira = linha.split(separador)[0]
+            if so_digitos(primeira) == digitos:
+                sairam += 1
+                continue
+            guardadas.append(linha)
+        tmp = caminho.with_suffix(caminho.suffix + ".parcial")
+        tmp.write_text("\n".join(guardadas) + "\n", encoding="utf-8")
+        tmp.replace(caminho)
+    return sairam

@@ -34,6 +34,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import json
 import pathlib
 import re
 import unicodedata
@@ -503,3 +504,47 @@ def ler(caminho: pathlib.Path | str) -> tuple[list[Pessoa], list[str]]:
             for p in pessoas
         ]
     return pessoas, problemas
+
+
+def remover_pessoa(caminho: pathlib.Path | str, cpf: str) -> int:
+    """Tira esta pessoa de TODAS as ingestões. Devolve de quantas saiu.
+
+    O ARQUIVO É UMA LINHA POR INGESTÃO, com uma lista `pessoas` dentro —
+    não uma linha por pessoa. Quem tratar como tal limpa só a última
+    ingestão e deixa a pessoa em todas as anteriores, e um sindicato que
+    manda planilha toda semana tem dezenas delas.
+
+    A LINHA DE INGESTÃO FICA, mesmo quando esvazia: ela carrega `origem` e
+    `retrato`, que são sobre o ARQUIVO que o sindicato mandou e não sobre
+    gente. Apagá-la perderia o registro de que aquela planilha chegou.
+    """
+    caminho = pathlib.Path(caminho)
+    if not caminho.is_file():
+        return 0
+
+    digitos = validacao.so_digitos(cpf)
+    saiu_de = 0
+    saida: list[str] = []
+    for bruto in caminho.read_text(encoding="utf-8").splitlines():
+        if not bruto.strip():
+            continue
+        try:
+            registro = json.loads(bruto)
+        except json.JSONDecodeError:
+            # Linha truncada por queda no meio da escrita não invalida as
+            # outras, e não é lugar de consertar aqui: fica como está.
+            saida.append(bruto)
+            continue
+        pessoas = registro.get("pessoas")
+        if isinstance(pessoas, list):
+            ficam = [p for p in pessoas
+                     if validacao.so_digitos((p or {}).get("cpf", "")) != digitos]
+            if len(ficam) != len(pessoas):
+                saiu_de += 1
+                registro["pessoas"] = ficam
+        saida.append(json.dumps(registro, ensure_ascii=False))
+
+    tmp = caminho.with_suffix(caminho.suffix + ".parcial")
+    tmp.write_text("\n".join(saida) + "\n", encoding="utf-8")
+    tmp.replace(caminho)
+    return saiu_de

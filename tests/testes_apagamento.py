@@ -290,6 +290,87 @@ def teste_a_projecao_ignora_registro_redigido():
     print("  ok     a projeção ignora registro redigido")
 
 
+
+# ------------------------------------- os dois formatos de arquivo
+
+def teste_remover_do_rol_preserva_o_dialeto_e_os_vizinhos():
+    """O rol vem do Excel em português, com ';'. Reescrever errado fecha o
+    portão para o sindicato inteiro — `_carregar` já aprendeu isso."""
+    secao("os dois formatos de arquivo")
+    from servidor import rol
+
+    ent, raiz = _entidade_em_disco("demo-d")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    (pasta / rol.ARQUIVO).write_text(
+        "cpf;email;nome\n"
+        f"{A};a@exemplo.invalid;PESSOA A (FICTÍCIO)\n"
+        f"{B};b@exemplo.invalid;PESSOA B (FICTÍCIO)\n"
+        f"{C};c@exemplo.invalid;PESSOA C (FICTÍCIO)\n",
+        encoding="utf-8")
+    (pasta / rol.ARQUIVO_GESTORES).write_text(
+        f"cpf;email\n{A};gestor@exemplo.invalid\n", encoding="utf-8")
+
+    quantas = rol.remover(pasta, A)
+    checa(quantas == 2, f"devia tirar 1 linha de cada arquivo, tirou {quantas}")
+
+    lista = rol.carregar(pasta)
+    checa(lista.email_de(A) is None, "o CPF apagado continua no rol")
+    checa(lista.email_de(B) == "b@exemplo.invalid"
+          and lista.email_de(C) == "c@exemplo.invalid",
+          f"a reescrita estragou os vizinhos: {lista.por_cpf}")
+    checa(rol.carregar_gestores(pasta).email_de(A) is None,
+          "o CPF apagado continua no rol de gestores")
+    print("  ok     saiu dos dois róis, dialeto e vizinhos preservados")
+
+
+def teste_remove_a_pessoa_de_TODAS_as_ingestoes_do_acervo():
+    """O `acervo.jsonl` é UMA LINHA POR INGESTÃO, com `pessoas` dentro.
+
+    Não é uma linha por pessoa. Quem tratar como tal limpa só a última
+    ingestão e deixa a pessoa em todas as anteriores — e o sindicato que
+    manda planilha toda semana tem dezenas delas.
+    """
+    import json as _json
+
+    from servidor import acervo, deposito
+
+    ent, raiz = _entidade_em_disco("demo-e")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    caminho = pasta / "acervo.jsonl"
+
+    for marca in ("primeira", "segunda"):
+        deposito.anexar_com_fsync(caminho, _json.dumps({
+            "ingerido_em": f"2026-11-0{1 if marca == 'primeira' else 2}",
+            "origem": f"planilha-{marca}.xlsx",
+            "retrato": {"pessoas": 2},
+            "pessoas": [
+                {"cpf": A, "linha_no_arquivo": 2,
+                 "campos": {"nome_completo": "PESSOA A (FICTÍCIO)"},
+                 "achados": []},
+                {"cpf": B, "linha_no_arquivo": 3,
+                 "campos": {"nome_completo": "PESSOA B (FICTÍCIO)"},
+                 "achados": []},
+            ],
+        }, ensure_ascii=False) + "\n")
+
+    quantas = acervo.remover_pessoa(caminho, A)
+    checa(quantas == 2,
+          f"removeu de só uma ingestão das duas: {quantas}")
+
+    linhas = [_json.loads(l) for l in
+              caminho.read_text(encoding="utf-8").splitlines() if l.strip()]
+    checa(len(linhas) == 2,
+          f"apagou a linha de ingestão inteira: sobraram {len(linhas)}")
+    for linha in linhas:
+        cpfs = {p["cpf"] for p in linha["pessoas"]}
+        checa(A not in cpfs, f"a pessoa sobrou numa ingestão: {cpfs}")
+        checa(B in cpfs, f"levou a vizinha junto: {cpfs}")
+        checa(linha.get("origem"), "perdeu a procedência do arquivo")
+    print("  ok     saiu das 2 ingestões, vizinha e procedência intactas")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -298,6 +379,8 @@ TESTES = [
     teste_apagar_nao_atravessa_entidade,
     teste_a_redacao_mantem_o_protocolo_e_perde_o_conteudo,
     teste_a_projecao_ignora_registro_redigido,
+    teste_remover_do_rol_preserva_o_dialeto_e_os_vizinhos,
+    teste_remove_a_pessoa_de_TODAS_as_ingestoes_do_acervo,
 ]
 
 
