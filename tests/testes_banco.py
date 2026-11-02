@@ -212,6 +212,20 @@ def teste_entidade_de_demonstracao_roda_em_qualquer_regiao():
 
 
 def teste_regiao_brasileira_libera():
+    """PULA SEM BANCO, e o pulo é impresso.
+
+    Este teste EXIGE banco — o comentário dentro dele já dizia por quê: sem
+    banco a entidade real é recusada pela trava de auditoria, que é outra.
+    Mas ele não estava preso à presença da variável, então sem
+    `PROTOCOL_DATABASE_URL` ele FALHAVA — e o `CLAUDE.md` promete que "sem a
+    variável, a parte de banco é pulada". A promessa era falsa aqui, e uma
+    suíte que falha por falta de dependência ensina a ignorar vermelho.
+    """
+    if not URL:
+        print("  --     PULADO: sem PROTOCOL_DATABASE_URL não há como "
+              "atender entidade real")
+        return
+
     from fastapi.testclient import TestClient
 
     from servidor.app import criar_app

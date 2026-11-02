@@ -9,6 +9,14 @@ um exercício de memória sobre quais suítes existem.
 Com banco, para o isolamento entre entidades ser exercitado de verdade:
 
     PROTOCOL_DATABASE_URL='postgresql://...' python3 tests/rodar_todos.py
+
+NO FIM RODA O ENSAIO DE NAVEGADOR, que custa cerca de 12 segundos e é a
+única verificação que dirige React num Chromium contra o servidor. Ele está
+aqui e não num documento porque verificação que ninguém roda é o mesmo que
+verificação que não existe — e este repositório já teve uma assim, descrita
+em detalhe no `servidor/LEIAME.md` e inexistente em disco.
+
+    PROTOCOL_SEM_ENSAIO=1 python3 tests/rodar_todos.py   # e o pulo aparece
 """
 from __future__ import annotations
 
@@ -68,6 +76,40 @@ def _falta(suite: str) -> str:
     return ""
 
 
+def _ensaio_de_navegador(falhas: list[str]) -> list[str]:
+    """O ensaio ponta a ponta, e os três motivos de ele ser PULADO em voz alta.
+
+    Sem `node`/`npx` não há Playwright; sem `reportlab` não há PDF com camada
+    de texto para anexar; e `PROTOCOL_SEM_ENSAIO=1` existe para o laço curto
+    de quem está mexendo numa suíte só. Nos três casos o pulo é IMPRESSO:
+    o ensaio é a única verificação que pega o navegador mandando um nome de
+    campo que o servidor não espera, e pular isso em silêncio seria recriar
+    exatamente a dívida que ele veio pagar.
+    """
+    nome = "ensaio_de_navegador"
+    if os.environ.get("PROTOCOL_SEM_ENSAIO") == "1":
+        print(f"  --   {nome:26} PROTOCOL_SEM_ENSAIO=1")
+        return [nome]
+    r = subprocess.run(
+        [sys.executable, "ferramentas/ensaio_portal.py"], cwd=RAIZ,
+        capture_output=True, text=True, timeout=1800,
+    )
+    linhas = [l for l in r.stdout.strip().splitlines() if l.strip()]
+    resumo = (linhas or [""])[-1][:60]
+    if r.returncode == 0:
+        print(f"  ok   {nome:26} {resumo}")
+        return []
+    if r.returncode == 2:
+        # Falta de pré-requisito, não defeito: a própria ferramenta diz o quê.
+        print(f"  --   {nome:26} {(r.stderr.strip().splitlines() or [''])[0][:50]}")
+        return [nome]
+    print(f"  XX   {nome:26} {resumo}")
+    for linha in linhas[-14:]:
+        print(f"       {linha}")
+    falhas.append("ferramentas/ensaio_portal.py")
+    return []
+
+
 def main() -> int:
     print("=" * 62)
     print("PRODUTO B — todas as suítes")
@@ -92,6 +134,8 @@ def main() -> int:
         else:
             print(f"  XX   {nome:26} {resumo}")
             falhas.append(suite)
+
+    pulados += _ensaio_de_navegador(falhas)
 
     print("-" * 62)
     if falhas:
