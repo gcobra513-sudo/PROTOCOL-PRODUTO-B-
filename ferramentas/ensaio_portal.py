@@ -1,0 +1,454 @@
+#!/usr/bin/env python3
+"""O ensaio de navegador, ponta a ponta: Chromium de verdade.
+
+ESTE ARQUIVO ESTAVA PROMETIDO E NÃO EXISTIA. Até 02/11/2026 o
+`servidor/LEIAME.md` mandava rodá-lo e descrevia em detalhe o que ele fazia
+— sete etapas num Chromium, cinco PDFs, o protocolo lido na tela. Nunca
+existiu em commit nenhum. Estava escrito, então passava por verificado: a
+mesma doença que a auditoria achou sete vezes nos comentários do código,
+um andar acima.
+
+O QUE SÓ ELE PEGA. Os testes do servidor provam o que ele ACEITA. Os do
+portal provam o que a tela DIZ. Entre os dois mora a classe de defeito que
+nenhum dos dois alcança: **o navegador mandando um nome de campo que o
+servidor não espera** — e ela não dá erro, dá campo vazio no disco.
+
+O QUE ELE FAZ:
+
+1. semeia uma entidade de demonstração num diretório temporário, com rol de
+   filiados e de gestores, todos CADASTROS DECLARADAMENTE FICTÍCIOS;
+2. gera cinco PDFs com camada de texto (três contribuições, sentença,
+   certidão), porque o portal lê o PDF no navegador e um PDF sem texto
+   reprova por motivo diferente do que se quer medir;
+3. compila o portal apontando para um servidor em MODO ENSAIO;
+4. sobe o servidor e um servidor estático para o portal compilado;
+5. dirige o Chromium: entra pelo portão lendo o código NA TELA, preenche as
+   etapas, anexa os PDFs, envia e lê o protocolo na tela;
+6. CONFERE O DISCO do lado de fora do navegador — a entrega, o diário e o
+   manifesto — e, quando há banco, apaga o filiado pelo painel e mede que
+   não sobrou nada.
+
+Sai 0 se tudo isso aconteceu, 1 se não, e diz o que falhou.
+
+    python3 ferramentas/ensaio_portal.py
+    PROTOCOL_DATABASE_URL='postgresql://...' python3 ferramentas/ensaio_portal.py
+
+SEM `PROTOCOL_DATABASE_URL` a metade do apagamento é PULADA, e o resumo diz
+isso. Metade pulada não está ensaiada.
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import os
+import pathlib
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+RAIZ_DO_REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(RAIZ_DO_REPO))
+
+# CPFs SINTÉTICOS, com dígito verificador válido e declarados como exemplo.
+# Nome plausível com CPF válido numa página é indistinguível de pessoa real;
+# o rótulo no nome é o que mantém a distinção visível a quem olhar a tela.
+CPF_FILIADO = "111.444.777-35"
+CPF_GESTOR = "529.982.247-25"
+NOME_FILIADO = "FULANA DE TAL (CADASTRO DE EXEMPLO)"
+SEGREDO_DO_ENSAIO = "segredo-do-ensaio-de-navegador"
+
+#: UMA ENTIDADE NOVA POR EXECUÇÃO, e isto foi um defeito que o próprio
+#: ensaio pegou em mim. A raiz de dados é temporária, mas o BANCO é
+#: compartilhado com a suíte — e a metade do apagamento grava um
+#: **tombstone**, que a aplicação não pode apagar (o GRANT nega DELETE, de
+#: propósito). Com apelido fixo, o tombstone da execução anterior ficava no
+#: banco e o portão passava a recusar o código: o ensaio funcionava uma vez
+#: e nunca mais. O prefixo `demo-` continua, porque é ele que dispensa a
+#: trava de região.
+APELIDO = f"demo-ensaio-{os.getpid()}-{int(time.time())}"
+
+
+def _porta_livre() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _esperar(url: str, segundos: float = 40.0) -> bool:
+    limite = time.time() + segundos
+    while time.time() < limite:
+        try:
+            with urllib.request.urlopen(url, timeout=2):
+                return True
+        except urllib.error.HTTPError:
+            return True          # respondeu, mesmo que com 4xx: está no ar
+        except Exception:
+            time.sleep(0.3)
+    return False
+
+
+def _pdf(linhas: list[str]) -> bytes:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    import io
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    y = 800
+    for linha in linhas:
+        c.drawString(60, y, linha)
+        y -= 16
+    c.save()
+    return buffer.getvalue()
+
+
+def _semear(raiz: pathlib.Path) -> None:
+    import csv
+
+    from servidor import entidades
+
+    ent = entidades.Cadastro(raiz).criar(APELIDO, "Sindicato de Demonstração")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    for nome, linhas in (
+        ("filiados.csv", [(CPF_FILIADO, "filiada@exemplo.invalid"),
+                          (CPF_GESTOR, "gestor@exemplo.invalid")]),
+        ("gestores.csv", [(CPF_GESTOR, "gestor@exemplo.invalid")]),
+    ):
+        with open(pasta / nome, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(["cpf", "email"])
+            w.writerows(linhas)
+
+
+def _pdfs(pasta: pathlib.Path) -> list[tuple[str, list[str]]]:
+    """Cinco PDFs com camada de texto. Devolve [(rótulo na tela, caminhos)]."""
+    pasta.mkdir(parents=True, exist_ok=True)
+    contribuicoes = []
+    for ano in (2022, 2023, 2024):
+        caminho = pasta / f"contribuicao-{ano}.pdf"
+        caminho.write_bytes(_pdf([
+            "COMPROVANTE DE CONTRIBUICAO SINDICAL (DOCUMENTO DE EXEMPLO)",
+            f"Exercicio: {ano}",
+            f"Filiado: {NOME_FILIADO}",
+            f"CPF: {CPF_FILIADO}",
+            "Este documento e ficticio e serve apenas ao ensaio automatizado.",
+        ]))
+        contribuicoes.append(str(caminho))
+
+    sentenca = pasta / "sentenca.pdf"
+    sentenca.write_bytes(_pdf([
+        "SENTENCA (DOCUMENTO DE EXEMPLO, SEM VALOR JURIDICO)",
+        f"Autor: {NOME_FILIADO} - CPF {CPF_FILIADO}",
+        "Julgo procedente o pedido. Documento ficticio de ensaio.",
+    ]))
+    certidao = pasta / "certidao.pdf"
+    certidao.write_bytes(_pdf([
+        "CERTIDAO DE TRANSITO EM JULGADO (DOCUMENTO DE EXEMPLO)",
+        f"Interessado: {NOME_FILIADO} - CPF {CPF_FILIADO}",
+        "Certifico o transito em julgado. Documento ficticio de ensaio.",
+    ]))
+    return [
+        ("Comprovantes de contribuição ao sindicato", contribuicoes),
+        ("Sentença, se você tiver", [str(sentenca)]),
+        ("Certidão de trânsito em julgado, se você tiver", [str(certidao)]),
+    ]
+
+
+def _compilar_portal(api: str, destino: pathlib.Path) -> None:
+    ambiente = {**os.environ, "VITE_API": api}
+    r = subprocess.run(
+        ["npx", "vite", "build", "--outDir", str(destino), "--emptyOutDir"],
+        cwd=RAIZ_DO_REPO / "portal", env=ambiente,
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f"a compilação do portal falhou:\n{r.stdout}\n{r.stderr}")
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("--manter", action="store_true",
+                   help="não apaga o diretório temporário no fim")
+    p.add_argument("--verboso", action="store_true",
+                   help="imprime cada passo do navegador enquanto acontece")
+    args = p.parse_args()
+
+    for exigido in ("npx", "node"):
+        if not shutil.which(exigido):
+            print(f"{exigido} não está nesta máquina, e o ensaio precisa dele",
+                  file=sys.stderr)
+            return 2
+    try:
+        import reportlab  # noqa: F401
+    except ImportError:
+        print("reportlab não está instalado, e sem ele não há PDF com camada "
+              "de texto para anexar", file=sys.stderr)
+        return 2
+
+    banco_url = os.environ.get("PROTOCOL_DATABASE_URL", "").strip()
+    raiz = pathlib.Path(tempfile.mkdtemp(prefix="ensaio-portal-"))
+    dist = raiz / "dist"
+    porta_api, porta_web = _porta_livre(), _porta_livre()
+    api = f"http://127.0.0.1:{porta_api}"
+    web = f"http://127.0.0.1:{porta_web}"
+    processos: list[subprocess.Popen] = []
+    falhas: list[str] = []
+    log_do_servidor: pathlib.Path | None = None
+
+    print("ENSAIO DE NAVEGADOR — portal do filiado, ponta a ponta")
+    print(f"  dados em {raiz}")
+    print(f"  api {api}   portal {web}")
+    try:
+        _semear(raiz)
+        documentos = _pdfs(raiz / "pdfs")
+        print(f"  {sum(len(d[1]) for d in documentos)} PDFs com camada de texto")
+
+        print("  compilando o portal…")
+        _compilar_portal(api, dist)
+
+        ambiente = {
+            **os.environ,
+            "PROTOCOL_MODO_ENSAIO": "1",
+            # SEGREDO FIXO, e não o gerado na hora pelo modo ensaio: a
+            # conferência de fora do navegador precisa recalcular o marcador
+            # do CPF (HMAC do segredo) para medir o portão. Com segredo
+            # sorteado, `vestigios` mediria o marcador de outra pessoa — ou
+            # seja, mediria zero sempre, que é o pior resultado possível
+            # para uma medição.
+            "PROTOCOL_SEGREDO": SEGREDO_DO_ENSAIO,
+            "PROTOCOL_RAIZ": str(raiz),
+            "PROTOCOL_ORIGENS": web,
+            "PROTOCOL_EMISSOES_POR_CPF_HORA": "50",
+            "PROTOCOL_EMISSOES_POR_ORIGEM_HORA": "200",
+        }
+        if banco_url:
+            ambiente["PROTOCOL_DATABASE_URL"] = banco_url
+        # O LOG DO SERVIDOR VAI PARA ARQUIVO, não para um cano. Num cano
+        # ele só pode ser lido matando o processo, e é justamente quando o
+        # ensaio falha que ele precisa ser lido com o servidor ainda vivo —
+        # a causa costuma estar nele, não na tela.
+        log_do_servidor = raiz / "servidor.log"
+        with open(log_do_servidor, "w") as fh:
+            processos.append(subprocess.Popen(
+                [sys.executable, "-m", "servidor", "--porta", str(porta_api)],
+                cwd=RAIZ_DO_REPO, env=ambiente,
+                stdout=fh, stderr=subprocess.STDOUT, text=True,
+            ))
+        processos.append(subprocess.Popen(
+            [sys.executable, "-m", "http.server", str(porta_web),
+             "--bind", "127.0.0.1", "--directory", str(dist)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ))
+        if not _esperar(f"{api}/saude"):
+            raise RuntimeError(
+                "o servidor não subiu:\n"
+                + log_do_servidor.read_text(errors="replace")[-2000:]
+            )
+        if not _esperar(web):
+            raise RuntimeError("o portal compilado não está sendo servido")
+        print("  servidor e portal no ar")
+
+        cfg = {
+            "web": web, "api": api, "entidade": APELIDO, "saida": str(raiz),
+            "verboso": args.verboso,
+            "documentos": documentos,
+            "filiado": {
+                "cpf": CPF_FILIADO, "nome": NOME_FILIADO,
+                "email": "filiada@exemplo.invalid",
+                "cargo": "Auditor-Fiscal da Receita Federal do Brasil",
+                "filiadoDesde": "2004-03",
+            },
+            "gestor": {"cpf": CPF_GESTOR},
+            "fazerPainel": bool(banco_url),
+        }
+        # UMA CHAMADA POR FASE, e a ORDEM é o que importa: o cadastro
+        # grava, a conferência lê o disco, e só então o painel apaga. Numa
+        # chamada só, a conferência do cadastro rodaria depois do
+        # apagamento e acharia tudo vazio — e foi exatamente esse o
+        # primeiro defeito que este ensaio pegou. Era meu.
+        print("  dirigindo o Chromium — o filiado…")
+        dados = _dirigir(cfg, "cadastro", falhas)
+        protocolo = dados.get("protocolo", "")
+        if protocolo:
+            falhas += _conferir_o_disco(raiz, protocolo)
+
+        if banco_url and not falhas:
+            print("  dirigindo o Chromium — o gestor…")
+            do_painel = _dirigir(cfg, "painel", falhas)
+            falhas += _conferir_o_apagamento(raiz, banco_url,
+                                             do_painel.get("apagamento"))
+        elif banco_url:
+            print("  o apagamento pelo painel não foi ensaiado: o cadastro "
+                  "já falhou, e apagar o que não entrou certo não mede nada")
+    except Exception as e:  # noqa: BLE001
+        falhas.append(str(e))
+    finally:
+        for proc in processos:
+            with contextlib.suppress(Exception):
+                proc.terminate()
+                proc.wait(timeout=10)
+        # LIDO ANTES DA LIMPEZA. A primeira versão lia depois, e o arquivo
+        # já tinha ido junto com o diretório temporário — um diagnóstico
+        # que só existia quando não era preciso.
+        if falhas and log_do_servidor and log_do_servidor.is_file():
+            cauda = [l for l in log_do_servidor.read_text(errors="replace")
+                     .splitlines() if l.strip()][-14:]
+            if cauda:
+                print("\n  o servidor disse:")
+                for linha in cauda:
+                    print(f"    {linha}")
+        if args.manter:
+            print(f"\n  o diretório ficou em {raiz}")
+        else:
+            shutil.rmtree(raiz, ignore_errors=True)
+
+    print()
+    if falhas:
+        print(f"ENSAIO FALHOU ({len(falhas)}):")
+        for f in falhas:
+            print(f"  - {f}")
+        return 1
+    if not banco_url:
+        print("ENSAIO PASSOU — mas SEM BANCO: a metade do apagamento pelo "
+              "painel foi PULADA, e metade pulada não está ensaiada.")
+        return 0
+    print("ENSAIO PASSOU, inteiro.")
+    return 0
+
+
+def _dirigir(cfg: dict, fase: str, falhas: list[str]) -> dict:
+    """Roda uma fase do condutor e devolve o que ele mediu.
+
+    Erro de console do navegador CONTA COMO FALHA. Num React, "funcionou
+    mas gritou" é um defeito que a pessoa vê como tela em branco meia hora
+    depois, e que nenhuma asserção de unidade alcança.
+    """
+    r = subprocess.run(
+        ["node", str(RAIZ_DO_REPO / "ferramentas" / "ensaio" / "portal.cjs"),
+         json.dumps({**cfg, "fase": fase})],
+        capture_output=True, text=True, timeout=600,
+    )
+    if "<<<ENSAIO>>>" not in r.stdout:
+        raise RuntimeError(
+            f"o condutor não devolveu resultado na fase {fase}:\n"
+            f"{r.stdout[-2000:]}\n{r.stderr[-2000:]}"
+        )
+    dados = json.loads(r.stdout.split("<<<ENSAIO>>>")[1].split("<<<FIM>>>")[0])
+    for passo in dados.get("passos", []):
+        print(f"    · {passo}")
+    if dados.get("gritos"):
+        falhas.append("o navegador gritou no console: "
+                      + " | ".join(dados["gritos"][:5]))
+    if dados.get("falha"):
+        f = dados["falha"]
+        falhas.append(f"o navegador parou na fase {fase}: {f.get('erro')}")
+        if f.get("visivel"):
+            print("\n  o que estava na tela:\n    "
+                  + f["visivel"][:800].replace("\n", "\n    "))
+        for chave in ("imagem", "html"):
+            if f.get(chave):
+                print(f"  {chave}: {f[chave]}")
+    return dados
+
+
+def _conferir_o_disco(raiz: pathlib.Path, protocolo: str) -> list[str]:
+    """A conferência do lado de fora do navegador.
+
+    É AQUI QUE O ENSAIO GANHA O SALÁRIO. A tela dizendo "enviado" prova que
+    o React chegou ao fim; só o disco prova que o que chegou ao servidor foi
+    o que a pessoa digitou. Campo com nome errado não dá erro — dá campo
+    vazio no diário, e a tela continua dizendo "enviado".
+    """
+    from servidor import deposito, entidades, validacao
+
+    problemas: list[str] = []
+    ent = entidades.Cadastro(raiz).resolver(APELIDO)
+    pasta = ent.pasta(raiz)
+    digitos = validacao.so_digitos(CPF_FILIADO)
+
+    diario = deposito.ler_diario(pasta)
+    meus = [r for r in diario if r.get("protocolo") == protocolo]
+    if not meus:
+        return [f"o protocolo {protocolo} que a TELA mostrou não está no "
+                f"diário ({len(diario)} registro(s))"]
+    linha = meus[0].get("linha") or {}
+
+    esperado = {
+        "cpf": digitos,
+        "nome_completo": NOME_FILIADO,
+        "email": "filiada@exemplo.invalid",
+        "cargo": "Auditor-Fiscal da Receita Federal do Brasil",
+        "situacao": "aposentado",
+        "filiado_desde": "2004-03",
+    }
+    for campo, valor in esperado.items():
+        veio = str(linha.get(campo, "")).strip()
+        if campo == "cpf":
+            veio = validacao.so_digitos(veio)
+        if veio != valor:
+            problemas.append(
+                f"o campo {campo!r} chegou ao diário como {veio!r} e a tela "
+                f"mandou {valor!r} — é o defeito que só este ensaio pega"
+            )
+
+    entrega = ent.entrega(raiz) / digitos
+    pdfs = sorted(x.name for x in entrega.glob("*.pdf")) if entrega.is_dir() else []
+    if len(pdfs) != 5:
+        problemas.append(f"anexei 5 PDFs e chegaram {len(pdfs)}: {pdfs}")
+
+    manifesto = ent.entrega(raiz) / deposito.MANIFESTO
+    if not manifesto.is_file():
+        problemas.append("o manifesto não foi gerado")
+    elif digitos not in manifesto.read_text(encoding="utf-8"):
+        problemas.append("o manifesto não tem a linha deste CPF")
+    return problemas
+
+
+def _conferir_o_apagamento(raiz: pathlib.Path, url: str,
+                           apagamento_na_tela) -> list[str]:
+    """O que a TELA disse contra o que o DISCO E O BANCO dizem.
+
+    A tela afirmando "nada sobrou" é a afirmação do servidor repetida pelo
+    React. Quem mede é esta função, de fora dos dois: ela chama a mesma
+    varredura que a ferramenta de linha de comando chama, com o portão de
+    verdade, e exige lista vazia.
+    """
+    from servidor import acesso, apagamento, entidades
+
+    if not apagamento_na_tela:
+        return ["o navegador não chegou a apagar ninguém pelo painel"]
+    if apagamento_na_tela.get("disse") != "nada sobrou":
+        return [f"o painel disse {apagamento_na_tela.get('disse')!r} em vez "
+                f"de que terminou"]
+
+    problemas: list[str] = []
+    ent = entidades.Cadastro(raiz).resolver(APELIDO)
+    portao = acesso.Portao(raiz, SEGREDO_DO_ENSAIO)
+    sobrou = apagamento.vestigios(url, ent, raiz, CPF_FILIADO, portao=portao)
+    if sobrou:
+        problemas.append(
+            "a tela disse que nada sobrou e a medição achou "
+            f"{len(sobrou)}: " + "; ".join(sobrou[:6])
+        )
+    # E o vizinho NÃO foi levado junto: o gestor continua no rol e no portão.
+    if not apagamento.vestigios(url, ent, raiz, CPF_GESTOR, portao=portao):
+        problemas.append(
+            "o apagamento levou o gestor junto, ou o rol dele desapareceu — "
+            "quem não pediu para sair tem de continuar lá"
+        )
+    return problemas
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

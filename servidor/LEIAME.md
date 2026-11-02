@@ -182,19 +182,40 @@ transformação: ele guarda o que chegou, exatamente, e é a autoridade.
 python3 tests/testes_servidor_portal.py      # 56 grupos, inclui o laço fechado
 ```
 
-**Um ensaio de navegador NÃO EXISTE, e este documento afirmava que existia.**
-Até 02/11/2026 havia aqui uma segunda linha mandando rodar
-`ferramentas/ensaio_portal.py`, com a descrição do que ele fazia — sete
-etapas num Chromium, cinco PDFs, o protocolo lido na tela. O arquivo nunca
-existiu em nenhum commit deste repositório. Era a mesma doença que a
-auditoria encontrou sete vezes no código, um nível acima: afirmação que
-ninguém mediu, e que por estar escrita passava por verificada.
+```bash
+python3 ferramentas/ensaio_portal.py                       # Chromium de verdade
+PROTOCOL_DATABASE_URL='postgresql://...' python3 ferramentas/ensaio_portal.py
+```
 
-O buraco que ele descrevia é real e continua aberto: **o que o navegador
-manda e o servidor não espera.** O que existe hoje contra isso são os testes
-de contrato de fio em `portal/src/lib/envio.test.ts`, que conferem os nomes
-de campo que cada rota recebe — menos que um navegador de verdade, e o
-suficiente para pegar a tradução `pedidoPor` → `pedido_por`.
+O ensaio **roda sozinho no fim de `tests/rodar_todos.py`**, e custa cerca de
+12 segundos. `PROTOCOL_SEM_ENSAIO=1` o pula, e o pulo aparece na saída.
+
+O que ele faz: semeia uma entidade de demonstração num diretório
+temporário, gera cinco PDFs com camada de texto, compila o portal apontando
+para um servidor em modo ensaio, sobe os dois, e dirige um Chromium — a tela
+de início, o portão lendo o código **na tela**, as seis etapas, os cinco
+anexos, o envio, o protocolo lido na tela. Depois **confere o disco de fora
+do navegador**: o diário campo por campo, os cinco PDFs na entrega, o
+manifesto. Com banco, segue como gestor e apaga o filiado **pelo painel**,
+exigindo que a confirmação avise que não se desfaz, e mede que não sobrou
+nada — e que quem **não** pediu para sair continua lá.
+
+**O que só ele pega.** Os testes do servidor provam o que ele ACEITA; os do
+portal provam o que a tela DIZ. Nenhum dos dois roda React num navegador
+contra o servidor, e entre eles mora uma classe de defeito que não dá erro:
+o campo da tela escrevendo no lugar errado do rascunho chega ao disco como
+**campo vazio**, e a tela continua dizendo "enviado". Medido: trocando
+`onCarreira("cargo", v)` por `onCarreira("unidade", v)` em
+`portal/src/etapas/Carreira.tsx`, as 424 verificações de Python, os 89 testes
+do portal e o `tsc` continuam todos verdes — e o ensaio cai.
+
+**Este arquivo já prometeu este ensaio antes de ele existir.** Até
+02/11/2026 havia aqui a mesma linha de comando e a mesma descrição, e o
+arquivo não existia em commit nenhum. Estava escrito, então passava por
+verificado — a doença que a auditoria encontrou sete vezes nos comentários
+do código, um andar acima. É por isso que ele agora roda dentro de
+`rodar_todos.py`: verificação que ninguém roda é o mesmo que verificação que
+não existe.
 
 ## Banco de consulta e a trava de região
 

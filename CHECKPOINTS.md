@@ -135,14 +135,20 @@ entrava no log, que a resposta nunca dizia se alguém está no rol, que a
 trava de região era impedimento e não promessa. Cada uma era hipótese
 nunca medida. O registro completo está em `docs/auditoria_seguranca.md`.
 
-E a doença tem um andar acima do código: **`servidor/LEIAME.md` mandava
+E a doença tinha um andar acima do código: **`servidor/LEIAME.md` mandava
 rodar `ferramentas/ensaio_portal.py`** — um ensaio de navegador, ponta a
 ponta, descrito em detalhe — **e esse arquivo nunca existiu em commit
-nenhum.** Estava escrito, então passava por verificado. O buraco que ele
-descrevia é real e continua aberto: o que o navegador manda e o servidor não
-espera. O que há hoje contra isso são os testes de contrato de fio em
-`portal/src/lib/envio.test.ts`; um ensaio de navegador de verdade é dívida
-declarada.
+nenhum.** Estava escrito, então passava por verificado.
+
+**Agora existe, e roda dentro de `tests/rodar_todos.py`** (12 s;
+`PROTOCOL_SEM_ENSAIO=1` pula, e o pulo aparece). Ele paga a dívida e mede o
+que mais nada mede: trocando `onCarreira("cargo", v)` por
+`onCarreira("unidade", v)` em `portal/src/etapas/Carreira.tsx`, **as 424
+verificações de Python, os 89 testes do portal e o `tsc` continuam verdes** —
+o campo da tela passa a escrever no lugar errado, chega ao disco vazio, e a
+tela continua dizendo "enviado". O ensaio cai. Está dentro do `rodar_todos`
+de propósito: verificação que ninguém roda é o mesmo que verificação que não
+existe, e foi assim que a primeira versão desta promessa durou meses.
 
 E uma terceira forma da mesma doença, que eu mesmo produzi: **rótulo de
 gravidade também não é medição.** Cinco defeitos ficaram adiados como
