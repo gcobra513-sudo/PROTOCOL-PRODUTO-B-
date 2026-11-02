@@ -1581,6 +1581,135 @@ def teste_nao_sai_codigo_para_quem_foi_apagado():
     print("  ok     nada enviado, e a resposta é indistinguível")
 
 
+
+# --------------------------------------------- a rota de apagamento
+
+def _apagar(cliente, apelido, corpo, token=None):
+    cabecalhos = {"Authorization": f"Bearer {token}"} if token else {}
+    return cliente.post(f"/api/entidade/{apelido}/apagar",
+                        json=corpo, headers=cabecalhos)
+
+
+def teste_apagar_so_para_gestor_da_propria_entidade():
+    """A ORDEM DAS CONFERÊNCIAS É O QUE IMPORTA, e `_gestor_de` já a tem:
+    primeiro que a sessão é da entidade pedida, depois que quem abriu é
+    gestor dela. A inversa diria a um gestor de outra entidade se um CPF
+    está no rol desta."""
+    secao("a rota de apagamento")
+    cliente, ent, raiz = _servidor()
+    pedido = {"cpf": A, "motivo": "pedido do titular", "pedido_por": "g"}
+
+    r = _apagar(cliente, ent.apelido, pedido)
+    checa(r.status_code == 401, f"anônimo devia dar 401, deu {r.status_code}")
+
+    r = _apagar(cliente, ent.apelido, pedido, _token(cliente, A))
+    checa(r.status_code == 403,
+          f"filiado devia dar 403, deu {r.status_code}")
+    print("  ok     anônimo 401, filiado 403")
+
+
+def teste_apagar_pelo_painel_do_sindicato():
+    from servidor import banco
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A, com_sentenca=True)
+    checa(banco.registro_do_cpf(URL, ent.apelido, A) is not None,
+          "a semeadura não pegou")
+
+    r = _apagar(cliente, ent.apelido,
+                {"cpf": A, "motivo": "pedido do titular",
+                 "pedido_por": "gestor@exemplo.invalid"},
+                _token(cliente, B))
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    saida = r.json()
+    checa(saida.get("vestigios") == [],
+          f"a rota disse que apagou com coisa sobrando: {saida}")
+    checa(A not in r.text, "a resposta trouxe o CPF em claro")
+    checa(banco.registro_do_cpf(URL, ent.apelido, A) is None,
+          "a pessoa continua na base")
+    print("  ok     o gestor apaga, e a resposta não traz o CPF")
+
+
+def teste_apagar_aceita_cpf_formatado():
+    """Sem normalizar, nada é encontrado e a rota diz que apagou."""
+    from servidor import banco
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    formatado = f"{A[:3]}.{A[3:6]}.{A[6:9]}-{A[9:]}"
+    r = _apagar(cliente, ent.apelido,
+                {"cpf": formatado, "motivo": "", "pedido_por": ""},
+                _token(cliente, B))
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    checa(banco.registro_do_cpf(URL, ent.apelido, A) is None,
+          f"o CPF formatado {formatado} não foi encontrado, e a rota "
+          f"respondeu como se tivesse apagado")
+    print("  ok     CPF formatado é normalizado antes de procurar")
+
+
+def teste_apagar_cpf_de_fora_da_base_nao_e_oraculo():
+    """404 aqui revelaria quem está na base de um sindicato a quem já tem
+    sessão de gestor — de outro. A resposta tem de ser a mesma."""
+    from servidor import banco
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    token = _token(cliente, B)
+    de_dentro = _apagar(cliente, ent.apelido,
+                        {"cpf": A, "motivo": "", "pedido_por": ""}, token)
+    de_fora = _apagar(cliente, ent.apelido,
+                      {"cpf": _cpf_sintetico(888_002), "motivo": "",
+                       "pedido_por": ""}, token)
+    checa(de_dentro.status_code == de_fora.status_code == 200,
+          f"o status revela quem está na base: dentro="
+          f"{de_dentro.status_code} fora={de_fora.status_code}")
+    print("  ok     CPF de fora da base responde igual")
+
+
+
+def teste_o_painel_conta_quantos_foram_apagados_a_pedido():
+    """D2: AVISAR O SINDICATO para ele corrigir a FONTE.
+
+    CONTAGEM, nunca lista nominal: a pessoa pediu para sair, e devolver o
+    nome dela numa tela seria o oposto do que ela pediu.
+    """
+    from servidor import banco
+
+    cliente, ent, raiz = _servidor()
+    # SEMEIA A PLANILHA, não o cadastro pelo portal. A contagem é sobre o
+    # que o SINDICATO mandou — é a fonte que ele precisa corrigir. A
+    # primeira versão deste teste cadastrou pelo portal e contou zero, com
+    # razão.
+    import json as _json
+
+    from servidor import deposito as _dep
+
+    deposito_acervo = ent.pasta(raiz) / "acervo.jsonl"
+    _dep.anexar_com_fsync(deposito_acervo, _json.dumps({
+        "ingerido_em": "2026-11-02", "origem": "planilha.xlsx",
+        "retrato": {"pessoas": 1},
+        "pessoas": [{"cpf": A, "linha_no_arquivo": 2,
+                     "campos": {"nome_completo": "PESSOA (FICTÍCIO)",
+                                "email": "p@exemplo.invalid"},
+                     "achados": []}],
+    }, ensure_ascii=False) + "\n")
+    token = _token(cliente, B)
+
+    antes = cliente.get(f"/api/entidade/{ent.apelido}/completude",
+                        headers={"Authorization": f"Bearer {token}"}).json()
+    checa(antes.get("apagados_a_pedido") == 0,
+          f"começou contando apagamento que não houve: "
+          f"{antes.get('apagados_a_pedido')}")
+
+    banco.marcar_tombstone(URL, ent.apelido,
+                           cliente.app.state.portao.marcar_cpf(A),
+                           motivo="", pedido_por="")
+    depois = cliente.get(f"/api/entidade/{ent.apelido}/completude",
+                         headers={"Authorization": f"Bearer {token}"}).json()
+    checa(depois.get("apagados_a_pedido") == 1,
+          f"não contou o apagamento: {depois.get('apagados_a_pedido')}")
+    checa(A not in str(depois.get("apagados_a_pedido")),
+          "a contagem virou lista nominal")
+    print("  ok     o painel conta os apagados, sem nomear")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1628,6 +1757,11 @@ TESTES = [
     teste_a_saude_fica_boa_quando_o_trabalho_roda,
     teste_saude_nao_publica_o_detalhe_a_quem_nao_tem_sessao,
     teste_nao_sai_codigo_para_quem_foi_apagado,
+    teste_apagar_so_para_gestor_da_propria_entidade,
+    teste_apagar_pelo_painel_do_sindicato,
+    teste_apagar_aceita_cpf_formatado,
+    teste_apagar_cpf_de_fora_da_base_nao_e_oraculo,
+    teste_o_painel_conta_quantos_foram_apagados_a_pedido,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,
     teste_o_registro_por_cpf_concorda_com_a_base_inteira,

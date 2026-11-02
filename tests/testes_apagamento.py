@@ -663,6 +663,47 @@ def teste_a_ingestao_pula_o_apagado_e_relata():
     print("  ok     pulou o apagado, relatou, e não imprimiu o CPF")
 
 
+
+# ------------------------------------------- a ferramenta de retomada
+
+def teste_a_ferramenta_apaga_e_confere():
+    """A ferramenta serve a duas coisas: terminar um apagamento interrompido
+    e RESPONDER se um pedido foi atendido, sem acreditar em ninguém.
+
+    Sai com 1 quando sobra vestígio, para servir dentro de script."""
+    secao("a ferramenta de retomada")
+    import subprocess
+
+    ent, raiz = _semear_em_todo_lugar("demo-o", A)
+    ambiente = {**os.environ,
+                "PROTOCOL_SEGREDO": "segredo-de-teste-apagamento",
+                "PROTOCOL_DATABASE_URL": URL}
+    comando = [sys.executable,
+               str(RAIZ / "ferramentas" / "apagar_filiado.py"),
+               "--entidade", "demo-o", "--cpf", A,
+               "--raiz", str(raiz), "--banco", URL]
+
+    antes = subprocess.run(comando + ["--conferir"], capture_output=True,
+                           text=True, env=ambiente)
+    checa(antes.returncode == 1,
+          f"--conferir devia sair 1 com vestígio, saiu {antes.returncode}")
+    checa("SOBRARAM" in antes.stdout, f"não listou o que sobrou:\n{antes.stdout}")
+
+    r = subprocess.run(comando + ["--motivo", "pedido do titular",
+                                  "--pedido-por", "g@exemplo.invalid"],
+                       capture_output=True, text=True, env=ambiente)
+    checa(r.returncode == 0,
+          f"o apagamento saiu {r.returncode}:\n{r.stdout}\n{r.stderr}")
+    checa("nada sobrou" in r.stdout, f"não confirmou o fim:\n{r.stdout}")
+    checa(A not in r.stdout + r.stderr, "a ferramenta imprimiu o CPF")
+
+    depois = subprocess.run(comando + ["--conferir"], capture_output=True,
+                            text=True, env=ambiente)
+    checa(depois.returncode == 0,
+          f"--conferir ainda acha vestígio:\n{depois.stdout}")
+    print("  ok     confere, apaga, e confere de novo — sem imprimir CPF")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -682,6 +723,7 @@ TESTES = [
     teste_restaurar_backup_nao_ressuscita_quem_foi_apagado,
     teste_sem_marcar_cpf_a_recuperacao_nao_filtra,
     teste_a_ingestao_pula_o_apagado_e_relata,
+    teste_a_ferramenta_apaga_e_confere,
 ]
 
 

@@ -45,6 +45,7 @@ from nucleo import participacao, pendencia
 from . import (
     acervo,
     agenda,
+    apagamento,
     documentos,
     acesso,
     banco,
@@ -1221,6 +1222,78 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             ),
         }
 
+    def _apagados_na_planilha(ent: entidades.Entidade, pessoas) -> int:
+        """Quantos CPFs da planilha do sindicato têm tombstone.
+
+        Zero quando não há banco: sem ele não há tombstone para consultar, e
+        inventar um número seria pior que não ter.
+        """
+        if not cfg.tem_banco:
+            return 0
+        try:
+            marcados = banco.tombstones(cfg.banco_url, ent.apelido)
+        except Exception:  # noqa: BLE001
+            log.exception("não deu para contar os apagados ent=%s",
+                          ent.apelido)
+            return 0
+        if not marcados:
+            return 0
+        return sum(1 for cpf in {p.cpf for p in pessoas if p.cpf}
+                   if portao.marcar_cpf(cpf) in marcados)
+
+    @app.post("/api/entidade/{apelido}/apagar")
+    def apagar_filiado(apelido: str, corpo: dict, pedido: Request) -> dict:
+        """Apaga um filiado a pedido (LGPD art. 18, VI).
+
+        QUEM ACIONA É O SINDICATO. Ele tem a relação com o filiado e foi ele
+        que nos confiou o dado; sob a LGPD ele tende a ser o CONTROLADOR e
+        nós o operador, e é o controlador que responde ao titular.
+
+        NÃO DEVOLVE 404 PARA CPF DE FORA DA BASE, e isto é deliberado: um
+        404 aqui diria a quem tem sessão de gestor se um CPF está na base
+        desta entidade — oráculo, e sobre dado sensível. A resposta é a
+        mesma, e o que varia é só a contagem do que saiu.
+
+        `vestigios` NÃO VAZIO NÃO É ERRO: é a resposta honesta de que sobrou
+        coisa. Dizer 200 e esconder o resto seria afirmar um apagamento que
+        não aconteceu.
+        """
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        cpf = conta.so_digitos(str(corpo.get("cpf", "")))
+        if not validacao.cpf_valido(cpf):
+            raise _problema(400, "CPF inválido")
+        if not cfg.tem_banco:
+            raise _problema(
+                503,
+                "este servidor está sem banco de dados, e o apagamento "
+                "precisa registrar o tombstone para ser retomável e para "
+                "impedir que a próxima planilha recrie a pessoa",
+            )
+
+        marcador = portao.marcar_cpf(cpf)
+        _auditar(ent, "apagar", quem_hash=sessao.cpf_hash,
+                 alvo_hash=marcador)
+        try:
+            saida = apagamento.apagar(
+                cfg.banco_url, ent, cfg.raiz, cpf,
+                motivo=str(corpo.get("motivo", "")),
+                pedido_por=str(corpo.get("pedido_por", "")),
+                marcar_cpf=portao.marcar_cpf,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("APAGAR falhou ent=%s cpf=%s", ent.apelido,
+                          _hash_curto(cpf))
+            raise _problema(
+                500,
+                "não conseguimos concluir o apagamento. Nada foi apagado "
+                "sem registro: confira com a ferramenta de linha de comando "
+                "e repita",
+            ) from None
+        log.info("apagado a pedido ent=%s cpf=%s vestigios=%d",
+                 ent.apelido, _hash_curto(cpf), len(saida["vestigios"]))
+        return saida
+
     @app.get("/api/entidade/{apelido}/completude")
     def ver_completude(apelido: str, pedido: Request) -> dict:
         """O retrato da base, para o gestor da PRÓPRIA entidade.
@@ -1276,6 +1349,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "manchete": retrato.manchete(),
             "retrato": dataclasses.asdict(retrato),
             "inalcancaveis": inalcancaveis,
+            # QUANTOS DA PLANILHA DELE FORAM APAGADOS A PEDIDO.
+            #
+            # CONTAGEM, e nunca lista nominal: a pessoa pediu para sair, e
+            # devolver o nome dela numa tela seria exatamente o oposto. O
+            # número existe para o sindicato corrigir a FONTE — enquanto o
+            # CPF estiver na planilha dele, toda ingestão vai pulá-lo de
+            # novo, e sem este aviso ele reenviaria para sempre sem saber.
+            "apagados_a_pedido": _apagados_na_planilha(ent, pessoas),
             "tem_acervo": caminho_acervo.is_file(),
         }
 
