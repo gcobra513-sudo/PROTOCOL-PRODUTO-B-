@@ -34,6 +34,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import json
 import pathlib
 import re
 import unicodedata
@@ -503,3 +504,84 @@ def ler(caminho: pathlib.Path | str) -> tuple[list[Pessoa], list[str]]:
             for p in pessoas
         ]
     return pessoas, problemas
+
+
+def remover_pessoa(caminho: pathlib.Path | str, cpf: str) -> int:
+    """Tira esta pessoa de TODAS as ingestões. Devolve de quantas saiu.
+
+    O ARQUIVO É UMA LINHA POR INGESTÃO, com uma lista `pessoas` dentro —
+    não uma linha por pessoa. Quem tratar como tal limpa só a última
+    ingestão e deixa a pessoa em todas as anteriores, e um sindicato que
+    manda planilha toda semana tem dezenas delas.
+
+    A LINHA DE INGESTÃO FICA, mesmo quando esvazia: ela carrega `origem` e
+    `ingerido_em`, que são sobre o ARQUIVO que o sindicato mandou. Apagá-la
+    perderia o registro de que aquela planilha chegou.
+
+    MAS O `retrato` NÃO É SOBRE O ARQUIVO, e a primeira versão deste
+    comentário afirmava que era. Três campos dele são indexados por CPF:
+    `inalcancaveis_por_cpf` e `divergencias` têm o CPF como CHAVE, e
+    `falta_nominal` o tem como ITEM — e `divergencias` guarda nome e e-mail
+    no valor. A afirmação era falsa, a caça adversarial mediu, e o CPF de
+    quem pediu para sair ficava em disco com o apagamento declarado
+    concluído. Agora o retrato é limpo também.
+    """
+    caminho = pathlib.Path(caminho)
+    if not caminho.is_file():
+        return 0
+
+    digitos = validacao.so_digitos(cpf)
+    saiu_de = 0
+    saida: list[str] = []
+    for bruto in caminho.read_text(encoding="utf-8").splitlines():
+        if not bruto.strip():
+            continue
+        try:
+            registro = json.loads(bruto)
+        except json.JSONDecodeError:
+            # Linha truncada por queda no meio da escrita não invalida as
+            # outras, e não é lugar de consertar aqui: fica como está.
+            saida.append(bruto)
+            continue
+        mexeu = False
+        pessoas = registro.get("pessoas")
+        if isinstance(pessoas, list):
+            ficam = [p for p in pessoas
+                     if validacao.so_digitos((p or {}).get("cpf", ""))
+                     != digitos]
+            if len(ficam) != len(pessoas):
+                mexeu = True
+                registro["pessoas"] = ficam
+        if _limpar_retrato(registro.get("retrato"), digitos):
+            mexeu = True
+        if mexeu:
+            saiu_de += 1
+        saida.append(json.dumps(registro, ensure_ascii=False))
+
+    tmp = caminho.with_suffix(caminho.suffix + ".parcial")
+    tmp.write_text("\n".join(saida) + "\n", encoding="utf-8")
+    tmp.replace(caminho)
+    return saiu_de
+
+
+def _limpar_retrato(retrato, digitos: str) -> bool:
+    """Tira o CPF dos três campos do retrato que são indexados por ele.
+
+    `inalcancaveis_por_cpf` e `divergencias` têm o CPF como CHAVE;
+    `falta_nominal` o tem como ITEM de lista, por coluna. Devolve se mexeu.
+    """
+    if not isinstance(retrato, dict):
+        return False
+    mexeu = False
+    for campo in ("inalcancaveis_por_cpf", "divergencias"):
+        alvo = retrato.get(campo)
+        if isinstance(alvo, dict) and digitos in alvo:
+            del alvo[digitos]
+            mexeu = True
+    nominal = retrato.get("falta_nominal")
+    if isinstance(nominal, dict):
+        for coluna, chaves in list(nominal.items()):
+            if isinstance(chaves, list) and digitos in chaves:
+                nominal[coluna] = [c for c in chaves if c != digitos]
+                mexeu = True
+    return mexeu

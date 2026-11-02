@@ -76,7 +76,7 @@ explícito, da mais provável para a menos:
 
 ---
 
-### Tarefa 1: o tombstone no banco
+### Task 1 — Tarefa 1: o tombstone no banco
 
 **Arquivos:** modificar `servidor/banco.py`; testar em
 `tests/testes_apagamento.py` (criar).
@@ -114,7 +114,7 @@ lista, porque o uso é pertinência em laço de ingestão.
 
 ---
 
-### Tarefa 2: as exclusões no banco
+### Task 2 — Tarefa 2: as exclusões no banco
 
 **Arquivos:** modificar `servidor/banco.py`; testar em `tests/testes_apagamento.py`.
 
@@ -152,7 +152,7 @@ tabela.
 
 ---
 
-### Tarefa 3: a redação no diário
+### Task 3 — Tarefa 3: a redação no diário
 
 **Arquivos:** modificar `servidor/deposito.py`; testar em `tests/testes_apagamento.py`.
 
@@ -195,7 +195,7 @@ bastar sem mudar a projeção.
 
 ---
 
-### Tarefa 4: os dois formatos de arquivo
+### Task 4 — Tarefa 4: os dois formatos de arquivo
 
 **Arquivos:** modificar `servidor/rol.py` e `servidor/acervo.py`; testar em
 `tests/testes_apagamento.py`.
@@ -240,7 +240,7 @@ arquivo e não sobre gente).
 
 ---
 
-### Tarefa 5: `vestigios` — a medição
+### Task 5 — Tarefa 5: `vestigios` — a medição
 
 **Arquivos:** criar `servidor/apagamento.py`; testar em `tests/testes_apagamento.py`.
 
@@ -271,7 +271,7 @@ Olha: as tabelas de `apagar_pessoa`, o diário, `entrega/<cpf>/`,
 
 ---
 
-### Tarefa 6: `apagar` — a ordem e a retomada
+### Task 6 — Tarefa 6: `apagar` — a ordem e a retomada
 
 **Arquivos:** modificar `servidor/apagamento.py`; testar em `tests/testes_apagamento.py`.
 
@@ -346,7 +346,7 @@ por fim `vestigios`.
 
 ---
 
-### Tarefa 7: `reconstruir` consulta o tombstone
+### Task 7 — Tarefa 7: `reconstruir` consulta o tombstone
 
 **Arquivos:** modificar `servidor/banco.py`; testar em `tests/testes_espelho.py`.
 
@@ -384,7 +384,7 @@ Inclui `tests/testes_apagamento.py`, que as tarefas 2 e 6 usam para semear
 
 ---
 
-### Tarefa 8: a ingestão da planilha pula e relata
+### Task 8 — Tarefa 8: a ingestão da planilha pula e relata
 
 **Arquivos:** modificar `ferramentas/ingerir_acervo.py`; testar em `tests/testes_apagamento.py`.
 
@@ -406,7 +406,7 @@ a contagem. **Nunca imprime o CPF pulado** — a pessoa pediu para sair.
 
 ---
 
-### Tarefa 9: o portão consulta o tombstone
+### Task 9 — Tarefa 9: o portão consulta o tombstone
 
 **Arquivos:** modificar `servidor/app.py` (`pedir_codigo`); testar em
 `tests/testes_servidor_portal.py`.
@@ -439,7 +439,7 @@ Depois de resolver `destino` e antes de `correio.enviar`: se
 
 ---
 
-### Tarefa 10: a rota, o painel e a ferramenta
+### Task 10 — Tarefa 10: a rota, o painel e a ferramenta
 
 **Arquivos:** modificar `servidor/app.py`; criar
 `ferramentas/apagar_filiado.py`; testar em `tests/testes_servidor_portal.py`.

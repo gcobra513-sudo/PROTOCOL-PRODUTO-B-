@@ -28,9 +28,16 @@
  */
 import { useEffect, useState } from "react";
 
-import { Aviso, Cartao } from "../componentes/ui";
+import { Aviso, Botao, Campo, Cartao } from "../componentes/ui";
 import * as api from "../lib/envio";
-import { fracao, pessoas, presosNoTribunal, primeiroAcionavel } from "../lib/painel";
+import {
+  fracao,
+  pessoas,
+  presosNoTribunal,
+  primeiroAcionavel,
+  resumoDoApagamento,
+} from "../lib/painel";
+import { conferirCpf, formatarCpf } from "../lib/validacao";
 import { Portao } from "./Portao";
 
 function Numero({
@@ -168,6 +175,211 @@ function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
       {/* O limite vem do servidor e fica na tela. Um diretor que supõe que
           os documentos foram lidos confia numa coluna que ninguém conferiu. */}
       <Aviso tom="alerta">{p.limite}</Aviso>
+    </Cartao>
+  );
+}
+
+
+/** Apagamento a pedido do titular (LGPD art. 18, VI).
+ *
+ * POR QUE ESTA TELA EXISTE: a spec dizia "o sindicato apaga pelo painel", e
+ * a primeira entrega não tinha tela nenhuma — só a rota e uma ferramenta de
+ * linha de comando. Recurso que só `curl` alcança não chega a quem ele
+ * serve, e passava por pronto na contagem.
+ *
+ * TRÊS DECISÕES DE DESENHO, E AS TRÊS SÃO SOBRE O QUE NÃO SE DESFAZ:
+ *
+ * 1. Fica RECOLHIDA. Não é o trabalho do painel, é a exceção dele, e um
+ *    formulário de apagar sempre aberto ao lado do retrato da base é um
+ *    clique errado esperando acontecer.
+ * 2. CONFIRMAÇÃO EM DUAS ETAPAS, repetindo em palavras o que vai acontecer.
+ *    Não há desfazer: o diário é redigido, o disco é apagado. A confirmação
+ *    é a única chance.
+ * 3. O RESULTADO É O DO SERVIDOR, inclusive quando ele diz que sobrou coisa.
+ *    `resumoDoApagamento` carrega essa regra, e o teste dela é o que impede
+ *    esta tela de pintar de verde um apagamento que não terminou.
+ */
+function ApagarAPedido({
+  entidade,
+  token,
+  jaApagados,
+}: {
+  entidade: string;
+  token: string;
+  jaApagados: number;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [cpf, setCpf] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const [pedidoPor, setPedidoPor] = useState("");
+  const [confirmando, setConfirmando] = useState(false);
+  const [indo, setIndo] = useState(false);
+  const [erro, setErro] = useState("");
+  const [saida, setSaida] = useState<api.ResultadoDoApagamento | null>(null);
+
+  const problemas = cpf ? conferirCpf(cpf) : [];
+  const podeSeguir =
+    cpf !== "" && problemas.length === 0 && pedidoPor.trim() !== "";
+
+  function limpar() {
+    setCpf("");
+    setMotivo("");
+    setPedidoPor("");
+    setConfirmando(false);
+    setErro("");
+  }
+
+  async function apagar() {
+    setIndo(true);
+    setErro("");
+    try {
+      const r = await api.apagarFiliado(entidade, token, {
+        cpf,
+        motivo,
+        pedidoPor,
+      });
+      setSaida(r);
+      limpar();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "não foi possível concluir");
+      setConfirmando(false);
+    } finally {
+      setIndo(false);
+    }
+  }
+
+  const resumo = saida ? resumoDoApagamento(saida) : null;
+
+  return (
+    <Cartao
+      titulo="Pedido de apagamento de um filiado"
+      explicacao={
+        <>
+          Quando um filiado pede, por escrito, que o sindicato apague os dados
+          dele (LGPD, art. 18, VI). <strong>Não há desfazer.</strong>{" "}
+          {jaApagados > 0
+            ? `${pessoas(jaApagados)} da sua planilha já pediram, e por isso ` +
+              "não aparecem nas contagens acima."
+            : ""}
+        </>
+      }
+    >
+      {resumo ? (
+        <div className="space-y-3">
+          <Aviso tom={resumo.terminou ? "bom" : "alerta"}>
+            {resumo.frase}
+          </Aviso>
+          {resumo.linhas.length ? (
+            <div>
+              <p className="text-[15px] font-medium text-tinta">O que saiu</p>
+              <div className="mt-2 space-y-1">
+                {resumo.linhas.map((linha) => (
+                  <div
+                    key={linha}
+                    className="border-b border-borda py-1 text-sm text-tinta/80"
+                  >
+                    {linha}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-tinta/70">
+              Não havia nada desta pessoa nesta entidade. O pedido fica
+              registrado de todo modo, e a próxima planilha que você mandar
+              não vai recriá-la.
+            </p>
+          )}
+          {resumo.nota ? <Aviso tom="neutro">{resumo.nota}</Aviso> : null}
+          <Botao
+            tipo="secundario"
+            onClick={() => {
+              setSaida(null);
+              setAberto(false);
+            }}
+          >
+            Fechar
+          </Botao>
+        </div>
+      ) : !aberto ? (
+        <Botao tipo="secundario" onClick={() => setAberto(true)}>
+          Atender um pedido de apagamento
+        </Botao>
+      ) : confirmando ? (
+        <div className="space-y-4">
+          <Aviso tom="alerta">
+            <strong>Confirme antes de seguir. Isto não se desfaz.</strong>
+            <br />
+            Vamos apagar, desta entidade: os documentos que a pessoa enviou, o
+            conteúdo do envio dela no diário, a linha dela na planilha de
+            filiados, e o que estiver no banco de consulta. O código de acesso
+            dela deixa de valer na hora.
+            <br />
+            <br />
+            Fica registrado que <strong>{pedidoPor}</strong> pediu este
+            apagamento, e fica a marca que impede a próxima planilha de
+            recriar esta pessoa. A marca não guarda o CPF em claro.
+          </Aviso>
+          <p className="text-[15px] text-tinta">
+            CPF: <strong>{formatarCpf(cpf)}</strong>
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Botao onClick={() => void apagar()} disabled={indo}>
+              {indo ? "Apagando…" : "Apagar definitivamente"}
+            </Botao>
+            <Botao
+              tipo="secundario"
+              onClick={() => setConfirmando(false)}
+              disabled={indo}
+            >
+              Voltar
+            </Botao>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <Campo
+            rotulo="CPF de quem pediu"
+            valor={cpf}
+            onChange={setCpf}
+            problemas={problemas}
+            obrigatorio
+            inputMode="numeric"
+            ajuda="O CPF do filiado que pediu o apagamento."
+          />
+          <Campo
+            rotulo="Quem no sindicato está atendendo"
+            valor={pedidoPor}
+            onChange={setPedidoPor}
+            obrigatorio
+            ajuda="Nome ou e-mail. Fica no registro de quem mandou apagar — sem isto, não apagamos."
+          />
+          <Campo
+            rotulo="Motivo (opcional)"
+            valor={motivo}
+            onChange={setMotivo}
+            ajuda="Ex.: pedido do titular por e-mail em 02/11/2026."
+          />
+          {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
+          <div className="flex flex-wrap gap-3">
+            <Botao
+              onClick={() => setConfirmando(true)}
+              disabled={!podeSeguir}
+            >
+              Conferir e confirmar
+            </Botao>
+            <Botao
+              tipo="secundario"
+              onClick={() => {
+                limpar();
+                setAberto(false);
+              }}
+            >
+              Cancelar
+            </Botao>
+          </div>
+        </div>
+      )}
     </Cartao>
   );
 }
@@ -335,6 +547,12 @@ export function Painel({ entidade }: { entidade: string }) {
         <strong>Não é intimação e não serve para contar prazo.</strong>
       </Aviso>
     </Cartao>
+
+      <ApagarAPedido
+        entidade={entidade}
+        token={token}
+        jaApagados={dados.apagados_a_pedido}
+      />
     </div>
   );
 }

@@ -1401,12 +1401,14 @@ def teste_reconstruir_continua_recuperando_o_diario_inteiro():
     base_vazia = banco.base(URL, ent.apelido)
     checa(base_vazia == [], f"a projeção não foi apagada: {base_vazia}")
 
-    quantos = banco.reconstruir(URL, ent.apelido,
-                                deposito.ler_diario(ent.pasta(raiz)))
+    gravados, pulados = banco.reconstruir(URL, ent.apelido,
+                                          deposito.ler_diario(ent.pasta(raiz)))
     refeita = banco.base(URL, ent.apelido)
     checa(len(refeita) == 3,
           f"a recuperação não refez as 3 pessoas: {len(refeita)} "
-          f"(reconstruir devolveu {quantos})")
+          f"(gravados={gravados} pulados={pulados})")
+    checa(pulados == 0,
+          f"pulou registro sem ninguém pedir filtro: {pulados}")
     print("  ok     a recuperação pelo diário inteiro continua funcionando")
 
 
@@ -1520,6 +1522,374 @@ def teste_o_registro_por_cpf_concorda_com_a_base_inteira():
     print("  ok     a leitura por CPF concorda com a base inteira")
 
 
+
+def teste_nao_sai_codigo_para_quem_foi_apagado():
+    """QUEM PEDIU PARA SAIR NÃO RECEBE CREDENCIAL NOSSA.
+
+    Três comportamentos eram possíveis e só um não tem defeito:
+
+    - não consultar o tombstone: mandamos o código por e-mail para quem
+      pediu para sair. É a substância da violação, não detalhe;
+    - RECUSAR no portão: cria um ORÁCULO — um anônimo descobre quais CPFs
+      foram apagados a pedido, e isso é informação sobre a pessoa;
+    - consultar e NÃO MANDAR: a resposta fica idêntica à de qualquer CPF
+      desconhecido, e nenhum e-mail sai.
+
+    Este teste exige o terceiro, nas duas pontas: nada enviado, e resposta
+    indistinguível. A simetria dessa resposta é a mesma que impede o portão
+    de virar consulta de filiação — dois achados da auditoria de 31/10
+    foram sobre ela.
+    """
+    secao("o portão não manda código para quem foi apagado")
+    from servidor import apagamento, banco
+
+    cliente, ent, raiz = _servidor()
+    # O PORTÃO DO SERVIDOR, não um meu.
+    #
+    # A primeira versão deste teste criou um `Portao` próprio, com segredo
+    # próprio, e o marcador não casou com o que o servidor calcula — o
+    # tombstone existia e era invisível para ele. Isso é a demonstração
+    # prática do aviso da spec: `PROTOCOL_SEGREDO` é de vida longa, e
+    # trocá-lo devolve ao sistema quem pediu para sair.
+    portao = cliente.app.state.portao
+    # O rol do `_servidor()` tem A; apagamos A e deixamos o rol como está,
+    # porque é assim que o operador reporia o arquivo à mão.
+    banco.marcar_tombstone(URL, ent.apelido, portao.marcar_cpf(A),
+                           motivo="", pedido_por="")
+
+    log = raiz / "codigos_enviados.log"
+    antes = len(log.read_text().splitlines()) if log.is_file() else 0
+
+    def corpo(cpf):
+        r = cliente.post("/api/acesso/codigo",
+                         json={"entidade": ent.apelido, "cpf": cpf})
+        dados = dict(r.json())
+        dados.pop("codigo_do_ensaio", None)
+        dados.pop("ensaio", None)
+        return r.status_code, dados
+
+    apagado = corpo(A)
+    desconhecido = corpo(_cpf_sintetico(777_001))
+    checa(apagado == desconhecido,
+          f"a resposta revela que o CPF foi apagado: apagado={apagado} "
+          f"desconhecido={desconhecido}")
+
+    depois = len(log.read_text().splitlines()) if log.is_file() else 0
+    checa(depois == antes,
+          f"mandou código para quem pediu para sair: {depois - antes} "
+          f"linha(s) novas no log de envio")
+    print("  ok     nada enviado, e a resposta é indistinguível")
+
+
+
+# --------------------------------------------- a rota de apagamento
+
+def _apagar(cliente, apelido, corpo, token=None):
+    cabecalhos = {"Authorization": f"Bearer {token}"} if token else {}
+    return cliente.post(f"/api/entidade/{apelido}/apagar",
+                        json=corpo, headers=cabecalhos)
+
+
+def teste_apagar_so_para_gestor_da_propria_entidade():
+    """A ORDEM DAS CONFERÊNCIAS É O QUE IMPORTA, e `_gestor_de` já a tem:
+    primeiro que a sessão é da entidade pedida, depois que quem abriu é
+    gestor dela. A inversa diria a um gestor de outra entidade se um CPF
+    está no rol desta."""
+    secao("a rota de apagamento")
+    cliente, ent, raiz = _servidor()
+    pedido = {"cpf": A, "motivo": "pedido do titular", "pedido_por": "g"}
+
+    r = _apagar(cliente, ent.apelido, pedido)
+    checa(r.status_code == 401, f"anônimo devia dar 401, deu {r.status_code}")
+
+    r = _apagar(cliente, ent.apelido, pedido, _token(cliente, A))
+    checa(r.status_code == 403,
+          f"filiado devia dar 403, deu {r.status_code}")
+    print("  ok     anônimo 401, filiado 403")
+
+
+def teste_apagar_pelo_painel_do_sindicato():
+    from servidor import banco
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A, com_sentenca=True)
+    checa(banco.registro_do_cpf(URL, ent.apelido, A) is not None,
+          "a semeadura não pegou")
+
+    r = _apagar(cliente, ent.apelido,
+                {"cpf": A, "motivo": "pedido do titular",
+                 "pedido_por": "gestor@exemplo.invalid"},
+                _token(cliente, B))
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    saida = r.json()
+    checa(saida.get("vestigios") == [],
+          f"a rota disse que apagou com coisa sobrando: {saida}")
+    checa(A not in r.text, "a resposta trouxe o CPF em claro")
+    checa(banco.registro_do_cpf(URL, ent.apelido, A) is None,
+          "a pessoa continua na base")
+    print("  ok     o gestor apaga, e a resposta não traz o CPF")
+
+
+def teste_apagar_aceita_cpf_formatado():
+    """Sem normalizar, nada é encontrado e a rota diz que apagou."""
+    from servidor import banco
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    formatado = f"{A[:3]}.{A[3:6]}.{A[6:9]}-{A[9:]}"
+    r = _apagar(cliente, ent.apelido,
+                {"cpf": formatado, "motivo": "", "pedido_por": ""},
+                _token(cliente, B))
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    checa(banco.registro_do_cpf(URL, ent.apelido, A) is None,
+          f"o CPF formatado {formatado} não foi encontrado, e a rota "
+          f"respondeu como se tivesse apagado")
+    print("  ok     CPF formatado é normalizado antes de procurar")
+
+
+def teste_apagar_cpf_de_fora_da_base_nao_e_oraculo():
+    """404 aqui revelaria quem está na base de um sindicato a quem já tem
+    sessão de gestor — de outro. A resposta tem de ser a mesma."""
+    from servidor import banco
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    token = _token(cliente, B)
+    de_dentro = _apagar(cliente, ent.apelido,
+                        {"cpf": A, "motivo": "", "pedido_por": ""}, token)
+    de_fora = _apagar(cliente, ent.apelido,
+                      {"cpf": _cpf_sintetico(888_002), "motivo": "",
+                       "pedido_por": ""}, token)
+    checa(de_dentro.status_code == de_fora.status_code == 200,
+          f"o status revela quem está na base: dentro="
+          f"{de_dentro.status_code} fora={de_fora.status_code}")
+    print("  ok     CPF de fora da base responde igual")
+
+
+
+def teste_o_painel_conta_quantos_foram_apagados_a_pedido():
+    """D2: AVISAR O SINDICATO para ele corrigir a FONTE.
+
+    CONTAGEM, nunca lista nominal: a pessoa pediu para sair, e devolver o
+    nome dela numa tela seria o oposto do que ela pediu.
+    """
+    from servidor import banco
+
+    cliente, ent, raiz = _servidor()
+    # SEMEIA A PLANILHA, não o cadastro pelo portal. A contagem é sobre o
+    # que o SINDICATO mandou — é a fonte que ele precisa corrigir. A
+    # primeira versão deste teste cadastrou pelo portal e contou zero, com
+    # razão.
+    import json as _json
+
+    from servidor import deposito as _dep
+
+    deposito_acervo = ent.pasta(raiz) / "acervo.jsonl"
+    _dep.anexar_com_fsync(deposito_acervo, _json.dumps({
+        "ingerido_em": "2026-11-02", "origem": "planilha.xlsx",
+        "retrato": {"pessoas": 1},
+        "pessoas": [{"cpf": A, "linha_no_arquivo": 2,
+                     "campos": {"nome_completo": "PESSOA (FICTÍCIO)",
+                                "email": "p@exemplo.invalid"},
+                     "achados": []}],
+    }, ensure_ascii=False) + "\n")
+    token = _token(cliente, B)
+
+    antes = cliente.get(f"/api/entidade/{ent.apelido}/completude",
+                        headers={"Authorization": f"Bearer {token}"}).json()
+    checa(antes.get("apagados_a_pedido") == 0,
+          f"começou contando apagamento que não houve: "
+          f"{antes.get('apagados_a_pedido')}")
+
+    banco.marcar_tombstone(URL, ent.apelido,
+                           cliente.app.state.portao.marcar_cpf(A),
+                           motivo="", pedido_por="")
+    depois = cliente.get(f"/api/entidade/{ent.apelido}/completude",
+                         headers={"Authorization": f"Bearer {token}"}).json()
+    checa(depois.get("apagados_a_pedido") == 1,
+          f"não contou o apagamento: {depois.get('apagados_a_pedido')}")
+    checa(A not in str(depois.get("apagados_a_pedido")),
+          "a contagem virou lista nominal")
+    print("  ok     o painel conta os apagados, sem nomear")
+
+
+
+def teste_gestor_de_outra_entidade_nao_apaga_e_nem_le_o_rol_alvo():
+    """Item 7 da spec, que não tinha teste. E o que ele fixa é a ORDEM.
+
+    `_gestor_de` confere primeiro que a sessão é da entidade PEDIDA, e só
+    depois lê `gestores.csv` dela. A ordem inversa diria a um gestor de
+    outra entidade se o CPF dele consta como gestor aqui.
+
+    O CÓDIGO DE STATUS NÃO SERVE DE PROVA, e eu escrevi este teste errado
+    uma vez por supor que servia: nas duas ordens a resposta é 403, porque
+    rol ilegível também dá 403. Invertida a ordem no servidor, um teste
+    sobre o status continuava passando.
+
+    O que distingue as duas ordens é se o rol do alvo é LIDO. Então é isso
+    que se mede: um gatilho em `rol.carregar_gestores` que registra por qual
+    pasta foi chamado.
+    """
+    import csv as _csv
+
+    from servidor import entidades as _ents
+    from servidor import rol as _rol
+
+    cliente, ent, raiz = _servidor()
+    outra = _ents.Cadastro(raiz).criar("demo-z", "Outro Sindicato")
+    pasta_outra = outra.pasta(raiz)
+    pasta_outra.mkdir(parents=True, exist_ok=True)
+    for arquivo, contato in (("filiados.csv", "z@exemplo.invalid"),
+                             ("gestores.csv", "gz@exemplo.invalid")):
+        with open(pasta_outra / arquivo, "w", newline="",
+                  encoding="utf-8") as fh:
+            w = _csv.writer(fh)
+            w.writerow(["cpf", "email"])
+            w.writerow([A, contato])
+
+    token_da_outra = cliente.post(
+        "/api/acesso/conferir",
+        json={"entidade": "demo-z", "cpf": A,
+              "codigo": cliente.post(
+                  "/api/acesso/codigo",
+                  json={"entidade": "demo-z", "cpf": A}
+              ).json()["codigo_do_ensaio"]},
+    ).json()["token"]
+
+    lidos: list[str] = []
+    original = _rol.carregar_gestores
+
+    def gatilho(pasta, *a, **k):
+        lidos.append(Path(pasta).name)
+        return original(pasta, *a, **k)
+
+    _rol.carregar_gestores = gatilho
+    try:
+        r = _apagar(cliente, ent.apelido,
+                    {"cpf": A, "motivo": "", "pedido_por": ""},
+                    token_da_outra)
+    finally:
+        _rol.carregar_gestores = original
+
+    checa(r.status_code == 403,
+          f"gestor de outra entidade devia dar 403, deu {r.status_code} "
+          f"{r.text[:200]}")
+    checa(ent.apelido not in lidos,
+          f"leu o rol de gestores da entidade alvo antes de conferir a "
+          f"entidade da sessão: {lidos}")
+    print("  ok     403 por entidade, sem tocar no rol do alvo")
+
+
+def teste_o_apagamento_fica_registrado_e_leitura_nao_e_apagada():
+    """Item 9 da spec, que não tinha teste — nas DUAS metades.
+
+    `leitura` não é apagada (o GRANT nega DELETE à aplicação, e o teste
+    EXERCITA a negação em vez de confiar nela), e o apagamento ENTRA nela.
+    """
+    import psycopg
+
+    from servidor import banco
+
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    token = _token(cliente, B)
+
+    # Metade 1: a aplicação não consegue apagar o próprio rastro.
+    negou = ""
+    try:
+        with banco.sessao(URL, ent.apelido) as cur:
+            cur.execute("DELETE FROM leitura")
+    except psycopg.errors.InsufficientPrivilege as e:
+        negou = str(e)
+    checa("leitura" in negou,
+          f"a aplicação conseguiu apagar o registro de auditoria: {negou!r}")
+
+    # Metade 2: o apagamento entra no registro, e diz QUEM mandou.
+    r = _apagar(cliente, ent.apelido,
+                {"cpf": A, "motivo": "pedido", "pedido_por": "g"}, token)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+
+    with banco.sessao(URL, ent.apelido) as cur:
+        cur.execute("SELECT quem_hash, alvo_hash FROM leitura "
+                    "WHERE o_que = 'apagar'")
+        linhas = cur.fetchall()
+    checa(len(linhas) == 1,
+          f"o apagamento não ficou registrado em leitura: {linhas}")
+    quem, alvo = linhas[0]
+    checa(quem and A not in quem and B not in quem,
+          f"o registro não diz quem mandou, ou traz CPF em claro: {linhas[0]}")
+    checa(alvo and A not in alvo,
+          f"o registro não diz sobre quem, ou traz CPF em claro: {linhas[0]}")
+    print("  ok     o apagamento fica registrado, e leitura nega DELETE")
+
+
+def teste_sem_registro_de_auditoria_nao_apaga_nada():
+    """I6. `_auditar` engole exceção por uma decisão tomada para LEITURA
+    ("falha de registro não derruba a consulta"), e essa decisão tem um
+    custo aceitável lá: a consulta fica sem rastro, mas nada se perde.
+
+    Aplicada a um ato DESTRUTIVO E IRREVERSÍVEL, a mesma decisão significa
+    tombstone gravado, pessoa apagada, e nenhum registro de qual gestor
+    mandou — exatamente o que o item 9 da spec existe para impedir. Aqui a
+    casa manda falhar fechado: sem registro, não apaga.
+    """
+    from servidor import banco
+
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    token = _token(cliente, B)
+
+    original = banco.registrar_leitura
+    banco.registrar_leitura = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("registro fora do ar"))
+    try:
+        r = _apagar(cliente, ent.apelido,
+                    {"cpf": A, "motivo": "pedido", "pedido_por": "g"}, token)
+    finally:
+        banco.registrar_leitura = original
+
+    checa(r.status_code >= 500,
+          f"apagou sem conseguir registrar quem mandou: {r.status_code} "
+          f"{r.text[:200]}")
+    checa(banco.tombstones(URL, ent.apelido) == set(),
+          "gravou o tombstone sem registro de quem mandou")
+    sobrou = cliente.get(f"/api/entidade/{ent.apelido}/completude",
+                         headers={"Authorization": f"Bearer {token}"})
+    checa(sobrou.json()["apagados_a_pedido"] == 0,
+          "contou um apagamento que não devia ter acontecido")
+    print("  ok     sem registro de quem mandou, não apaga")
+
+
+def teste_falha_ao_conferir_apagamento_nao_entrega_codigo():
+    """I7. O ruling anterior deixava o portão falhar ABERTO: erro ao ler os
+    tombstones virava log e o código SAÍA para quem pediu para sair.
+
+    A alternativa não precisa ser global. Tratar a falha DAQUELE pedido como
+    "sem destino" mantém a resposta idêntica — mesmo 202, mesmo corpo, nada
+    para para o usuário —, não cria oráculo, e nunca entrega credencial a
+    quem pediu para sair. A casa escreve: a dúvida nunca vira permissão.
+    """
+    from servidor import banco
+
+    cliente, ent, raiz = _servidor()
+    log = raiz / "codigos_enviados.log"
+    antes = len(log.read_text().splitlines()) if log.is_file() else 0
+
+    original = banco.tombstones
+    banco.tombstones = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("banco fora do ar"))
+    try:
+        r = cliente.post("/api/acesso/codigo",
+                         json={"entidade": ent.apelido, "cpf": A})
+    finally:
+        banco.tombstones = original
+
+    checa(r.status_code == 202,
+          f"a falha virou status próprio: {r.status_code}")
+    depois = len(log.read_text().splitlines()) if log.is_file() else 0
+    checa(depois == antes,
+          f"entregou o código sem conseguir conferir o apagamento: "
+          f"{depois - antes} linha(s) novas")
+    print("  ok     sem conferir, não entrega — e a resposta não muda")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1566,6 +1936,16 @@ TESTES = [
     teste_saude_nao_diz_ok_quando_nao_consegue_ler_o_estado,
     teste_a_saude_fica_boa_quando_o_trabalho_roda,
     teste_saude_nao_publica_o_detalhe_a_quem_nao_tem_sessao,
+    teste_nao_sai_codigo_para_quem_foi_apagado,
+    teste_apagar_so_para_gestor_da_propria_entidade,
+    teste_apagar_pelo_painel_do_sindicato,
+    teste_apagar_aceita_cpf_formatado,
+    teste_apagar_cpf_de_fora_da_base_nao_e_oraculo,
+    teste_o_painel_conta_quantos_foram_apagados_a_pedido,
+    teste_gestor_de_outra_entidade_nao_apaga_e_nem_le_o_rol_alvo,
+    teste_o_apagamento_fica_registrado_e_leitura_nao_e_apagada,
+    teste_sem_registro_de_auditoria_nao_apaga_nada,
+    teste_falha_ao_conferir_apagamento_nao_entrega_codigo,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,
     teste_o_registro_por_cpf_concorda_com_a_base_inteira,

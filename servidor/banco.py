@@ -202,8 +202,10 @@ def _tipo_do_arquivo(nome: str) -> str:
     return panorama.tipo_do_arquivo(nome)
 
 
-def reconstruir(url: str, entidade: str, registros) -> int:
-    """Projeta o diário no banco. Devolve quantos registros foram gravados.
+def reconstruir(url: str, entidade: str, registros,
+                marcar_cpf=None, *,
+                consentimento_novo: bool = False) -> tuple[int, int]:
+    """Projeta o diário no banco. Devolve (gravados, pulados por tombstone).
 
     **IDEMPOTENTE**, e tem de ser: esta é a operação de recuperação, e uma
     recuperação que duplica tudo a cada execução é pior que não ter nenhuma.
@@ -214,6 +216,28 @@ def reconstruir(url: str, entidade: str, registros) -> int:
     derrubar a projeção inteira por causa dela trocaria um defeito pequeno
     por um grande.
 
+    `marcar_cpf` LIGA O FILTRO DE TOMBSTONE, e a assimetria é deliberada.
+    Sem ele nada é filtrado; com ele, registro de quem foi apagado a pedido
+    é pulado.
+
+    Quem precisa do filtro é a RECUPERAÇÃO: restaurado um snapshot do
+    diário anterior ao pedido, sem o filtro esta função ressuscita a pessoa
+    e ninguém percebe — o apagamento é desfeito pela função que existe para
+    consertar as coisas, e é o cenário mais provável de todos.
+
+    Quem NÃO deve filtrar é `/api/cadastro`: ali o registro é o envio que a
+    própria pessoa acabou de fazer, e isso é consentimento NOVO. Barrá-lo
+    por um tombstone antigo diria a alguém que voltou por vontade própria
+    que ela não pode voltar.
+
+    Passar `marcar_cpf` é, portanto, declarar "estou reprojetando
+    histórico". Passar `consentimento_novo=True` é declarar o contrário.
+
+    E NÃO PASSAR NENHUM DOS DOIS, numa entidade que tem apagamento
+    registrado, é ERRO — a função recusa em vez de adivinhar. A forma
+    anterior tratava o esquecimento como "não filtre", e o único caminho de
+    recuperação é uma chamada à mão, que é justamente a que esquece.
+
     O QUE ESTA FUNÇÃO NÃO PROJETA, e é deliberado: `pessoa.alcancavel` e
     `pessoa.tem_divergencia`. As duas se calculam cruzando o ACERVO com o
     cadastro, e o acervo ainda não é projetado. Escrevê-las só com o cadastro
@@ -222,6 +246,29 @@ def reconstruir(url: str, entidade: str, registros) -> int:
     """
     campos = _campos_do_contrato()
     gravados = 0
+    pulados = 0
+
+    # ESQUECER O FILTRO FALHA FECHADO, e esta é a correção de uma forma
+    # invertida. Antes, `marcar_cpf=None` significava "não filtre", e o
+    # único jeito de recuperar histórico é uma chamada à mão — que é
+    # exatamente a chamada que esquece o parâmetro. Quem esquecesse
+    # ressuscitava quem pediu para sair, em silêncio.
+    #
+    # Agora: se a entidade TEM tombstone e ninguém disse como tratar, a
+    # função recusa. Quando não há tombstone não há o que filtrar, e nada
+    # muda para quem semeia dados de teste.
+    apagados: set[str] = set()
+    if not consentimento_novo:
+        marcados = tombstones(url, entidade)
+        if marcados and marcar_cpf is None:
+            raise ValueError(
+                "esta entidade tem apagamento a pedido registrado. Passe "
+                "`marcar_cpf=portao.marcar_cpf` para pular quem foi "
+                "apagado, ou `consentimento_novo=True` para declarar que "
+                "estes registros são envios novos das próprias pessoas"
+            )
+        if marcar_cpf is not None:
+            apagados = marcados
     with sessao(url, entidade) as cur:
         for registro in registros or ():
             if not isinstance(registro, dict):
@@ -230,6 +277,9 @@ def reconstruir(url: str, entidade: str, registros) -> int:
             if not isinstance(linha, dict):
                 continue
             cpf = _digitos(linha.get("cpf"))
+            if apagados and marcar_cpf(cpf) in apagados:
+                pulados += 1
+                continue
             if not cpf:
                 continue
 
@@ -299,7 +349,7 @@ def reconstruir(url: str, entidade: str, registros) -> int:
                     "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
                     (entidade, cpf, numero),
                 )
-    return gravados
+    return gravados, pulados
 
 
 #: Campos que o acervo e o cadastro podem afirmar sobre a mesma pessoa. É
@@ -814,3 +864,118 @@ def registrar_leitura(url: str, entidade: str, *, quem_hash: str,
             "VALUES (%s,%s,%s,%s)",
             (entidade, quem_hash, o_que, alvo_hash),
         )
+
+
+# =====================================================================
+# O APAGAMENTO A PEDIDO (LGPD art. 18, VI)
+# =====================================================================
+
+def marcar_tombstone(url: str, entidade: str, cpf_hash: str,
+                     motivo: str, pedido_por: str) -> None:
+    """Registra que esta pessoa foi apagada a pedido.
+
+    É GRAVADO PRIMEIRO, E SOZINHO, e é isso que torna o apagamento
+    retomável: com o tombstone no banco, a reingestão já para de trazer a
+    pessoa de volta e qualquer resto pode ser apagado numa segunda passada.
+    Na mesma transação das exclusões, uma falha desfaria o tombstone junto
+    — a pessoa teria pedido para sair, o processo teria caído, e não haveria
+    registro de que alguém pediu nada.
+
+    SÓ MARCADOR, NUNCA CPF EM CLARO. A tabela existe para provar que a
+    remoção foi deliberada, não para guardar o que se removeu.
+
+    `motivo` e `pedido_por` são texto livre porque servem ao sindicato
+    responder ao titular depois: apagamos em tal data, a pedido de quem.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "INSERT INTO tombstone (entidade, cpf_hash, motivo, pedido_por) "
+            "VALUES (%s,%s,%s,%s)",
+            (entidade, cpf_hash, motivo, pedido_por),
+        )
+
+
+def tombstones(url: str, entidade: str) -> set[str]:
+    """Os marcadores de quem foi apagado a pedido nesta entidade.
+
+    `set` e não lista porque todo uso é pertinência dentro de laço — a
+    ingestão da planilha e a projeção do diário perguntam, por pessoa, se
+    aquele marcador está aqui.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute("SELECT cpf_hash FROM tombstone")
+        return {linha[0] for linha in cur.fetchall()}
+
+
+#: As tabelas que o apagamento limpa, NA ORDEM. `pessoa_afirmacao` depois
+#: das que a referenciam, e `recebimento` tratado à parte abaixo.
+#:
+#: `leitura`, `processo` e `movimento` NÃO estão aqui, e é deliberado:
+#: `leitura` guarda marcador e nunca CPF, e log que o próprio sistema apaga
+#: não é log de auditoria; `processo` e `movimento` são sobre o PROCESSO, e
+#: numa ação coletiva o mesmo número é de centenas de filiados — o que liga
+#: a pessoa a ele é `vinculo`, e esse sai.
+_TABELAS_DO_APAGAMENTO = (
+    "achado", "documento", "vinculo", "oportunidade", "aviso_enviado",
+    "pessoa_afirmacao", "pessoa",
+)
+
+
+def apagar_pessoa(url: str, entidade: str, cpf: str) -> dict[str, int]:
+    """Apaga do banco tudo o que é desta pessoa. Devolve o que saiu.
+
+    NUMA TRANSAÇÃO SÓ: um apagamento parcial do banco é pior que nenhum,
+    porque deixa a pessoa meio existente e nenhuma consulta diz isso.
+
+    O `recebimento` É O CUIDADO DESTA FUNÇÃO, e o motivo é um caminho para
+    estragar dado de terceiro. `reconstruir` grava um recebimento por
+    ENVIO — que é de uma pessoa só —, mas `projetar_acervo` grava um por
+    INGESTÃO, compartilhado por todas as pessoas da planilha. Apagar o
+    recebimento junto com uma pessoa anularia o `recebimento_id` de todas as
+    outras, porque a coluna é `ON DELETE SET NULL`: a procedência dos
+    vizinhos desapareceria em silêncio.
+
+    Então o recebimento só sai quando NINGUÉM MAIS o referencia.
+    """
+    digitos = _digitos(cpf)
+    saiu: dict[str, int] = {}
+    with sessao(url, entidade) as cur:
+        # OS RECEBIMENTOS QUE ESTA PESSOA REFERENCIAVA, capturados ANTES de
+        # apagar as afirmações dela. Depois não há como saber quais eram.
+        cur.execute(
+            "SELECT DISTINCT recebimento_id FROM pessoa_afirmacao "
+            "WHERE cpf = %s AND recebimento_id IS NOT NULL",
+            (digitos,),
+        )
+        candidatos = [linha[0] for linha in cur.fetchall()]
+
+        for tabela in _TABELAS_DO_APAGAMENTO:
+            cur.execute(f"DELETE FROM {tabela} WHERE cpf = %s", (digitos,))
+            if cur.rowcount:
+                saiu[tabela] = cur.rowcount
+
+        # SÓ OS DELA, E SÓ SE FICARAM SEM NINGUÉM.
+        #
+        # A primeira versão apagava `WHERE NOT EXISTS (...)` sem predicado
+        # nenhum — varria TODO recebimento órfão visível. Medido: uma
+        # ingestão sem relação com a pessoa foi destruída, e a contagem
+        # devolvida atribuiu as duas ao pedido dela. A camada 1 é o "o que
+        # exatamente nos mandaram?" e é irreversível.
+        #
+        # `entidade` no WHERE é redundante com a política, e está aqui de
+        # propósito: um DELETE sem predicado de entidade tem a política como
+        # única barreira, e o cabeçalho do esquema registra que isso já
+        # falhou uma vez por falta do SET ROLE.
+        if candidatos:
+            cur.execute(
+                "DELETE FROM recebimento r "
+                "WHERE r.entidade = %s AND r.id = ANY(%s) "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM pessoa_afirmacao a "
+                "  WHERE a.recebimento_id = r.id"
+                ")",
+                (entidade, candidatos),
+            )
+            if cur.rowcount:
+                saiu["recebimento"] = cur.rowcount
+    return saiu

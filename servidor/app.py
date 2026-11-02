@@ -45,6 +45,7 @@ from nucleo import participacao, pendencia
 from . import (
     acervo,
     agenda,
+    apagamento,
     documentos,
     acesso,
     banco,
@@ -546,6 +547,45 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         destino = lista.email_de(cpf) or (
             dos_gestores.email_de(cpf) if dos_gestores else None
         )
+        # QUEM PEDIU PARA SAIR NÃO RECEBE CREDENCIAL NOSSA, e a forma como
+        # isso é feito importa.
+        #
+        # Três comportamentos eram possíveis e só um não tem defeito:
+        # não consultar o tombstone manda o código para quem pediu para
+        # sair, que é a substância da violação; RECUSAR no portão cria um
+        # ORÁCULO, porque um anônimo passaria a descobrir quais CPFs foram
+        # apagados a pedido; e consultar sem mandar deixa a resposta
+        # idêntica à de qualquer CPF desconhecido.
+        #
+        # É o terceiro. A pessoa continua podendo PEDIR — a rota não a
+        # recusa —, só não há a quem entregar. E a simetria desta resposta é
+        # a mesma que impede o portão de virar consulta de filiação.
+        if destino is not None and cfg.tem_banco:
+            try:
+                if portao.marcar_cpf(cpf) in banco.tombstones(
+                        cfg.banco_url, ent.apelido):
+                    destino = None
+            except Exception:  # noqa: BLE001
+                # SEM CONSEGUIR CONFERIR, NÃO ENTREGA — e isto NÃO fecha o
+                # portão.
+                #
+                # A escolha anterior aqui era deixar passar, pelo raciocínio
+                # de que recusar pararia o portal para todos os filiados por
+                # causa de um banco fora do ar. O raciocínio estava errado
+                # porque supunha só duas saídas, passar ou recusar. Há uma
+                # terceira: tratar a falha DAQUELE pedido como "sem
+                # destino" — mesmo 202, mesmo corpo, nada para para quem
+                # pede, nenhum oráculo novo — e simplesmente não entregar
+                # credencial a quem pode ter pedido para sair.
+                #
+                # O custo é real e é o lado certo de errar: enquanto o banco
+                # estiver fora, ninguém recebe código, e a falha fica no log.
+                # A dúvida nunca vira permissão.
+                log.exception("não deu para conferir apagamento ent=%s "
+                              "cpf=%s — não entregamos o código",
+                              ent.apelido, marca)
+                destino = None
+
         if destino is None:
             log.info("codigo sem destino ent=%s cpf=%s", ent.apelido, marca)
             return JSONResponse(resposta, status_code=202)
@@ -1194,6 +1234,101 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             ),
         }
 
+    def _apagados_na_planilha(ent: entidades.Entidade, pessoas) -> int:
+        """Quantos CPFs da planilha do sindicato têm tombstone.
+
+        Zero quando não há banco: sem ele não há tombstone para consultar, e
+        inventar um número seria pior que não ter.
+        """
+        if not cfg.tem_banco:
+            return 0
+        try:
+            marcados = banco.tombstones(cfg.banco_url, ent.apelido)
+        except Exception:  # noqa: BLE001
+            log.exception("não deu para contar os apagados ent=%s",
+                          ent.apelido)
+            return 0
+        if not marcados:
+            return 0
+        return sum(1 for cpf in {p.cpf for p in pessoas if p.cpf}
+                   if portao.marcar_cpf(cpf) in marcados)
+
+    @app.post("/api/entidade/{apelido}/apagar")
+    def apagar_filiado(apelido: str, corpo: dict, pedido: Request) -> dict:
+        """Apaga um filiado a pedido (LGPD art. 18, VI).
+
+        QUEM ACIONA É O SINDICATO. Ele tem a relação com o filiado e foi ele
+        que nos confiou o dado; sob a LGPD ele tende a ser o CONTROLADOR e
+        nós o operador, e é o controlador que responde ao titular.
+
+        NÃO DEVOLVE 404 PARA CPF DE FORA DA BASE, e isto é deliberado: um
+        404 aqui diria a quem tem sessão de gestor se um CPF está na base
+        desta entidade — oráculo, e sobre dado sensível. A resposta é a
+        mesma, e o que varia é só a contagem do que saiu.
+
+        `vestigios` NÃO VAZIO NÃO É ERRO: é a resposta honesta de que sobrou
+        coisa. Dizer 200 e esconder o resto seria afirmar um apagamento que
+        não aconteceu.
+        """
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        cpf = conta.so_digitos(str(corpo.get("cpf", "")))
+        if not validacao.cpf_valido(cpf):
+            raise _problema(400, "CPF inválido")
+        if not cfg.tem_banco:
+            raise _problema(
+                503,
+                "este servidor está sem banco de dados, e o apagamento "
+                "precisa registrar o tombstone para ser retomável e para "
+                "impedir que a próxima planilha recrie a pessoa",
+            )
+
+        marcador = portao.marcar_cpf(cpf)
+        # AQUI NÃO SERVE `_auditar`, E A DIFERENÇA É O QUE ESTÁ EM JOGO.
+        #
+        # `_auditar` engole exceção, e essa decisão foi tomada para LEITURA:
+        # lá, registro perdido deixa a consulta sem rastro, mas nenhum dado
+        # se perde e a pessoa continua atendida. Aqui o ato é destrutivo e
+        # irreversível — o mesmo engolir significaria pessoa apagada sem
+        # nenhum registro de qual gestor mandou, que é precisamente o que o
+        # item 9 da spec existe para impedir.
+        #
+        # Então falha fechado: registra PRIMEIRO, e se o registro não entra,
+        # nada é apagado. O custo é um apagamento adiado enquanto o banco
+        # estiver fora; o custo do contrário é um apagamento sem autor.
+        try:
+            banco.registrar_leitura(cfg.banco_url, ent.apelido,
+                                    quem_hash=sessao.cpf_hash,
+                                    o_que="apagar", alvo_hash=marcador)
+        except Exception:  # noqa: BLE001
+            log.exception("AUDITORIA DO APAGAMENTO falhou ent=%s",
+                          ent.apelido)
+            raise _problema(
+                503,
+                "não conseguimos registrar quem pediu este apagamento, e "
+                "sem esse registro não apagamos nada. Nada foi alterado: "
+                "tente de novo.",
+            ) from None
+        try:
+            saida = apagamento.apagar(
+                cfg.banco_url, ent, cfg.raiz, cpf,
+                motivo=str(corpo.get("motivo", "")),
+                pedido_por=str(corpo.get("pedido_por", "")),
+                portao=portao,
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("APAGAR falhou ent=%s cpf=%s", ent.apelido,
+                          _hash_curto(cpf))
+            raise _problema(
+                500,
+                "não conseguimos concluir o apagamento. Nada foi apagado "
+                "sem registro: confira com a ferramenta de linha de comando "
+                "e repita",
+            ) from None
+        log.info("apagado a pedido ent=%s cpf=%s vestigios=%d",
+                 ent.apelido, _hash_curto(cpf), len(saida["vestigios"]))
+        return saida
+
     @app.get("/api/entidade/{apelido}/completude")
     def ver_completude(apelido: str, pedido: Request) -> dict:
         """O retrato da base, para o gestor da PRÓPRIA entidade.
@@ -1249,6 +1384,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "manchete": retrato.manchete(),
             "retrato": dataclasses.asdict(retrato),
             "inalcancaveis": inalcancaveis,
+            # QUANTOS DA PLANILHA DELE FORAM APAGADOS A PEDIDO.
+            #
+            # CONTAGEM, e nunca lista nominal: a pessoa pediu para sair, e
+            # devolver o nome dela numa tela seria exatamente o oposto. O
+            # número existe para o sindicato corrigir a FONTE — enquanto o
+            # CPF estiver na planilha dele, toda ingestão vai pulá-lo de
+            # novo, e sem este aviso ele reenviaria para sempre sem saber.
+            "apagados_a_pedido": _apagados_na_planilha(ent, pessoas),
             "tem_acervo": caminho_acervo.is_file(),
         }
 
@@ -1373,7 +1516,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 # A recuperação pelo diário inteiro continua existindo, e
                 # tem teste próprio — ela só deixou de rodar aqui.
                 banco.reconstruir(cfg.banco_url, ent.apelido,
-                                  [recibo.registro])
+                                  [recibo.registro],
+                                  consentimento_novo=True)
                 for nome, corpo in recebidos.items():
                     banco.guardar_achados(
                         cfg.banco_url, ent.apelido, limpa["cpf"],

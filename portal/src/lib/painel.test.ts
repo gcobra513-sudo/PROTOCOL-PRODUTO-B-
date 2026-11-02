@@ -9,7 +9,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { Gargalo } from "./envio";
-import { fracao, pessoas, presosNoTribunal, primeiroAcionavel } from "./painel";
+import type * as api from "./envio";
+import {
+  fracao,
+  pessoas,
+  presosNoTribunal,
+  primeiroAcionavel,
+  resumoDoApagamento,
+} from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
   return { quem, titulo: "", explicacao: "", o_que, pessoas: n, exemplos: [] };
@@ -61,5 +68,86 @@ describe("os números como o diretor lê", () => {
 
   it("sem base não inventa percentual", () => {
     expect(fracao(0, 0)).toBe("—");
+  });
+});
+
+describe("o resumo de um apagamento a pedido", () => {
+  const SAIDA: api.ResultadoDoApagamento = {
+    marcador: "32b87ccc2dda",
+    banco: { pessoa: 1, documento: 3 },
+    portao: 2,
+    diario: 1,
+    arquivos: 4,
+    rol: 1,
+    acervo: 1,
+    logs: 1,
+    email_conhecido: true,
+    vestigios: [],
+  };
+
+  it("sem vestígio, diz que terminou", () => {
+    const r = resumoDoApagamento(SAIDA);
+    expect(r.terminou).toBe(true);
+    expect(r.frase.toLowerCase()).toContain("nada sobrou");
+  });
+
+  it("COM vestígio, NÃO lê como apagado — e manda repetir", () => {
+    // A regra inteira do recurso está aqui. O servidor devolve 200 com a
+    // lista cheia de propósito: é a resposta honesta de que sobrou coisa.
+    // Uma tela que pintasse isso de verde desfaria a honestidade do
+    // servidor na última polegada.
+    const r = resumoDoApagamento({
+      ...SAIDA,
+      vestigios: ["banco: pessoa", "disco: entrega/"],
+    });
+    expect(r.terminou).toBe(false);
+    expect(r.frase).toContain("2");
+    expect(r.frase.toLowerCase()).toContain("repetir");
+    expect(r.frase.toLowerCase()).not.toContain("nada sobrou");
+  });
+
+  it("lista o que saiu de cada lugar, em português de gente", () => {
+    const linhas = resumoDoApagamento(SAIDA).linhas.join("\n");
+    expect(linhas).toContain("documento");
+    expect(linhas).toContain("4");
+    expect(linhas).not.toContain("tombstone");
+    expect(linhas).not.toContain("vestigios");
+  });
+
+  it("não mostra lugar de onde não saiu nada", () => {
+    // Dez linhas com zero esconderiam a única que não é zero.
+    const linhas = resumoDoApagamento({
+      ...SAIDA,
+      banco: {},
+      portao: 0,
+      diario: 0,
+      arquivos: 0,
+      rol: 1,
+      acervo: 0,
+      logs: 0,
+    }).linhas;
+    expect(linhas).toHaveLength(1);
+    // E a linha fala a língua do gestor: "rol" é palavra nossa.
+    expect(linhas[0]).toContain("planilha de filiados");
+    expect(linhas[0]).not.toContain("rol");
+  });
+
+  it("NUNCA traz o marcador para a tela", () => {
+    // O marcador é HMAC do CPF. Serve ao operador no log, não ao gestor na
+    // tela — e um identificador estável por pessoa numa tela é mais um
+    // lugar com dado pessoal.
+    const r = resumoDoApagamento(SAIDA);
+    const tudo = [r.frase, ...r.linhas, r.nota ?? ""].join(" ");
+    expect(tudo).not.toContain("32b87ccc2dda");
+  });
+
+  it("diz quando o sindicato não tinha e-mail desta pessoa", () => {
+    // O gestor precisa avisar o titular de que foi atendido. Sem e-mail em
+    // cadastro, esse aviso tem de sair por outro caminho.
+    const sem = resumoDoApagamento({ ...SAIDA, email_conhecido: false });
+    expect(sem.nota?.toLowerCase()).toContain("e-mail");
+    // E quando havia e-mail, NÃO há nota: um aviso que aparece sempre não
+    // é aviso, é moldura.
+    expect(resumoDoApagamento(SAIDA).nota).toBeUndefined();
   });
 });

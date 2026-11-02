@@ -99,6 +99,9 @@ def main() -> int:
 
     retrato = completude.retratar(pessoas)
     imprimir(retrato, pessoas, args.mostrar)
+    # O retrato é RECALCULADO depois do filtro de tombstone, mais abaixo.
+    # Este aqui é só para imprimir o que o ARQUIVO traz, antes de saber
+    # quem pediu para sair.
 
     if not args.entidade:
         print("\n  (nada gravado — passe --entidade para ingerir)")
@@ -114,6 +117,61 @@ def main() -> int:
 
     pasta = ent.pasta(raiz)
     pasta.mkdir(parents=True, exist_ok=True)
+
+    # QUEM PEDIU PARA SAIR NÃO VOLTA PELA PLANILHA.
+    #
+    # O apagamento a pedido (LGPD art. 18, VI) não se sustentaria se a
+    # próxima planilha do sindicato recriasse a pessoa — e ela VAI estar
+    # lá, porque a planilha é o cadastro dele e nós não mexemos nela.
+    #
+    # E RELATA, em vez de pular calado: sem o aviso o sindicato reenviaria
+    # o mesmo CPF para sempre sem saber que precisa corrigir a FONTE. Mas
+    # nunca imprime o CPF — a pessoa pediu para sair.
+    apagadas = 0
+    if args.banco:
+        from servidor import acesso, banco as mod_banco
+
+        try:
+            # O SEGREDO VEM DO AMBIENTE, não de `config.carregar()`: aquela
+            # função exige SMTP configurado, e uma ferramenta de ingestão
+            # não tem nada a ver com entregar e-mail. Pedir a configuração
+            # inteira aqui faria a ingestão falhar por um motivo que não é
+            # dela.
+            segredo = os.environ.get("PROTOCOL_SEGREDO", "").strip()
+            if not segredo:
+                raise RuntimeError(
+                    "PROTOCOL_SEGREDO não está definida, e sem ela não dá "
+                    "para reconhecer o marcador de quem foi apagado"
+                )
+            portao = acesso.Portao(raiz / ".portao", segredo)
+            marcados = mod_banco.tombstones(args.banco, ent.apelido)
+            if marcados:
+                antes = len(pessoas)
+                pessoas = [p for p in pessoas
+                           if portao.marcar_cpf(p.cpf) not in marcados]
+                apagadas = antes - len(pessoas)
+        except Exception as e:  # noqa: BLE001
+            # FALHA FECHADA: sem conseguir ler os tombstones não dá para
+            # saber quem pediu para sair, e gravar assim pode ressuscitar
+            # alguém. Melhor não gravar nada e dizer por quê.
+            print(f"\nNÃO DEU PARA CONFERIR QUEM FOI APAGADO A PEDIDO: {e}",
+                  file=sys.stderr)
+            print("  nada gravado. Sem esta conferência a ingestão pode "
+                  "recriar quem pediu para sair.", file=sys.stderr)
+            return 2
+
+    if apagadas:
+        # RECALCULA O RETRATO SEM OS APAGADOS. A primeira versão filtrava
+        # as `pessoas` e gravava o retrato JÁ CALCULADO, que é indexado por
+        # CPF — então a ferramenta imprimia "não gravei a pessoa" e gravava
+        # o CPF dela numa linha nova. Cada planilha reenviada acrescentava
+        # um CPF em disco, DEPOIS do pedido de apagamento.
+        retrato = completude.retratar(pessoas)
+        print(f"\n  {apagadas} pessoa(s) da planilha foram apagada(s) a "
+              f"pedido e NÃO foram gravada(s).")
+        print("  Tire-as do arquivo: enquanto estiverem nele, toda ingestão "
+              "vai pulá-las de novo.")
+
     agora = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     deposito.anexar_com_fsync(
         pasta / ARQUIVO,

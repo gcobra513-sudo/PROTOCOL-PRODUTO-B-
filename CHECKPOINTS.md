@@ -107,7 +107,7 @@ responde.
 | **T12** | **Não há como calcular valor.** Faltam três coisas que nenhum código resolve: a FICHA FINANCEIRA de cada pessoa (base de cálculo mês a mês), o PERCENTUAL da verba (sai do dispositivo da sentença) e o ÍNDICE de correção com a tese que o sustenta. O motor recusa e nomeia cada um | o sindicato manda a ficha; o jurídico lê o dispositivo |
 | **T13** | `ajuizada_em` da GIFA está **vazio**, e sem ele não há corte de prescrição. Não é inferível do número CNJ: o ano ali é o da AUTUAÇÃO, que pode não ser o do ajuizamento | conferir nos autos |
 | **T15** | Pegamos **movimentação** (DataJud, ~1 dia de atraso), não **publicação/intimação**: o DJEN bloqueia o nosso acesso por região. Para cortar ligação serve; para prazo, não — e o texto do aviso diz isso | decidir se vale buscar acesso ao DJEN |
-| **T11** | `oportunidade` e `tombstone` existem como tabela e ninguém escreve nelas. Sem a primeira não há reavaliação com prova quando um tema for julgado; sem a segunda não há apagamento a pedido (LGPD art. 18, VI) | checkpoint próprio |
+| **T11** | **Primeira metade PRONTA E REVISADA** (apagamento a pedido, `docs/superpowers/plans/2026-11-02-apagamento-a-pedido.md`): o sindicato apaga **pela tela do painel**, com confirmação em duas etapas, o tombstone fica, a reingestão pula e avisa, a restauração de backup não ressuscita, e `vestigios()` MEDE que não sobrou nada em vez de um campo afirmar que sim. Dois revisores independentes reprovaram a primeira entrega — quatro sobrevivências de dado pessoal e sete defeitos — e a passada de correção fechou as onze. Falta a segunda metade: `oportunidade` continua sem ninguém escrever nela, e sem ela não há reavaliação com prova quando um tema for julgado — e ela depende de T1, porque hoje o motor não emite nenhum `PODE` para persistir | spec e plano escritos; a segunda metade depende da homologação |
 | **T7** | Os motivos do motor são escritos na TERCEIRA pessoa ("esta pessoa consta do rol"), porque o mesmo texto serve o painel do sindicato. Na tela do próprio filiado isso lê como dossiê sobre outra pessoa. Trocar por "você" com substituição cega gera concordância errada — "esta pessoa é filiada" concorda com *pessoa*, e viraria "você é filiada" para um homem | decidir se o motor passa a emitir dois registros, um por público |
 | **T8** | `ja_executou` vem da RESPOSTA DA PRÓPRIA PESSOA, não de base de execuções — essa base não existe. O motor conta com a resposta e deixa nota dizendo que foi declarada. Enquanto for assim, "não executei" errado só é pego pelo advogado na homologação | o sindicato fornecer a base de execuções já ajuizadas |
 | **T6** | Só duas categorias existem em `config/categorias/`, e uma delas está lá sem entrada nenhuma, só para ser reconhecida como outra carreira. Nenhuma ação de nenhuma outra carreira foi pesquisada | o jurídico diz quais categorias e quais ações, por contrato |
@@ -123,8 +123,8 @@ PROTOCOL_DATABASE_URL='postgresql://...' python3 tests/rodar_todos.py
 Verde não quer dizer "produto pronto": quer dizer "o que está escrito aqui
 faz o que diz". O que não existe não tem teste, e está na tabela acima.
 
-Hoje são **382 grupos em Python e 79 testes no portal**, e 10.320 linhas de
-teste contra 10.357 de código.
+Hoje são **419 grupos em Python e 89 testes no portal** (21 suítes), e
+12.628 linhas de teste contra 13.280 de código.
 
 E uma coisa que a auditoria ensinou e que vale mais que o número:
 **comentário não é teste.** Em sete dos doze defeitos encontrados havia um
@@ -133,6 +133,15 @@ que o tamanho do zip era conferido antes de descompactar, que CPF nunca
 entrava no log, que a resposta nunca dizia se alguém está no rol, que a
 trava de região era impedimento e não promessa. Cada uma era hipótese
 nunca medida. O registro completo está em `docs/auditoria_seguranca.md`.
+
+E a doença tem um andar acima do código: **`servidor/LEIAME.md` mandava
+rodar `ferramentas/ensaio_portal.py`** — um ensaio de navegador, ponta a
+ponta, descrito em detalhe — **e esse arquivo nunca existiu em commit
+nenhum.** Estava escrito, então passava por verificado. O buraco que ele
+descrevia é real e continua aberto: o que o navegador manda e o servidor não
+espera. O que há hoje contra isso são os testes de contrato de fio em
+`portal/src/lib/envio.test.ts`; um ensaio de navegador de verdade é dívida
+declarada.
 
 ---
 

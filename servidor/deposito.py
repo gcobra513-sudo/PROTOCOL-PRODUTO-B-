@@ -229,6 +229,97 @@ def reconstruir_manifesto(
     return destino
 
 
+def redigir_no_diario(
+    entidade: Entidade, raiz: pathlib.Path, cpf: str
+) -> int:
+    """Apaga o CONTEÚDO dos envios desta pessoa, mantendo o registro.
+
+    O QUE SOBRA: `protocolo`, `recebido_em`, `entidade` e `apagado_em`. O
+    que sai: `linha` e `arquivos` — o nome, o CPF, o e-mail e as somas dos
+    documentos.
+
+    POR QUE NÃO REMOVER A LINHA. O diário é a AUTORIDADE deste produto, e
+    remover a linha perderia duas coisas: a evidência de que houve um envio
+    ali, e o protocolo que a pessoa tem nas mãos. Ela volta perguntando
+    "o que aconteceu com o meu PRT-...?" e tem de haver resposta.
+
+    E a redação BASTA porque `banco.reconstruir` já pula registro sem
+    `linha` (`if not isinstance(linha, dict): continue`). Sem isso, o
+    apagamento teria de mexer na projeção também.
+
+    "Append-only" passa a significar **não se edita o conteúdo**, não "não
+    se apaga nunca" — e o tombstone é a prova de que foi deliberado.
+
+    Reescreve o arquivo inteiro com troca atômica, dentro da trava, como
+    `reconstruir_manifesto` faz. Refaz o manifesto no fim, porque ele é
+    derivado do diário.
+    """
+    digitos = validacao.so_digitos(cpf)
+    if len(digitos) != 11:
+        raise ValueError("redigir_no_diario exige CPF de 11 dígitos")
+
+    pasta = entidade.pasta(raiz)
+    caminho = pasta / DIARIO
+    if not caminho.is_file():
+        return 0
+
+    agora = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    redigidos = 0
+    with _travada(pasta):
+        # LÊ AS LINHAS CRUAS, NÃO `ler_diario`.
+        #
+        # `ler_diario` é lossy de propósito: linha truncada por queda no
+        # meio da escrita vira `{"_ilegivel": n}`, para que uma linha ruim
+        # não derrube a leitura. Mas reescrever o arquivo a partir disso
+        # APAGA os bytes crus — e eles são a única prova de que aquele envio
+        # existiu, e o único jeito de honrar o protocolo que a pessoa tem na
+        # mão. Apagar A destruía, em silêncio e para sempre, o fragmento do
+        # envio de B.
+        saida: list[str] = []
+        for bruta in caminho.read_text(encoding="utf-8").splitlines():
+            if not bruta.strip():
+                continue
+            try:
+                registro = json.loads(bruta)
+            except json.JSONDecodeError:
+                saida.append(bruta)
+                continue
+            linha = registro.get("linha")
+            if (isinstance(linha, dict)
+                    and validacao.so_digitos(linha.get("cpf") or "")
+                    == digitos):
+                registro = {
+                    "protocolo": registro.get("protocolo", ""),
+                    "recebido_em": registro.get("recebido_em", ""),
+                    "entidade": registro.get("entidade", entidade.apelido),
+                    "apagado_em": agora,
+                }
+                redigidos += 1
+            saida.append(
+                json.dumps(registro, ensure_ascii=False, sort_keys=True)
+            )
+
+        # FORÇA O DISCO antes da troca. Este é o único lugar do produto que
+        # reescreve o diário inteiro, e o módulo abre dizendo que "diário
+        # que não sobrevive à queda não é diário" — mas a primeira versão
+        # copiou o padrão de `reconstruir_manifesto`, que não tem fsync
+        # porque o manifesto é derivado. O diário é a autoridade: uma queda
+        # depois do `replace`, com o tombstone já commitado, levaria o
+        # diário de todos.
+        tmp = pasta / (DIARIO + ".parcial")
+        fd = os.open(tmp, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, MODO_ARQUIVO)
+        try:
+            os.write(fd, ("\n".join(saida) + "\n").encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        tmp.replace(caminho)
+
+    # O manifesto é derivado: refazer é o reparo, e é idempotente.
+    reconstruir_manifesto(entidade, raiz)
+    return redigidos
+
+
 def depositar(
     entidade: Entidade,
     raiz: pathlib.Path,

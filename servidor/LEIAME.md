@@ -48,6 +48,58 @@ padrão é o mesmo que nenhum, com a desvantagem de parecer que existe.
 | `PROTOCOL_PROXIES_CONFIAVEIS` | endereços, separados por vírgula, de quem este servidor aceita `X-Forwarded-For`. **Vazio por padrão, e vazio significa não acreditar no cabeçalho.** Se o servidor fica atrás de proxy reverso e isto não estiver preenchido, a contagem acima vale para todos juntos — e aí o portão fecha para a fila. Se estiver preenchido com o endereço errado, a contagem volta a ser escolhida por quem pede |
 | `PROTOCOL_MODO_ENSAIO` | `1` dispensa segredo e devolve o código na resposta. Nunca com gente de verdade |
 
+## Apagamento a pedido (LGPD art. 18, VI)
+
+Quem aciona é o **sindicato**, pelo painel: no fim do painel do gestor há
+"Atender um pedido de apagamento", recolhido por padrão, com confirmação em
+duas etapas — não há desfazer, e a confirmação é a única chance. A tela pede
+**quem no sindicato está atendendo**, e sem isso não apaga: o registro de
+autor é obrigatório.
+
+Por baixo:
+
+```
+POST /api/entidade/{apelido}/apagar
+     { "cpf": "...", "motivo": "...", "pedido_por": "..." }
+```
+
+**O registro de quem mandou é gravado ANTES, de forma síncrona, e se ele não
+entra nada é apagado** (503). Em leitura, falha de registro não derruba a
+consulta; num ato irreversível, a mesma escolha significaria pessoa apagada
+sem autor.
+
+A resposta traz o que saiu de cada lugar e, no fim, **`vestigios`**. Lista
+vazia significa que terminou; **lista não vazia não é erro, é a resposta
+honesta de que sobrou coisa** — e aí se reexecuta.
+
+Para retomar um apagamento interrompido, ou só conferir se um pedido foi
+atendido:
+
+```bash
+python3 ferramentas/apagar_filiado.py --entidade sindicato-x --cpf ...     --motivo "pedido do titular" --pedido-por gestor@sindicato-x.org.br
+```
+
+```bash
+python3 ferramentas/apagar_filiado.py --entidade sindicato-x --cpf ... --conferir
+```
+
+`--conferir` só mede, não apaga. As duas saem com código **1** se sobrou
+vestígio, para servir dentro de script.
+
+### Duas coisas que quem opera precisa saber
+
+**`PROTOCOL_SEGREDO` é de vida longa.** O tombstone guarda HMAC do CPF com
+esse segredo. Trocá-lo faz os tombstones existentes **deixarem de casar**
+com os CPFs que chegam — e a ingestão volta a aceitar quem pediu para sair.
+Trocar o segredo exige reemitir os tombstones.
+
+**O rol é colocado à mão, e isso é um buraco declarado.** Nada no produto
+escreve `filiados.csv` ou `gestores.csv`. Se o operador repuser o arquivo
+com um CPF apagado, o nome e o e-mail voltam ao disco e nenhuma trava
+impede. O que sobra: nenhum e-mail sai (o portão consulta o tombstone), e
+`--conferir` **detecta** a linha reposta. No dia em que existir rota de
+ingestão de rol, ela consulta o tombstone como as outras duas.
+
 ## Cadastrar uma entidade
 
 ```bash
@@ -118,14 +170,22 @@ transformação: ele guarda o que chegou, exatamente, e é a autoridade.
 ## Verificar
 
 ```bash
-python3 tests/testes_servidor_portal.py      # 14 grupos, inclui o laço fechado
-python3 ferramentas/ensaio_portal.py         # navegador de verdade, ponta a ponta
+python3 tests/testes_servidor_portal.py      # 56 grupos, inclui o laço fechado
 ```
 
-O ensaio compila o portal apontando para um servidor em modo ensaio, preenche
-as sete etapas num Chromium, anexa cinco PDFs, envia, lê o protocolo na tela e
-manda o motor conferir a entrega. É o que pega o que nenhuma suíte pega: o
-navegador mandando um nome de campo que o servidor não espera.
+**Um ensaio de navegador NÃO EXISTE, e este documento afirmava que existia.**
+Até 02/11/2026 havia aqui uma segunda linha mandando rodar
+`ferramentas/ensaio_portal.py`, com a descrição do que ele fazia — sete
+etapas num Chromium, cinco PDFs, o protocolo lido na tela. O arquivo nunca
+existiu em nenhum commit deste repositório. Era a mesma doença que a
+auditoria encontrou sete vezes no código, um nível acima: afirmação que
+ninguém mediu, e que por estar escrita passava por verificada.
+
+O buraco que ele descrevia é real e continua aberto: **o que o navegador
+manda e o servidor não espera.** O que existe hoje contra isso são os testes
+de contrato de fio em `portal/src/lib/envio.test.ts`, que conferem os nomes
+de campo que cada rota recebe — menos que um navegador de verdade, e o
+suficiente para pegar a tradução `pedidoPor` → `pedido_por`.
 
 ## Banco de consulta e a trava de região
 
