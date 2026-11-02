@@ -13,7 +13,7 @@
  *
  * A segunda é a que vale a reunião.
  */
-import type { Gargalo } from "./envio";
+import type { Gargalo, ResultadoDoApagamento } from "./envio";
 
 /** O maior gargalo que o próprio sindicato destrava, ou nulo se não houver.
  *
@@ -49,4 +49,68 @@ export function pessoas(n: number): string {
 export function fracao(parte: number, total: number): string {
   if (total <= 0) return "—";
   return `${parte} de ${total} (${Math.round((parte / total) * 100)}%)`;
+}
+
+/** Como cada lugar do apagamento se chama na tela do gestor.
+ *
+ *  O vocabulário interno não sobe para a tela: "tombstone" e "vestígio" são
+ *  palavras nossas, e um gestor de sindicato lendo "tombstone" num painel
+ *  não aprende nada — desconfia. */
+const LUGARES: [keyof ResultadoDoApagamento, string][] = [
+  ["arquivos", "arquivos no disco (documentos entregues e histórico)"],
+  ["diario", "envios redigidos no diário"],
+  ["rol", "linhas na planilha de filiados"],
+  ["acervo", "ingestões da planilha"],
+  ["portao", "códigos e sessões de acesso"],
+  ["logs", "linhas de registro"],
+];
+
+export interface ResumoDoApagamento {
+  /** Terminou? É `vestigios` vazio, e nada mais. */
+  terminou: boolean;
+  frase: string;
+  linhas: string[];
+  nota?: string;
+}
+
+/** O que a tela diz depois de um apagamento.
+ *
+ *  A ÚNICA REGRA QUE NÃO SE QUEBRA AQUI: `vestigios` não vazio não pode ler
+ *  como sucesso. O servidor devolve 200 com a lista cheia de propósito —
+ *  dizer 200 e esconder o resto seria afirmar um apagamento que não
+ *  aconteceu —, e uma tela que pintasse isso de verde desfaria essa
+ *  honestidade na última polegada, que é justamente onde ela importa.
+ *
+ *  O `marcador` NÃO SOBE. Ele é HMAC do CPF: identificador estável por
+ *  pessoa, e portanto mais um lugar com dado pessoal. Serve ao operador no
+ *  log, não ao gestor na tela. */
+export function resumoDoApagamento(
+  saida: ResultadoDoApagamento,
+): ResumoDoApagamento {
+  const linhas: string[] = [];
+  for (const [chave, texto] of LUGARES) {
+    const n = Number(saida[chave] ?? 0);
+    // ZERO NÃO VIRA LINHA: dez linhas com zero esconderiam a única que não
+    // é zero, e é essa que o gestor precisa ver.
+    if (n > 0) linhas.push(`${n} ${texto}`);
+  }
+  for (const [tabela, n] of Object.entries(saida.banco ?? {})) {
+    if (n > 0) linhas.push(`${n} em ${tabela} (banco de consulta)`);
+  }
+
+  const sobrou = saida.vestigios?.length ?? 0;
+  const terminou = sobrou === 0;
+  return {
+    terminou,
+    linhas,
+    frase: terminou
+      ? "Pronto: nada sobrou desta pessoa nesta entidade."
+      : `Ainda sobra coisa desta pessoa em ${sobrou} lugar(es). ` +
+        "O apagamento NÃO terminou — é seguro repetir, e repetir é o que " +
+        "resolve. Se insistir, avise quem opera o servidor.",
+    nota: saida.email_conhecido
+      ? undefined
+      : "O sindicato não tinha e-mail desta pessoa em cadastro, então o " +
+        "aviso de que o pedido foi atendido precisa sair por outro caminho.",
+  };
 }

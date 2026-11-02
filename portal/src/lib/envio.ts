@@ -268,6 +268,65 @@ export interface PainelDoGestor {
   retrato: Retrato;
   inalcancaveis: Inalcancavel[];
   tem_acervo: boolean;
+  /** Quantos CPFs da planilha do sindicato já pediram apagamento. CONTAGEM,
+   *  nunca nome: quem pediu para sair não volta a aparecer numa lista. */
+  apagados_a_pedido: number;
+}
+
+/** O que a rota de apagamento devolve.
+ *
+ *  `vestigios` NÃO VAZIO NÃO É ERRO: é a resposta honesta de que sobrou
+ *  coisa, e o servidor manda 200 com ela de propósito. Quem desenha a tela
+ *  tem de resistir à tentação de pintar isso de verde. */
+export interface ResultadoDoApagamento {
+  marcador: string;
+  banco: Record<string, number>;
+  portao: number;
+  diario: number;
+  arquivos: number;
+  rol: number;
+  acervo: number;
+  logs: number;
+  email_conhecido: boolean;
+  vestigios: string[];
+}
+
+/** Apaga um filiado a pedido (LGPD art. 18, VI).
+ *
+ *  QUEM ACIONA É O SINDICATO, e por isso isto vive no painel do gestor e
+ *  não em tela de filiado: é o sindicato que tem a relação com o titular e
+ *  que responde a ele.
+ *
+ *  O CORPO VAI COM `motivo` E `pedido_por` porque o servidor registra os
+ *  dois, e um apagamento sem autor é o que o registro existe para impedir. */
+export async function apagarFiliado(
+  apelido: string,
+  token: string,
+  dados: { cpf: string; motivo: string; pedidoPor: string },
+): Promise<ResultadoDoApagamento> {
+  const r = await fetch(
+    `${BASE}/api/entidade/${encodeURIComponent(apelido)}/apagar`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        cpf: dados.cpf,
+        motivo: dados.motivo,
+        pedido_por: dados.pedidoPor,
+      }),
+    },
+  );
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      corpo?.detail?.erro ?? "não foi possível concluir o apagamento",
+      r.status,
+    );
+  }
+  return corpo as ResultadoDoApagamento;
 }
 
 export async function verCompletude(
@@ -291,6 +350,7 @@ export async function verCompletude(
     retrato: corpo.retrato,
     inalcancaveis: corpo.inalcancaveis ?? [],
     tem_acervo: Boolean(corpo.tem_acervo),
+    apagados_a_pedido: Number(corpo.apagados_a_pedido ?? 0),
   };
 }
 
