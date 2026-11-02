@@ -546,6 +546,33 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         destino = lista.email_de(cpf) or (
             dos_gestores.email_de(cpf) if dos_gestores else None
         )
+        # QUEM PEDIU PARA SAIR NÃO RECEBE CREDENCIAL NOSSA, e a forma como
+        # isso é feito importa.
+        #
+        # Três comportamentos eram possíveis e só um não tem defeito:
+        # não consultar o tombstone manda o código para quem pediu para
+        # sair, que é a substância da violação; RECUSAR no portão cria um
+        # ORÁCULO, porque um anônimo passaria a descobrir quais CPFs foram
+        # apagados a pedido; e consultar sem mandar deixa a resposta
+        # idêntica à de qualquer CPF desconhecido.
+        #
+        # É o terceiro. A pessoa continua podendo PEDIR — a rota não a
+        # recusa —, só não há a quem entregar. E a simetria desta resposta é
+        # a mesma que impede o portão de virar consulta de filiação.
+        if destino is not None and cfg.tem_banco:
+            try:
+                if portao.marcar_cpf(cpf) in banco.tombstones(
+                        cfg.banco_url, ent.apelido):
+                    destino = None
+            except Exception:  # noqa: BLE001
+                # NÃO FECHA O PORTÃO INTEIRO por causa de um banco fora do
+                # ar. O risco de deixar passar é um código entregue a quem
+                # pediu para sair; o risco de recusar é o portal parar para
+                # todos os filiados do sindicato. O segundo é maior, e a
+                # falha fica no log para alguém olhar.
+                log.exception("não deu para conferir apagamento ent=%s "
+                              "cpf=%s", ent.apelido, marca)
+
         if destino is None:
             log.info("codigo sem destino ent=%s cpf=%s", ent.apelido, marca)
             return JSONResponse(resposta, status_code=202)

@@ -1522,6 +1522,65 @@ def teste_o_registro_por_cpf_concorda_com_a_base_inteira():
     print("  ok     a leitura por CPF concorda com a base inteira")
 
 
+
+def teste_nao_sai_codigo_para_quem_foi_apagado():
+    """QUEM PEDIU PARA SAIR NÃO RECEBE CREDENCIAL NOSSA.
+
+    Três comportamentos eram possíveis e só um não tem defeito:
+
+    - não consultar o tombstone: mandamos o código por e-mail para quem
+      pediu para sair. É a substância da violação, não detalhe;
+    - RECUSAR no portão: cria um ORÁCULO — um anônimo descobre quais CPFs
+      foram apagados a pedido, e isso é informação sobre a pessoa;
+    - consultar e NÃO MANDAR: a resposta fica idêntica à de qualquer CPF
+      desconhecido, e nenhum e-mail sai.
+
+    Este teste exige o terceiro, nas duas pontas: nada enviado, e resposta
+    indistinguível. A simetria dessa resposta é a mesma que impede o portão
+    de virar consulta de filiação — dois achados da auditoria de 31/10
+    foram sobre ela.
+    """
+    secao("o portão não manda código para quem foi apagado")
+    from servidor import apagamento, banco
+
+    cliente, ent, raiz = _servidor()
+    # O PORTÃO DO SERVIDOR, não um meu.
+    #
+    # A primeira versão deste teste criou um `Portao` próprio, com segredo
+    # próprio, e o marcador não casou com o que o servidor calcula — o
+    # tombstone existia e era invisível para ele. Isso é a demonstração
+    # prática do aviso da spec: `PROTOCOL_SEGREDO` é de vida longa, e
+    # trocá-lo devolve ao sistema quem pediu para sair.
+    portao = cliente.app.state.portao
+    # O rol do `_servidor()` tem A; apagamos A e deixamos o rol como está,
+    # porque é assim que o operador reporia o arquivo à mão.
+    banco.marcar_tombstone(URL, ent.apelido, portao.marcar_cpf(A),
+                           motivo="", pedido_por="")
+
+    log = raiz / "codigos_enviados.log"
+    antes = len(log.read_text().splitlines()) if log.is_file() else 0
+
+    def corpo(cpf):
+        r = cliente.post("/api/acesso/codigo",
+                         json={"entidade": ent.apelido, "cpf": cpf})
+        dados = dict(r.json())
+        dados.pop("codigo_do_ensaio", None)
+        dados.pop("ensaio", None)
+        return r.status_code, dados
+
+    apagado = corpo(A)
+    desconhecido = corpo(_cpf_sintetico(777_001))
+    checa(apagado == desconhecido,
+          f"a resposta revela que o CPF foi apagado: apagado={apagado} "
+          f"desconhecido={desconhecido}")
+
+    depois = len(log.read_text().splitlines()) if log.is_file() else 0
+    checa(depois == antes,
+          f"mandou código para quem pediu para sair: {depois - antes} "
+          f"linha(s) novas no log de envio")
+    print("  ok     nada enviado, e a resposta é indistinguível")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1568,6 +1627,7 @@ TESTES = [
     teste_saude_nao_diz_ok_quando_nao_consegue_ler_o_estado,
     teste_a_saude_fica_boa_quando_o_trabalho_roda,
     teste_saude_nao_publica_o_detalhe_a_quem_nao_tem_sessao,
+    teste_nao_sai_codigo_para_quem_foi_apagado,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,
     teste_o_registro_por_cpf_concorda_com_a_base_inteira,
