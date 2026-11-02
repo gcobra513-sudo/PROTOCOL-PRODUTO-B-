@@ -550,6 +550,64 @@ def teste_apagar_duas_vezes_deixa_dois_tombstones():
     print("  ok     dois pedidos, dois tombstones")
 
 
+
+# ------------------------------- a restauração de backup não ressuscita
+
+def teste_restaurar_backup_nao_ressuscita_quem_foi_apagado():
+    """O CENÁRIO MAIS PROVÁVEL DE TODOS, e o tombstone sozinho não cobria.
+
+    O operador restaura um snapshot do diário anterior ao pedido e roda a
+    recuperação. Sem consultar o tombstone, `reconstruir` traz a pessoa de
+    volta e ninguém percebe — o apagamento é desfeito pela função que
+    existe para consertar as coisas.
+    """
+    secao("a restauração de backup")
+    from servidor import apagamento, banco, deposito
+
+    ent, raiz = _semear_em_todo_lugar("demo-l", A)
+    portao = _portao_de_teste(raiz)
+
+    # O backup: o diário como estava ANTES do pedido.
+    backup = deposito.ler_diario(ent.pasta(raiz))
+    checa(any(r.get("linha") for r in backup), "o backup saiu vazio")
+
+    apagamento.apagar(URL, ent, raiz, A, motivo="", pedido_por="",
+                      marcar_cpf=portao.marcar_cpf)
+
+    gravados, pulados = banco.reconstruir(URL, "demo-l", backup,
+                                          marcar_cpf=portao.marcar_cpf)
+    checa(pulados == 1, f"não pulou o apagado: gravados={gravados} "
+                        f"pulados={pulados}")
+    checa(banco.registro_do_cpf(URL, "demo-l", A) is None,
+          "a restauração de backup ressuscitou quem pediu para sair")
+    print("  ok     restaurar backup não ressuscita o apagado")
+
+
+def teste_sem_marcar_cpf_a_recuperacao_nao_filtra():
+    """A ASSIMETRIA É DELIBERADA, e vale explicar.
+
+    `/api/cadastro` projeta o envio que a PRÓPRIA PESSOA acabou de fazer, e
+    isso é consentimento NOVO — não pode ser barrado por um tombstone
+    antigo. A recuperação de um diário velho é outra coisa, e essa tem de
+    ser barrada. Quem distingue as duas é quem chama: passar `marcar_cpf` é
+    dizer "estou reprojetando histórico, filtre".
+    """
+    from servidor import apagamento, banco, deposito
+
+    ent, raiz = _semear_em_todo_lugar("demo-m", B)
+    portao = _portao_de_teste(raiz)
+    backup = deposito.ler_diario(ent.pasta(raiz))
+    apagamento.apagar(URL, ent, raiz, B, motivo="", pedido_por="",
+                      marcar_cpf=portao.marcar_cpf)
+
+    gravados, pulados = banco.reconstruir(URL, "demo-m", backup)
+    checa(pulados == 0,
+          f"filtrou sem ninguém pedir, e isso barraria consentimento novo: "
+          f"pulados={pulados}")
+    checa(gravados >= 1, f"não gravou o registro: {gravados}")
+    print("  ok     sem marcar_cpf não filtra — consentimento novo passa")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -566,6 +624,8 @@ TESTES = [
     teste_sem_banco_nada_e_apagado,
     teste_o_apagamento_e_retomavel,
     teste_apagar_duas_vezes_deixa_dois_tombstones,
+    teste_restaurar_backup_nao_ressuscita_quem_foi_apagado,
+    teste_sem_marcar_cpf_a_recuperacao_nao_filtra,
 ]
 
 

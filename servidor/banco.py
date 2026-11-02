@@ -202,8 +202,9 @@ def _tipo_do_arquivo(nome: str) -> str:
     return panorama.tipo_do_arquivo(nome)
 
 
-def reconstruir(url: str, entidade: str, registros) -> int:
-    """Projeta o diário no banco. Devolve quantos registros foram gravados.
+def reconstruir(url: str, entidade: str, registros,
+                marcar_cpf=None) -> tuple[int, int]:
+    """Projeta o diário no banco. Devolve (gravados, pulados por tombstone).
 
     **IDEMPOTENTE**, e tem de ser: esta é a operação de recuperação, e uma
     recuperação que duplica tudo a cada execução é pior que não ter nenhuma.
@@ -214,6 +215,23 @@ def reconstruir(url: str, entidade: str, registros) -> int:
     derrubar a projeção inteira por causa dela trocaria um defeito pequeno
     por um grande.
 
+    `marcar_cpf` LIGA O FILTRO DE TOMBSTONE, e a assimetria é deliberada.
+    Sem ele nada é filtrado; com ele, registro de quem foi apagado a pedido
+    é pulado.
+
+    Quem precisa do filtro é a RECUPERAÇÃO: restaurado um snapshot do
+    diário anterior ao pedido, sem o filtro esta função ressuscita a pessoa
+    e ninguém percebe — o apagamento é desfeito pela função que existe para
+    consertar as coisas, e é o cenário mais provável de todos.
+
+    Quem NÃO deve filtrar é `/api/cadastro`: ali o registro é o envio que a
+    própria pessoa acabou de fazer, e isso é consentimento NOVO. Barrá-lo
+    por um tombstone antigo diria a alguém que voltou por vontade própria
+    que ela não pode voltar.
+
+    Passar `marcar_cpf` é, portanto, declarar "estou reprojetando
+    histórico".
+
     O QUE ESTA FUNÇÃO NÃO PROJETA, e é deliberado: `pessoa.alcancavel` e
     `pessoa.tem_divergencia`. As duas se calculam cruzando o ACERVO com o
     cadastro, e o acervo ainda não é projetado. Escrevê-las só com o cadastro
@@ -222,6 +240,8 @@ def reconstruir(url: str, entidade: str, registros) -> int:
     """
     campos = _campos_do_contrato()
     gravados = 0
+    pulados = 0
+    apagados = tombstones(url, entidade) if marcar_cpf else set()
     with sessao(url, entidade) as cur:
         for registro in registros or ():
             if not isinstance(registro, dict):
@@ -230,6 +250,9 @@ def reconstruir(url: str, entidade: str, registros) -> int:
             if not isinstance(linha, dict):
                 continue
             cpf = _digitos(linha.get("cpf"))
+            if apagados and marcar_cpf(cpf) in apagados:
+                pulados += 1
+                continue
             if not cpf:
                 continue
 
@@ -299,7 +322,7 @@ def reconstruir(url: str, entidade: str, registros) -> int:
                     "VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
                     (entidade, cpf, numero),
                 )
-    return gravados
+    return gravados, pulados
 
 
 #: Campos que o acervo e o cadastro podem afirmar sobre a mesma pessoa. É

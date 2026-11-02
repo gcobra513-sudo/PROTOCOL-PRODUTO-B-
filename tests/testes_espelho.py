@@ -1401,12 +1401,14 @@ def teste_reconstruir_continua_recuperando_o_diario_inteiro():
     base_vazia = banco.base(URL, ent.apelido)
     checa(base_vazia == [], f"a projeção não foi apagada: {base_vazia}")
 
-    quantos = banco.reconstruir(URL, ent.apelido,
-                                deposito.ler_diario(ent.pasta(raiz)))
+    gravados, pulados = banco.reconstruir(URL, ent.apelido,
+                                          deposito.ler_diario(ent.pasta(raiz)))
     refeita = banco.base(URL, ent.apelido)
     checa(len(refeita) == 3,
           f"a recuperação não refez as 3 pessoas: {len(refeita)} "
-          f"(reconstruir devolveu {quantos})")
+          f"(gravados={gravados} pulados={pulados})")
+    checa(pulados == 0,
+          f"pulou registro sem ninguém pedir filtro: {pulados}")
     print("  ok     a recuperação pelo diário inteiro continua funcionando")
 
 
