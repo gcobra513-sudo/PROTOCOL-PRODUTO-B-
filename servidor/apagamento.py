@@ -140,3 +140,80 @@ def _gestores_legivel(pasta: pathlib.Path) -> bool:
         return True
     except Exception:  # noqa: BLE001
         return False
+
+
+def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
+           motivo: str, pedido_por: str, marcar_cpf) -> dict:
+    """Apaga esta pessoa de tudo, e CONFERE no fim.
+
+    A ORDEM É O DESENHO, e cada passo está onde está por um motivo:
+
+    1. **O TOMBSTONE, commitado sozinho.** É ele que torna a operação
+       retomável e que ativa o bloqueio de reingestão imediatamente. Na
+       mesma transação das exclusões, uma falha o desfaria junto — a pessoa
+       teria pedido para sair, o processo teria caído, e não haveria
+       registro de que alguém pediu nada. Se ele não grava, NADA começa.
+
+    2. **O DIÁRIO, antes do banco.** O diário é a AUTORIDADE; o banco é
+       projeção dele. Apagando o banco primeiro, uma falha antes da redação
+       deixa o diário intacto — e a próxima `banco.reconstruir`, que é a
+       operação de RECUPERAÇÃO, ressuscita a pessoa. O apagamento seria
+       desfeito pela função que existe para consertar as coisas.
+
+    3. Os arquivos em disco, os róis e o acervo.
+
+    4. **O banco.**
+
+    5. **`vestigios`**, e é por isso que esta função devolve o que devolve.
+       Não existe campo "apagado": quem chama confere a lista. Vazia
+       significa terminou; não vazia significa reexecutar, e o operador tem
+       a ferramenta.
+
+    `marcar_cpf` é INJETADO para este módulo não importar o portão: o
+    apagamento não tem nada a ver com autenticação, e acoplar os dois faria
+    um depender do segredo do outro.
+    """
+    digitos = validacao.so_digitos(cpf)
+    if len(digitos) != 11:
+        raise ValueError("apagar exige CPF de 11 dígitos")
+
+    # 1. O TOMBSTONE PRIMEIRO. Se isto levantar, propaga e nada mais roda.
+    banco.marcar_tombstone(url, ent.apelido, marcar_cpf(digitos),
+                           motivo, pedido_por)
+
+    # 2. O diário, que é a autoridade.
+    redigidos = deposito.redigir_no_diario(ent, raiz, digitos)
+
+    # 3. Os arquivos, os róis e o acervo.
+    import shutil
+
+    arquivos = 0
+    pasta = ent.pasta(raiz)
+    for alvo in (ent.entrega(raiz) / digitos,
+                 pasta / deposito.HISTORICO / digitos):
+        if alvo.is_dir():
+            arquivos += sum(1 for _ in alvo.rglob("*") if _.is_file())
+            shutil.rmtree(alvo)
+
+    saiu_do_rol = rol.remover(pasta, digitos)
+    saiu_do_acervo = _remover_do_acervo(pasta, digitos)
+
+    # 4. O banco.
+    do_banco = banco.apagar_pessoa(url, ent.apelido, digitos)
+
+    # 5. A CONFERÊNCIA. Medir, não declarar.
+    return {
+        "marcador": _marcador(digitos),
+        "banco": do_banco,
+        "diario": redigidos,
+        "arquivos": arquivos,
+        "rol": saiu_do_rol,
+        "acervo": saiu_do_acervo,
+        "vestigios": vestigios(url, ent, raiz, digitos),
+    }
+
+
+def _remover_do_acervo(pasta: pathlib.Path, cpf: str) -> int:
+    from . import acervo as mod_acervo
+
+    return mod_acervo.remover_pessoa(pasta / "acervo.jsonl", cpf)

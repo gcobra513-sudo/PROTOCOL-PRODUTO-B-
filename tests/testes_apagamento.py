@@ -445,6 +445,111 @@ def teste_vestigios_de_quem_nunca_existiu_e_vazio():
     print("  ok     quem nunca existiu não deixa vestígio")
 
 
+
+# ------------------------------------------ apagar: a ordem e a retomada
+
+def _portao_de_teste(raiz):
+    """Um portão só para ter `marcar_cpf` com segredo estável no teste."""
+    from servidor import acesso
+
+    return acesso.Portao(raiz / ".portao", "segredo-de-teste-apagamento")
+
+
+def teste_depois_de_apagar_nao_sobra_nada():
+    """A ASSERÇÃO CENTRAL DA SPEC, e ela é uma medição, não uma afirmação."""
+    secao("apagar: a ordem e a retomada")
+    from servidor import apagamento, banco
+
+    ent, raiz = _semear_em_todo_lugar("demo-h", A)
+    portao = _portao_de_teste(raiz)
+    antes = apagamento.vestigios(URL, ent, raiz, A)
+    checa(len(antes) >= 6, f"a semeadura não pegou: {antes}")
+
+    saida = apagamento.apagar(URL, ent, raiz, A,
+                              motivo="pedido do titular",
+                              pedido_por="gestor@exemplo.invalid",
+                              marcar_cpf=portao.marcar_cpf)
+
+    checa(saida["vestigios"] == [],
+          f"sobrou coisa depois de apagar: {saida['vestigios']}")
+    checa(portao.marcar_cpf(A) in banco.tombstones(URL, "demo-h"),
+          "o tombstone não foi gravado")
+    import json as _json
+    checa(A not in _json.dumps(saida),
+          f"o CPF saiu na resposta do apagamento: {saida}")
+    print("  ok     não sobrou nada, e o tombstone ficou")
+
+
+def teste_sem_banco_nada_e_apagado():
+    """FALHA FECHADA. Apagar sem conseguir registrar é o pior resultado: a
+    pessoa pediu para sair, o dado some, e não há prova de que alguém
+    pediu. Então o tombstone vem primeiro, e se ele não grava nada começa."""
+    from servidor import apagamento, deposito
+
+    ent, raiz = _semear_em_todo_lugar("demo-i", B)
+    portao = _portao_de_teste(raiz)
+    antes = len(deposito.ler_diario(ent.pasta(raiz)))
+
+    levantou = False
+    try:
+        apagamento.apagar("postgresql://ninguem@/nada?host=/tmp/nao-existe",
+                          ent, raiz, B, motivo="", pedido_por="",
+                          marcar_cpf=portao.marcar_cpf)
+    except Exception:  # noqa: BLE001
+        levantou = True
+
+    checa(levantou, "não reclamou de não conseguir gravar o tombstone")
+    depois = deposito.ler_diario(ent.pasta(raiz))
+    checa(len(depois) == antes
+          and all(r.get("linha") for r in depois),
+          "o diário foi redigido sem tombstone — apagamos sem registro")
+    print("  ok     sem tombstone, nada é apagado")
+
+
+def teste_o_apagamento_e_retomavel():
+    """O operador repõe o rol à mão e a pessoa volta ao arquivo. A spec
+    declara esse buraco; `vestigios` é o que avisa, e a segunda passada
+    fecha."""
+    from servidor import apagamento, rol
+
+    ent, raiz = _semear_em_todo_lugar("demo-j", C)
+    portao = _portao_de_teste(raiz)
+    apagamento.apagar(URL, ent, raiz, C, motivo="", pedido_por="",
+                      marcar_cpf=portao.marcar_cpf)
+
+    pasta = ent.pasta(raiz)
+    (pasta / rol.ARQUIVO).write_text(
+        f"cpf,email\n{C},voltou@exemplo.invalid\n", encoding="utf-8")
+    checa(apagamento.vestigios(URL, ent, raiz, C),
+          "vestigios não viu a linha reposta à mão")
+
+    segunda = apagamento.apagar(URL, ent, raiz, C, motivo="", pedido_por="",
+                                marcar_cpf=portao.marcar_cpf)
+    checa(segunda["vestigios"] == [],
+          f"a segunda passada não fechou: {segunda['vestigios']}")
+    print("  ok     vestigios enxerga o reposto, e a retomada fecha")
+
+
+def teste_apagar_duas_vezes_deixa_dois_tombstones():
+    """A tabela é log. Dois pedidos, dois registros — e o segundo não quebra."""
+    from servidor import apagamento, banco
+
+    ent, raiz = _semear_em_todo_lugar("demo-k", D)
+    portao = _portao_de_teste(raiz)
+    apagamento.apagar(URL, ent, raiz, D, motivo="primeiro", pedido_por="g1",
+                      marcar_cpf=portao.marcar_cpf)
+    segunda = apagamento.apagar(URL, ent, raiz, D, motivo="segundo",
+                                pedido_por="g2",
+                                marcar_cpf=portao.marcar_cpf)
+    checa(segunda["vestigios"] == [],
+          f"a segunda chamada reclamou: {segunda['vestigios']}")
+    with banco.sessao(URL, "demo-k") as cur:
+        cur.execute("SELECT count(*) FROM tombstone")
+        quantos = cur.fetchone()[0]
+    checa(quantos == 2, f"o segundo pedido não ficou registrado: {quantos}")
+    print("  ok     dois pedidos, dois tombstones")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -457,6 +562,10 @@ TESTES = [
     teste_remove_a_pessoa_de_TODAS_as_ingestoes_do_acervo,
     teste_vestigios_acha_a_pessoa_em_todos_os_lugares,
     teste_vestigios_de_quem_nunca_existiu_e_vazio,
+    teste_depois_de_apagar_nao_sobra_nada,
+    teste_sem_banco_nada_e_apagado,
+    teste_o_apagamento_e_retomavel,
+    teste_apagar_duas_vezes_deixa_dois_tombstones,
 ]
 
 
