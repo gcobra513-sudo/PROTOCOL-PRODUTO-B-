@@ -608,6 +608,61 @@ def teste_sem_marcar_cpf_a_recuperacao_nao_filtra():
     print("  ok     sem marcar_cpf não filtra — consentimento novo passa")
 
 
+
+# ------------------------------- a ingestão da planilha pula e relata
+
+def teste_a_ingestao_pula_o_apagado_e_relata():
+    """D2: PULA E AVISA. Pular calado faria o sindicato reenviar o mesmo CPF
+    para sempre sem saber que a planilha dele está desatualizada — e
+    silêncio é o que este produto evita em todo lugar.
+
+    E NUNCA imprime o CPF pulado: a pessoa pediu para sair.
+    """
+    secao("a ingestão da planilha")
+    import subprocess
+
+    from servidor import banco
+
+    ent, raiz = _entidade_em_disco("demo-n")
+    portao = _portao_de_teste(raiz)
+    banco.marcar_tombstone(URL, "demo-n", portao.marcar_cpf(A),
+                           motivo="", pedido_por="")
+
+    planilha = raiz / "planilha.csv"
+    planilha.write_text(
+        "cpf,email,nome\n"
+        f"{A},a@exemplo.invalid,PESSOA A (FICTÍCIO)\n"
+        f"{B},b@exemplo.invalid,PESSOA B (FICTÍCIO)\n"
+        f"{C},c@exemplo.invalid,PESSOA C (FICTÍCIO)\n",
+        encoding="utf-8")
+
+    r = subprocess.run(
+        [sys.executable, str(RAIZ / "ferramentas" / "ingerir_acervo.py"),
+         "--acervo", str(planilha), "--entidade", "demo-n",
+         "--raiz", str(raiz), "--banco", URL],
+        capture_output=True, text=True,
+        env={**os.environ, "PROTOCOL_SEGREDO": "segredo-de-teste-apagamento"},
+    )
+    saida = r.stdout + r.stderr
+    checa("apagada" in saida.lower() and "1" in saida,
+          f"não relatou que pulou alguém apagado:\n{saida[-600:]}")
+    checa(A not in saida, "imprimiu o CPF de quem pediu para sair")
+
+    from servidor import acervo as mod_acervo
+
+    gravado = ent.pasta(raiz) / "acervo.jsonl"
+    import json as _json
+
+    cpfs = set()
+    for bruto in gravado.read_text(encoding="utf-8").splitlines():
+        if bruto.strip():
+            for pessoa in _json.loads(bruto).get("pessoas") or ():
+                cpfs.add(pessoa["cpf"])
+    checa(A not in cpfs, f"gravou no acervo quem foi apagado: {cpfs}")
+    checa({B, C} <= cpfs, f"levou os vizinhos junto: {cpfs}")
+    print("  ok     pulou o apagado, relatou, e não imprimiu o CPF")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -626,6 +681,7 @@ TESTES = [
     teste_apagar_duas_vezes_deixa_dois_tombstones,
     teste_restaurar_backup_nao_ressuscita_quem_foi_apagado,
     teste_sem_marcar_cpf_a_recuperacao_nao_filtra,
+    teste_a_ingestao_pula_o_apagado_e_relata,
 ]
 
 
