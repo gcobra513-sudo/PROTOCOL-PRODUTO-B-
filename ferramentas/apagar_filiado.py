@@ -72,6 +72,18 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
+    for rotulo, texto in (("--motivo", args.motivo),
+                          ("--pedido-por", args.pedido_por)):
+        # `apagamento.apagar` também trava, mas lá a falha sairia como
+        # traceback. Numa ferramenta de linha de comando isso é ruído onde
+        # devia haver instrução.
+        if len(texto or "") > apagamento.TETO_DO_TEXTO:
+            print(f"{rotulo} tem {len(texto)} caracteres e o limite é "
+                  f"{apagamento.TETO_DO_TEXTO}. Recusamos em vez de cortar: "
+                  f"o registro de um apagamento precisa guardar exatamente "
+                  f"o que você escreveu.", file=sys.stderr)
+            return 2
+
     raiz = pathlib.Path(args.raiz)
     try:
         ent = entidades.Cadastro(raiz).resolver(args.entidade)
@@ -86,7 +98,15 @@ def main() -> int:
               "HMAC desse segredo, e sem ele não dá para reconhecer nem "
               "gravar quem foi apagado.", file=sys.stderr)
         return 2
-    portao = acesso.Portao(raiz / ".portao-ferramenta", segredo)
+    # O PORTÃO DO SERVIDOR, NÃO UM DESCARTÁVEL. Esta linha abria
+    # `raiz/".portao-ferramenta"` — outro banco, vazio — e o efeito era o
+    # defeito que a revisão já tinha achado uma vez por outro caminho:
+    # `apagar` revogava a sessão NESSE banco, então o código e a sessão da
+    # pessoa continuavam vivos, e `vestigios` media zero no portão e
+    # imprimia "nada sobrou". O apagamento era reversível e a ferramenta
+    # afirmava o contrário. O HMAC casava por acaso, porque ele só depende
+    # do segredo — foi isso que deixou o defeito invisível.
+    portao = acesso.Portao(raiz, segredo)
 
     if args.conferir:
         sobrou = apagamento.vestigios(args.banco, ent, raiz, cpf, portao=portao)

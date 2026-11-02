@@ -207,6 +207,13 @@ def teste_apagar_nao_atravessa_entidade():
 
 # --------------------------------------------- a redação no diário
 
+def _portao_de_teste(raiz):
+    """Um portão só para ter `marcar_cpf` com segredo estável no teste."""
+    from servidor import acesso
+
+    return acesso.Portao(raiz / ".portao", "segredo-de-teste-apagamento")
+
+
 def _entidade_em_disco(apelido: str = "demo-a"):
     """Uma entidade de verdade numa raiz temporária, com diário."""
     import tempfile
@@ -428,7 +435,8 @@ def teste_vestigios_acha_a_pessoa_em_todos_os_lugares():
     from servidor import apagamento
 
     ent, raiz = _semear_em_todo_lugar("demo-f", A)
-    achados = apagamento.vestigios(URL, ent, raiz, A)
+    achados = apagamento.vestigios(URL, ent, raiz, A,
+                                   portao=_portao_de_teste(raiz))
     juntos = " | ".join(achados)
 
     for onde in ("banco", "diário", "entrega", "historico", "rol", "acervo"):
@@ -443,20 +451,14 @@ def teste_vestigios_de_quem_nunca_existiu_e_vazio():
     from servidor import apagamento
 
     ent, raiz = _entidade_em_disco("demo-g")
-    checa(apagamento.vestigios(URL, ent, raiz, _cpf(999_111)) == [],
+    checa(apagamento.vestigios(URL, ent, raiz, _cpf(999_111),
+                                portao=_portao_de_teste(raiz)) == [],
           "inventou vestígio de quem nunca existiu")
     print("  ok     quem nunca existiu não deixa vestígio")
 
 
 
 # ------------------------------------------ apagar: a ordem e a retomada
-
-def _portao_de_teste(raiz):
-    """Um portão só para ter `marcar_cpf` com segredo estável no teste."""
-    from servidor import acesso
-
-    return acesso.Portao(raiz / ".portao", "segredo-de-teste-apagamento")
-
 
 def teste_depois_de_apagar_nao_sobra_nada():
     """A ASSERÇÃO CENTRAL DA SPEC, e ela é uma medição, não uma afirmação."""
@@ -465,7 +467,8 @@ def teste_depois_de_apagar_nao_sobra_nada():
 
     ent, raiz = _semear_em_todo_lugar("demo-h", A)
     portao = _portao_de_teste(raiz)
-    antes = apagamento.vestigios(URL, ent, raiz, A)
+    antes = apagamento.vestigios(URL, ent, raiz, A,
+                                   portao=_portao_de_teste(raiz))
     checa(len(antes) >= 6, f"a semeadura não pegou: {antes}")
 
     saida = apagamento.apagar(URL, ent, raiz, A,
@@ -523,7 +526,8 @@ def teste_o_apagamento_e_retomavel():
     pasta = ent.pasta(raiz)
     (pasta / rol.ARQUIVO).write_text(
         f"cpf,email\n{C},voltou@exemplo.invalid\n", encoding="utf-8")
-    checa(apagamento.vestigios(URL, ent, raiz, C),
+    checa(apagamento.vestigios(URL, ent, raiz, C,
+                                portao=_portao_de_teste(raiz)),
           "vestigios não viu a linha reposta à mão")
 
     segunda = apagamento.apagar(URL, ent, raiz, C, motivo="", pedido_por="",
@@ -859,7 +863,8 @@ def teste_vestigios_olha_o_retrato():
         "retrato": {"inalcancaveis_por_cpf": {A: "sem e-mail"}},
         "pessoas": [],
     }, ensure_ascii=False) + "\n")
-    achados = apagamento.vestigios(URL, ent, raiz, A)
+    achados = apagamento.vestigios(URL, ent, raiz, A,
+                                   portao=_portao_de_teste(raiz))
     checa(any("retrato" in v for v in achados),
           f"vestigios não olhou o retrato do acervo: {achados}")
     print("  ok     vestigios enxerga o CPF no retrato")
@@ -1036,6 +1041,193 @@ def teste_a_redacao_nao_destroi_a_linha_truncada_de_terceiro():
     print("  ok     a linha truncada de terceiro sobrevive à redação")
 
 
+def teste_medir_pela_metade_e_recusado_em_vez_de_silenciado():
+    """Adiado 1, e ele era maior do que o rótulo "menor" dizia.
+
+    `vestigios` pulava DOIS lugares em silêncio: sem URL não conferia o
+    banco, sem `portao` não conferia códigos e sessões. Os dois estavam
+    escritos no docstring — e docstring não é medição. A lista voltava VAZIA,
+    e lista vazia é a única prova que o sindicato tem para responder ao
+    titular dentro dos 15 dias da lei.
+
+    Ou seja: o jeito mais fácil de obter "nada sobrou" era medir menos.
+
+    Agora recusa. Os dois caminhos de produção já passavam os dois
+    argumentos, então isto não tira capacidade de ninguém — tira a
+    possibilidade de uma resposta ao titular apoiada em meia medição.
+    """
+    secao("os adiados")
+    from servidor import apagamento
+
+    ent, raiz = _entidade_em_disco("demo-med")
+    portao = _portao_de_teste(raiz)
+
+    for rotulo, chamada in (
+        ("sem banco", lambda: apagamento.vestigios("", ent, raiz, A,
+                                                   portao=portao)),
+        ("sem portão", lambda: apagamento.vestigios(URL, ent, raiz, A,
+                                                    portao=None)),
+    ):
+        caiu = ""
+        try:
+            chamada()
+        except ValueError as e:
+            caiu = str(e)
+        checa(caiu, f"{rotulo}: mediu pela metade e devolveu lista, "
+                    f"em vez de recusar")
+        checa(A not in caiu, f"{rotulo}: o CPF foi para a mensagem de erro")
+
+    # E com os dois, mede normalmente.
+    checa(apagamento.vestigios(URL, ent, raiz, A, portao=portao) == [],
+          "com banco e portão, uma entidade vazia devia medir zero")
+    print("  ok     sem banco ou sem portão, recusa medir em vez de dar vazio")
+
+
+def teste_remover_do_rol_preserva_o_byte_de_quem_fica():
+    """Adiado 2. O docstring de `rol.remover` diz "REESCREVE PRESERVANDO O
+    DIALETO" e a escrita era `encoding="utf-8"` com `"\\n".join`.
+
+    Duas perdas silenciosas, nas duas pontas do mesmo arquivo:
+
+    1. LATIN-1 VIRAVA UTF-8. O rol vem do Excel em português e muitas vezes
+       em latin-1 — `_carregar` aprendeu isso derrubando o portão inteiro
+       uma vez. Reescrever em utf-8 funciona para nós (`_decodificar` tenta
+       os dois), e quebra para o SINDICATO: ele abre o mesmo arquivo no
+       Excel dele e vê `JOSÃ‰` onde estava `JOSÉ`.
+    2. CRLF VIRAVA LF. Arquivo do Windows entra, arquivo de Unix sai.
+
+    Nenhuma das duas apaga dado errado, e por isso ficaram adiadas. As duas
+    mexem num arquivo que é do sindicato, não nosso, e que ele repõe à mão —
+    então a medida certa é a dura: o BYTE de quem fica tem de sobreviver
+    idêntico.
+    """
+    from servidor import rol
+
+    ent, raiz = _entidade_em_disco("demo-enc")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+
+    # Excel brasileiro: ';', CRLF, latin-1, e o CPF na SEGUNDA coluna.
+    original = (
+        "matricula;cpf;email;nome\r\n"
+        f"001;{A};a@exemplo.invalid;JOSÉ DE ALENCAR (EXEMPLO)\r\n"
+        f"002;{B};b@exemplo.invalid;MARIA JOÃO (EXEMPLO)\r\n"
+    ).encode("latin-1")
+    caminho = pasta / rol.ARQUIVO
+    caminho.write_bytes(original)
+    # Prova de que é latin-1 de verdade, e não utf-8 por acidente:
+    caixa = original
+    erro = ""
+    try:
+        caixa.decode("utf-8")
+    except UnicodeDecodeError as e:
+        erro = str(e)
+    checa(erro, "o arquivo do teste decodifica como utf-8, então ele não "
+                "exercita a perda de latin-1")
+
+    sairam = rol.remover(pasta, A)
+    checa(sairam == 1, f"devia sair 1 linha, saíram {sairam}")
+
+    depois = caminho.read_bytes()
+    linha_de_b = f"002;{B};b@exemplo.invalid;MARIA JOÃO (EXEMPLO)".encode(
+        "latin-1")
+    checa(linha_de_b in depois,
+          "a linha de quem NÃO pediu para sair mudou de bytes: "
+          f"{depois!r}")
+    checa(b"matricula;cpf;email;nome" in depois, "o cabeçalho mudou")
+    checa(b"\r\n" in depois, f"o CRLF foi perdido: {depois!r}")
+    checa(A.encode() not in depois, "o CPF apagado sobreviveu")
+
+    # E o rol continua legível pelo caminho normal, que é o que importa
+    # para o portão.
+    carregado = rol.carregar(pasta)
+    checa(carregado.email_de(B), "o rol deixou de responder por quem ficou")
+    print("  ok     o rol mantém latin-1, CRLF e o byte de quem fica")
+
+
+def teste_a_ferramenta_usa_o_portao_DE_VERDADE():
+    """Adiado 3, e o rótulo "menor" escondia o S3 voltando pela linha de
+    comando.
+
+    O adiado dizia: "a ferramenta constrói um `Portao` inteiro só para um
+    HMAC". Medido, não era isso. O servidor abre o portão em `cfg.raiz`
+    (`dados_portal/acesso.sqlite3`); a ferramenta abria em
+    `raiz/".portao-ferramenta"` — OUTRO BANCO, vazio.
+
+    Consequência, que é a mesma do S3 que a revisão já tinha achado uma vez:
+    `apagar` chama `portao.esquecer()` nesse banco vazio, então o CÓDIGO E A
+    SESSÃO DA PESSOA CONTINUAM VIVOS; e `vestigios` chama
+    `marcadores_de()` no mesmo banco vazio, então a ferramenta imprime
+    "nada sobrou" com a sessão aberta. O apagamento feito pela ferramenta
+    era reversível, e a ferramenta afirmava o contrário.
+
+    O HMAC casava por acaso: ele só depende do segredo, não do arquivo. Foi
+    isso que deixou o defeito invisível — o tombstone ficava certo.
+    """
+    import subprocess
+
+    from servidor import acesso
+
+    ent, raiz = _semear_em_todo_lugar("demo-pf", A)
+    segredo = "segredo-de-teste-apagamento"
+
+    # A sessão viva, no portão QUE O SERVIDOR USA.
+    verdadeiro = acesso.Portao(raiz, segredo)
+    codigo = verdadeiro.emitir("demo-pf", A, origem="teste")
+    verdadeiro.conferir("demo-pf", A, codigo)
+    checa(verdadeiro.marcadores_de("demo-pf", A) >= 2,
+          "o teste não conseguiu deixar código e sessão vivos")
+
+    ambiente = {**os.environ, "PROTOCOL_SEGREDO": segredo,
+                "PROTOCOL_DATABASE_URL": URL}
+    comando = [sys.executable,
+               str(RAIZ / "ferramentas" / "apagar_filiado.py"),
+               "--entidade", "demo-pf", "--cpf", A,
+               "--raiz", str(raiz), "--banco", URL]
+
+    antes = subprocess.run(comando + ["--conferir"], capture_output=True,
+                           text=True, env=ambiente)
+    checa("portão" in antes.stdout,
+          f"--conferir não viu o código e a sessão vivos:\n{antes.stdout}")
+
+    r = subprocess.run(comando + ["--motivo", "pedido", "--pedido-por", "g"],
+                       capture_output=True, text=True, env=ambiente)
+    checa(r.returncode == 0, f"saiu {r.returncode}:\n{r.stdout}\n{r.stderr}")
+    checa(verdadeiro.marcadores_de("demo-pf", A) == 0,
+          "a ferramenta disse que apagou e a sessão da pessoa continua "
+          "viva: o apagamento é reversível")
+    checa(not (raiz / ".portao-ferramenta").exists(),
+          "a ferramenta deixou um banco de acesso descartável no disco do "
+          "sindicato")
+    print("  ok     a ferramenta revoga a sessão no portão do servidor")
+
+
+def teste_o_marcador_de_cpf_nao_precisa_de_banco():
+    """A outra metade do adiado 3: quem só precisa do HMAC não deve abrir —
+    nem CRIAR — um banco de acesso.
+
+    `Portao.__init__` faz `mkdir` e roda o esquema. A ingestão da planilha
+    só quer reconhecer tombstones, e pagava um diretório e um SQLite por
+    isso, no disco do sindicato.
+    """
+    from servidor import acesso
+
+    ent, raiz = _entidade_em_disco("demo-hmac")
+    segredo = "segredo-de-teste-apagamento"
+    pasta = raiz / ".nao-deve-existir"
+
+    direto = acesso.marcador_de_cpf(segredo, "526.018.159-06")
+    checa(not pasta.exists() and not (raiz / "acesso.sqlite3").exists(),
+          "calcular o marcador criou arquivo no disco")
+
+    # E é O MESMO marcador do portão: um segundo cálculo de HMAC seria um
+    # segundo jeito de errar, e tombstone com marcador diferente não casa.
+    pelo_portao = acesso.Portao(pasta, segredo).marcar_cpf("52601815906")
+    checa(direto == pelo_portao,
+          f"marcador diferente do portão: {direto[:8]} vs {pelo_portao[:8]}")
+    print("  ok     o marcador sai do segredo, sem tocar o disco")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -1058,6 +1250,10 @@ TESTES = [
     teste_a_ferramenta_apaga_e_confere,
     teste_o_retrato_do_acervo_nao_guarda_o_cpf_apagado,
     teste_o_retrato_de_verdade_nao_guarda_cpf_nenhum,
+    teste_medir_pela_metade_e_recusado_em_vez_de_silenciado,
+    teste_remover_do_rol_preserva_o_byte_de_quem_fica,
+    teste_a_ferramenta_usa_o_portao_DE_VERDADE,
+    teste_o_marcador_de_cpf_nao_precisa_de_banco,
     teste_vestigios_olha_o_retrato,
     teste_apagar_revoga_a_sessao_e_esquece_o_marcador,
     teste_remover_do_rol_le_por_nome_de_coluna,

@@ -68,6 +68,15 @@ entra nada é apagado** (503). Em leitura, falha de registro não derruba a
 consulta; num ato irreversível, a mesma escolha significaria pessoa apagada
 sem autor.
 
+`motivo` e `pedido_por` têm **teto de 500 caracteres, e passar do teto é
+recusado com 400, não cortado**: o registro de um apagamento precisa guardar
+exatamente o que o gestor escreveu.
+
+**A remoção no rol preserva o dialeto do arquivo** — codificação (latin-1 do
+Excel brasileiro continua latin-1), terminador de linha e permissão. O rol é
+arquivo do sindicato, não nosso: reescrevê-lo em utf-8 funcionava para nós e
+fazia ele ver `JOSÃ‰` onde escreveu `JOSÉ`.
+
 A resposta traz o que saiu de cada lugar e, no fim, **`vestigios`**. Lista
 vazia significa que terminou; **lista não vazia não é erro, é a resposta
 honesta de que sobrou coisa** — e aí se reexecuta.

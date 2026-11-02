@@ -1275,6 +1275,19 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         cpf = conta.so_digitos(str(corpo.get("cpf", "")))
         if not validacao.cpf_valido(cpf):
             raise _problema(400, "CPF inválido")
+        # ANTES DE QUALQUER EFEITO. `apagamento.apagar` também trava, como
+        # retaguarda, mas lá a falha já viraria 500 — e 500 não diz ao
+        # gestor que ele só precisa encurtar o texto.
+        for rotulo in ("motivo", "pedido_por"):
+            texto = str(corpo.get(rotulo, ""))
+            if len(texto) > apagamento.TETO_DO_TEXTO:
+                raise _problema(
+                    400,
+                    f"{rotulo} tem {len(texto)} caracteres e o limite é "
+                    f"{apagamento.TETO_DO_TEXTO}. Recusamos em vez de "
+                    f"cortar: o registro de um apagamento precisa guardar "
+                    f"exatamente o que você escreveu.",
+                )
         if not cfg.tem_banco:
             raise _problema(
                 503,

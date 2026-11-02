@@ -115,6 +115,29 @@ def _iso(momento: dt.datetime) -> str:
     return momento.isoformat(timespec="seconds")
 
 
+def marcar_com(segredo, valor: str) -> str:
+    """HMAC do valor com o segredo. Aceita `str` ou `bytes` no segredo."""
+    if isinstance(segredo, str):
+        segredo = segredo.encode("utf-8")
+    return hmac.new(
+        segredo, (valor or "").encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+
+
+def marcador_de_cpf(segredo, cpf: str) -> str:
+    """O marcador de um CPF, sem abrir nem CRIAR banco de acesso.
+
+    POR QUE ISTO É FUNÇÃO DE MÓDULO: `Portao.__init__` faz `mkdir` e roda o
+    esquema SQLite. Quem só precisa reconhecer um tombstone — a ingestão da
+    planilha, por exemplo — pagava um diretório e um banco por um HMAC, no
+    disco do sindicato. E pior: o hábito de construir um portão descartável
+    para "ter o marcador" levou a ferramenta de apagamento a REVOGAR SESSÃO
+    NO BANCO ERRADO, deixando a sessão da pessoa viva enquanto imprimia que
+    nada sobrou. O marcador depende só do segredo; o resto do portão, não.
+    """
+    return marcar_com(segredo, so_digitos(cpf))
+
+
 class Portao:
     def __init__(
         self,
@@ -141,12 +164,14 @@ class Portao:
 
     def marcar(self, valor: str) -> str:
         """HMAC com o segredo. Sem o segredo não se recalcula o marcador."""
-        return hmac.new(
-            self._segredo, (valor or "").encode("utf-8"), hashlib.sha256
-        ).hexdigest()
+        return marcar_com(self._segredo, valor)
 
     def marcar_cpf(self, cpf: str) -> str:
         """O marcador de um CPF, SEMPRE pelos 11 dígitos.
+
+        Delega a `marcador_de_cpf` para haver UM cálculo só. Dois jeitos de
+        calcular o mesmo HMAC é um jeito a mais de errar, e marcador
+        diferente faz o tombstone não casar com o CPF que chega.
 
         Existe porque não existir custou um defeito: a emissão marcava
         "52601815906" e a conferência marcava "526.018.159-06". Mesmo CPF,
@@ -154,7 +179,7 @@ class Portao:
         recusaria todo mundo que digitasse com ponto, que é como as pessoas
         digitam. Marcar CPF por este método é a única forma permitida.
         """
-        return self.marcar(so_digitos(cpf))
+        return marcador_de_cpf(self._segredo, cpf)
 
     # ---------------------------------------------------------------- emitir
 

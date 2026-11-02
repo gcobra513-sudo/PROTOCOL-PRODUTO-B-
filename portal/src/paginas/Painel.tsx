@@ -199,6 +199,15 @@ function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
  *    `resumoDoApagamento` carrega essa regra, e o teste dela é o que impede
  *    esta tela de pintar de verde um apagamento que não terminou.
  */
+/** O mesmo teto que o servidor aplica (`apagamento.TETO_DO_TEXTO`).
+ *
+ *  O servidor RECUSA com 400 em vez de cortar, porque o registro de um
+ *  apagamento precisa guardar exatamente o que o gestor escreveu. Repetir o
+ *  número aqui evita que ele descubra o limite levando um erro depois de
+ *  escrever — e se os dois divergirem, quem manda é o servidor: a tela erra
+ *  para o lado de deixar digitar menos. */
+const TETO_DO_TEXTO = 500;
+
 function ApagarAPedido({
   entidade,
   token,
@@ -352,12 +361,14 @@ function ApagarAPedido({
             valor={pedidoPor}
             onChange={setPedidoPor}
             obrigatorio
+            maxLength={TETO_DO_TEXTO}
             ajuda="Nome ou e-mail. Fica no registro de quem mandou apagar — sem isto, não apagamos."
           />
           <Campo
             rotulo="Motivo (opcional)"
             valor={motivo}
             onChange={setMotivo}
+            maxLength={TETO_DO_TEXTO}
             ajuda="Ex.: pedido do titular por e-mail em 02/11/2026."
           />
           {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}

@@ -302,9 +302,21 @@ def normalizar_cabecalho(bruto: str) -> str:
 
 
 def _decodificar(bruto: bytes) -> str:
+    return _decodificar_dizendo_como(bruto)[0]
+
+
+def _decodificar_dizendo_como(bruto: bytes) -> tuple[str, str]:
+    """O texto E o nome do encoding que funcionou.
+
+    QUEM REESCREVE O ARQUIVO PRECISA DO SEGUNDO. `_decodificar` sozinho
+    devolvia só o texto, e quem reescrevia gravava em utf-8 — o que funciona
+    para nós, porque na volta tentamos os três, e quebra para o SINDICATO,
+    que abre o mesmo arquivo no Excel dele e vê `JOSÃ‰` onde escreveu
+    `JOSÉ`. O arquivo é dele, não nosso.
+    """
     for encoding in ENCODINGS:
         try:
-            return bruto.decode(encoding)
+            return bruto.decode(encoding), encoding
         except UnicodeDecodeError:
             continue
     raise AcervoIlegivel("nenhum encoding conhecido decodificou o arquivo")
