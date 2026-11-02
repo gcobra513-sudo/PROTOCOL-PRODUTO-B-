@@ -371,6 +371,80 @@ def teste_remove_a_pessoa_de_TODAS_as_ingestoes_do_acervo():
     print("  ok     saiu das 2 ingestões, vizinha e procedência intactas")
 
 
+
+# ------------------------------------------------ vestigios: a medição
+
+def _semear_em_todo_lugar(apelido: str, cpf: str):
+    """A mesma pessoa nos SEIS lugares onde ela pode existir."""
+    import json as _json
+
+    from servidor import banco, deposito, rol
+
+    ent, raiz = _entidade_em_disco(apelido)
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+
+    # 1 e 2: banco (acervo e cadastro)
+    banco.projetar_acervo(URL, apelido, [_pessoa_do_acervo(cpf, 2)])
+    banco.reconstruir(URL, apelido, [_registro_do_diario(cpf, "PRT-V-1")])
+    # 3: o diário em disco
+    _anexar_ao_diario(ent, raiz, [_registro_do_diario(cpf, "PRT-V-1")])
+    # 4: o PDF entregue
+    entrega = ent.entrega(raiz) / cpf
+    entrega.mkdir(parents=True, exist_ok=True)
+    (entrega / "sentenca.pdf").write_bytes(b"%PDF-1.4\n(EXEMPLO FICTICIO)")
+    # 5: o PDF de um reenvio anterior — o lugar que se esquece
+    guarda = pasta / deposito.HISTORICO / cpf / "20261101T000000"
+    guarda.mkdir(parents=True, exist_ok=True)
+    (guarda / "contribuicao.pdf").write_bytes(b"%PDF-1.4\n(EXEMPLO)")
+    # 6: o rol
+    (pasta / rol.ARQUIVO).write_text(
+        f"cpf,email,nome\n{cpf},v@exemplo.invalid,PESSOA (FICTÍCIO)\n",
+        encoding="utf-8")
+    # 7: o acervo em disco
+    deposito.anexar_com_fsync(pasta / "acervo.jsonl", _json.dumps({
+        "ingerido_em": "2026-11-02", "origem": "planilha.xlsx",
+        "retrato": {"pessoas": 1},
+        "pessoas": [{"cpf": cpf, "linha_no_arquivo": 2,
+                     "campos": {"nome_completo": "PESSOA (FICTÍCIO)"},
+                     "achados": []}],
+    }, ensure_ascii=False) + "\n")
+    return ent, raiz
+
+
+def teste_vestigios_acha_a_pessoa_em_todos_os_lugares():
+    """A MEDIÇÃO É O QUE SUBSTITUI UM CAMPO `apagado = true`.
+
+    Um campo desses é uma AFIRMAÇÃO, e a auditoria de 31/10 derrubou sete
+    afirmações assim neste repositório. Esta função não afirma: ela varre.
+
+    O `historico/` está aqui de propósito — é o lugar que se esquece, e
+    é onde mora o PDF de sentença de um reenvio anterior.
+    """
+    secao("vestigios: a medição")
+    from servidor import apagamento
+
+    ent, raiz = _semear_em_todo_lugar("demo-f", A)
+    achados = apagamento.vestigios(URL, ent, raiz, A)
+    juntos = " | ".join(achados)
+
+    for onde in ("banco", "diário", "entrega", "historico", "rol", "acervo"):
+        checa(any(onde in v for v in achados),
+              f"vestigios não olhou em {onde}: {juntos}")
+    checa(A not in juntos, f"vestigios publicou o CPF em claro: {juntos}")
+    print(f"  ok     {len(achados)} vestígios, nos seis lugares, sem CPF")
+
+
+def teste_vestigios_de_quem_nunca_existiu_e_vazio():
+    """Vazio é a resposta de "não sobrou nada", e é o que `apagar` confere."""
+    from servidor import apagamento
+
+    ent, raiz = _entidade_em_disco("demo-g")
+    checa(apagamento.vestigios(URL, ent, raiz, _cpf(999_111)) == [],
+          "inventou vestígio de quem nunca existiu")
+    print("  ok     quem nunca existiu não deixa vestígio")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -381,6 +455,8 @@ TESTES = [
     teste_a_projecao_ignora_registro_redigido,
     teste_remover_do_rol_preserva_o_dialeto_e_os_vizinhos,
     teste_remove_a_pessoa_de_TODAS_as_ingestoes_do_acervo,
+    teste_vestigios_acha_a_pessoa_em_todos_os_lugares,
+    teste_vestigios_de_quem_nunca_existiu_e_vazio,
 ]
 
 
