@@ -85,9 +85,129 @@ def teste_o_tombstone_nao_atravessa_entidade():
     print("  ok     tombstone não atravessa entidade")
 
 
+
+# ------------------------------------------- semeadura (dados fictícios)
+
+def _cpf(n: int) -> str:
+    """CPF sintético com dígito que fecha. A base é o índice, não ninguém."""
+    base = [int(c) for c in f"{n:09d}"]
+    for peso0 in (10, 11):
+        soma = sum(d * (peso0 - i) for i, d in enumerate(base))
+        base.append((soma * 10 % 11) % 10)
+    return "".join(map(str, base))
+
+
+A = _cpf(3001)
+B = _cpf(3002)
+C = _cpf(3003)
+D = _cpf(3004)
+
+
+def _pessoa_do_acervo(cpf: str, linha: int = 2):
+    from servidor import acervo
+
+    return acervo.Pessoa(cpf=cpf, linha_no_arquivo=linha, campos={
+        "nome_completo": f"PESSOA {cpf} (CADASTRO FICTÍCIO)",
+        "email": f"exemplo-{cpf}@exemplo.invalid",
+        "unidade": "UNIDADE DE EXEMPLO",
+    })
+
+
+def _registro_do_diario(cpf: str, protocolo: str) -> dict:
+    return {
+        "protocolo": protocolo,
+        "recebido_em": "2026-11-02T00:00:00+00:00",
+        "entidade": "demo-a",
+        "linha": {
+            "cpf": cpf,
+            "nome_completo": f"PESSOA {cpf} (CADASTRO FICTÍCIO)",
+            "email": f"exemplo-{cpf}@exemplo.invalid",
+            "cargo": "Auditor Fiscal da Receita Federal",
+            "situacao": "aposentado",
+            "filiado_desde": "2004-03",
+        },
+        "arquivos": {"contribuicao": "a" * 64},
+    }
+
+
+# ----------------------------------------------- as exclusões no banco
+
+def teste_apagar_pessoa_limpa_o_que_e_dela():
+    secao("as exclusões no banco")
+    from servidor import banco
+
+    # A MESMA ingestão de acervo traz as duas pessoas, de propósito: é o
+    # caso em que apagar demais estragaria o dado de terceiro.
+    banco.projetar_acervo(URL, "demo-a",
+                          [_pessoa_do_acervo(A, 2), _pessoa_do_acervo(B, 3)])
+    # O retorno é ignorado: a T7 muda a assinatura, e o que este teste
+    # prova não é o valor devolvido (ver ruling no livro de registro).
+    banco.reconstruir(URL, "demo-a", [_registro_do_diario(A, "PRT-A")])
+
+    saiu = banco.apagar_pessoa(URL, "demo-a", A)
+
+    checa(saiu.get("pessoa_afirmacao", 0) > 0 and saiu.get("pessoa") == 1,
+          f"não apagou as linhas da pessoa: {saiu}")
+    checa(banco.registro_do_cpf(URL, "demo-a", A) is None,
+          "a pessoa continua na base depois de apagada")
+    checa("leitura" not in saiu and "processo" not in saiu
+          and "movimento" not in saiu,
+          f"tocou tabela que a spec manda não tocar: {saiu}")
+    print("  ok     as linhas da pessoa saíram")
+
+
+def teste_apagar_nao_estraga_o_dado_de_terceiro():
+    """APAGAR DEMAIS É IRREVERSÍVEL, e aqui está o caminho para isso.
+
+    `projetar_acervo` grava UM `recebimento` por INGESTÃO, compartilhado
+    por todas as pessoas da planilha. Apagar esse recebimento junto com uma
+    pessoa anularia o `recebimento_id` de todas as outras — e a coluna é
+    `ON DELETE SET NULL`, então o estrago é silencioso.
+
+    A outra pessoa da mesma ingestão tem de continuar inteira, e com a
+    procedência dela intacta.
+    """
+    from servidor import banco
+
+    # AUTOSSUFICIENTE DE PROPÓSITO. A primeira versão deste teste só lia, e
+    # por isso passava ANTES de `apagar_pessoa` existir — nada apagava, e a
+    # outra pessoa sobrevivia à toa. Teste que passa sem o código é um
+    # achado sobre o teste.
+    banco.projetar_acervo(URL, "demo-a",
+                          [_pessoa_do_acervo(C, 4), _pessoa_do_acervo(D, 5)])
+    banco.apagar_pessoa(URL, "demo-a", C)
+
+    outra = banco.registro_do_cpf(URL, "demo-a", D)
+    checa(outra is not None,
+          "apagou a pessoa errada: a outra da mesma ingestão desapareceu")
+    checa(outra and outra["linha"].get("nome_completo"),
+          f"a outra pessoa ficou sem nome: {outra}")
+
+    with banco.sessao(URL, "demo-a") as cur:
+        cur.execute("SELECT count(*) FROM pessoa_afirmacao "
+                    "WHERE cpf = %s AND recebimento_id IS NULL", (D,))
+        orfas = cur.fetchone()[0]
+    checa(orfas == 0,
+          f"{orfas} afirmações da outra pessoa perderam a procedência")
+    print("  ok     a outra pessoa da mesma ingestão ficou intacta")
+
+
+def teste_apagar_nao_atravessa_entidade():
+    from servidor import banco
+
+    banco.projetar_acervo(URL, "demo-b", [_pessoa_do_acervo(A, 2)])
+    banco.apagar_pessoa(URL, "demo-a", A)
+    checa(banco.registro_do_cpf(URL, "demo-b", A) is not None,
+          "apagar na entidade A apagou a mesma pessoa na B")
+    print("  ok     apagar não atravessa entidade")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
+    teste_apagar_pessoa_limpa_o_que_e_dela,
+    teste_apagar_nao_estraga_o_dado_de_terceiro,
+    teste_apagar_nao_atravessa_entidade,
 ]
 
 

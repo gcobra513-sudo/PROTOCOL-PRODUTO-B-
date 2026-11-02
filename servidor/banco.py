@@ -855,3 +855,50 @@ def tombstones(url: str, entidade: str) -> set[str]:
     with sessao(url, entidade) as cur:
         cur.execute("SELECT cpf_hash FROM tombstone")
         return {linha[0] for linha in cur.fetchall()}
+
+
+#: As tabelas que o apagamento limpa, NA ORDEM. `pessoa_afirmacao` depois
+#: das que a referenciam, e `recebimento` tratado à parte abaixo.
+#:
+#: `leitura`, `processo` e `movimento` NÃO estão aqui, e é deliberado:
+#: `leitura` guarda marcador e nunca CPF, e log que o próprio sistema apaga
+#: não é log de auditoria; `processo` e `movimento` são sobre o PROCESSO, e
+#: numa ação coletiva o mesmo número é de centenas de filiados — o que liga
+#: a pessoa a ele é `vinculo`, e esse sai.
+_TABELAS_DO_APAGAMENTO = (
+    "achado", "documento", "vinculo", "oportunidade", "aviso_enviado",
+    "pessoa_afirmacao", "pessoa",
+)
+
+
+def apagar_pessoa(url: str, entidade: str, cpf: str) -> dict[str, int]:
+    """Apaga do banco tudo o que é desta pessoa. Devolve o que saiu.
+
+    NUMA TRANSAÇÃO SÓ: um apagamento parcial do banco é pior que nenhum,
+    porque deixa a pessoa meio existente e nenhuma consulta diz isso.
+
+    O `recebimento` É O CUIDADO DESTA FUNÇÃO, e o motivo é um caminho para
+    estragar dado de terceiro. `reconstruir` grava um recebimento por
+    ENVIO — que é de uma pessoa só —, mas `projetar_acervo` grava um por
+    INGESTÃO, compartilhado por todas as pessoas da planilha. Apagar o
+    recebimento junto com uma pessoa anularia o `recebimento_id` de todas as
+    outras, porque a coluna é `ON DELETE SET NULL`: a procedência dos
+    vizinhos desapareceria em silêncio.
+
+    Então o recebimento só sai quando NINGUÉM MAIS o referencia.
+    """
+    digitos = _digitos(cpf)
+    saiu: dict[str, int] = {}
+    with sessao(url, entidade) as cur:
+        for tabela in _TABELAS_DO_APAGAMENTO:
+            cur.execute(f"DELETE FROM {tabela} WHERE cpf = %s", (digitos,))
+            if cur.rowcount:
+                saiu[tabela] = cur.rowcount
+        cur.execute(
+            "DELETE FROM recebimento r WHERE NOT EXISTS ("
+            "  SELECT 1 FROM pessoa_afirmacao a WHERE a.recebimento_id = r.id"
+            ")"
+        )
+        if cur.rowcount:
+            saiu["recebimento"] = cur.rowcount
+    return saiu
