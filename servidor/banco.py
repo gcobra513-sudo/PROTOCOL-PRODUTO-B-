@@ -814,3 +814,44 @@ def registrar_leitura(url: str, entidade: str, *, quem_hash: str,
             "VALUES (%s,%s,%s,%s)",
             (entidade, quem_hash, o_que, alvo_hash),
         )
+
+
+# =====================================================================
+# O APAGAMENTO A PEDIDO (LGPD art. 18, VI)
+# =====================================================================
+
+def marcar_tombstone(url: str, entidade: str, cpf_hash: str,
+                     motivo: str, pedido_por: str) -> None:
+    """Registra que esta pessoa foi apagada a pedido.
+
+    É GRAVADO PRIMEIRO, E SOZINHO, e é isso que torna o apagamento
+    retomável: com o tombstone no banco, a reingestão já para de trazer a
+    pessoa de volta e qualquer resto pode ser apagado numa segunda passada.
+    Na mesma transação das exclusões, uma falha desfaria o tombstone junto
+    — a pessoa teria pedido para sair, o processo teria caído, e não haveria
+    registro de que alguém pediu nada.
+
+    SÓ MARCADOR, NUNCA CPF EM CLARO. A tabela existe para provar que a
+    remoção foi deliberada, não para guardar o que se removeu.
+
+    `motivo` e `pedido_por` são texto livre porque servem ao sindicato
+    responder ao titular depois: apagamos em tal data, a pedido de quem.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "INSERT INTO tombstone (entidade, cpf_hash, motivo, pedido_por) "
+            "VALUES (%s,%s,%s,%s)",
+            (entidade, cpf_hash, motivo, pedido_por),
+        )
+
+
+def tombstones(url: str, entidade: str) -> set[str]:
+    """Os marcadores de quem foi apagado a pedido nesta entidade.
+
+    `set` e não lista porque todo uso é pertinência dentro de laço — a
+    ingestão da planilha e a projeção do diário perguntam, por pessoa, se
+    aquele marcador está aqui.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute("SELECT cpf_hash FROM tombstone")
+        return {linha[0] for linha in cur.fetchall()}
