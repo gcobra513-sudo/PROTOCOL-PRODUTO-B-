@@ -99,6 +99,9 @@ def main() -> int:
 
     retrato = completude.retratar(pessoas)
     imprimir(retrato, pessoas, args.mostrar)
+    # O retrato é RECALCULADO depois do filtro de tombstone, mais abaixo.
+    # Este aqui é só para imprimir o que o ARQUIVO traz, antes de saber
+    # quem pediu para sair.
 
     if not args.entidade:
         print("\n  (nada gravado — passe --entidade para ingerir)")
@@ -158,6 +161,12 @@ def main() -> int:
             return 2
 
     if apagadas:
+        # RECALCULA O RETRATO SEM OS APAGADOS. A primeira versão filtrava
+        # as `pessoas` e gravava o retrato JÁ CALCULADO, que é indexado por
+        # CPF — então a ferramenta imprimia "não gravei a pessoa" e gravava
+        # o CPF dela numa linha nova. Cada planilha reenviada acrescentava
+        # um CPF em disco, DEPOIS do pedido de apagamento.
+        retrato = completude.retratar(pessoas)
         print(f"\n  {apagadas} pessoa(s) da planilha foram apagada(s) a "
               f"pedido e NÃO foram gravada(s).")
         print("  Tire-as do arquivo: enquanto estiverem nele, toda ingestão "

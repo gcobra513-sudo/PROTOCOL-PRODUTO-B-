@@ -127,13 +127,22 @@ def _carregar(caminho: pathlib.Path) -> Rol:
 def remover(pasta_entidade: pathlib.Path, cpf: str) -> int:
     """Tira este CPF dos dois róis. Devolve quantas linhas saíram.
 
+    ACHA A COLUNA PELO CABEÇALHO, não pela posição — e esta é a correção de
+    um defeito que declarava sucesso sem apagar nada.
+
+    A primeira versão cortava por `linha.split(separador)[0]`, supondo o CPF
+    na primeira coluna. Mas `_carregar` lê por `csv.DictReader` e só exige
+    que o cabeçalho CONTENHA `cpf` e `email`: a ordem é livre, e
+    `matricula;cpf;email` é o formato que o docstring deste módulo diz
+    esperar ("a exportação do sindicato vem cheia" de colunas a mais). Nesse
+    rol, o portão lia a pessoa e `remover` devolvia 0 — para sempre. Com
+    e-mail válido o apagamento nunca convergia; sem e-mail válido a varredura
+    nem detectava, e a rota respondia "não sobrou nada" com nome e CPF no
+    arquivo.
+
     REESCREVE PRESERVANDO O DIALETO. O rol vem do Excel em português, com
     `;`, e em latin-1 com frequência — `_carregar` aprendeu isso derrubando
-    o portão inteiro uma vez. Reescrever em utf-8 com vírgula faria o
-    arquivo parar de ser legível para quem o mantém, e o sintoma apareceria
-    como "nenhum filiado entra".
-
-    Só a LINHA sai; o cabeçalho e as outras linhas ficam como estavam.
+    o portão inteiro uma vez. Só a LINHA sai; o cabeçalho e as outras ficam.
     """
     from . import acervo
 
@@ -148,12 +157,22 @@ def remover(pasta_entidade: pathlib.Path, cpf: str) -> int:
         if not linhas:
             continue
         separador = acervo._separador(linhas[0])
+        cabecalho = [(c or "").strip().lower()
+                     for c in linhas[0].split(separador)]
+        try:
+            coluna = cabecalho.index("cpf")
+        except ValueError:
+            # Sem coluna `cpf` o arquivo não é um rol — `_carregar` já o
+            # recusa. Não mexer é o certo: reescrever um arquivo que não
+            # entendemos é pior que deixá-lo como está.
+            continue
         guardadas = [linhas[0]]
         for linha in linhas[1:]:
             if not linha.strip():
                 continue
-            primeira = linha.split(separador)[0]
-            if so_digitos(primeira) == digitos:
+            celulas = linha.split(separador)
+            valor = celulas[coluna] if coluna < len(celulas) else ""
+            if so_digitos(valor) == digitos:
                 sairam += 1
                 continue
             guardadas.append(linha)

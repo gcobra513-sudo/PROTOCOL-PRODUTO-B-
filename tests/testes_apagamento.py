@@ -143,7 +143,8 @@ def teste_apagar_pessoa_limpa_o_que_e_dela():
                           [_pessoa_do_acervo(A, 2), _pessoa_do_acervo(B, 3)])
     # O retorno é ignorado: a T7 muda a assinatura, e o que este teste
     # prova não é o valor devolvido (ver ruling no livro de registro).
-    banco.reconstruir(URL, "demo-a", [_registro_do_diario(A, "PRT-A")])
+    banco.reconstruir(URL, "demo-a", [_registro_do_diario(A, "PRT-A")],
+                      consentimento_novo=True)
 
     saiu = banco.apagar_pessoa(URL, "demo-a", A)
 
@@ -284,7 +285,8 @@ def teste_a_projecao_ignora_registro_redigido():
     _anexar_ao_diario(ent, raiz, [_registro_do_diario(A, "PRT-C-1")])
     deposito.redigir_no_diario(ent, raiz, A)
 
-    banco.reconstruir(URL, "demo-c", deposito.ler_diario(ent.pasta(raiz)))
+    banco.reconstruir(URL, "demo-c", deposito.ler_diario(ent.pasta(raiz)),
+                      consentimento_novo=True)
     checa(banco.registro_do_cpf(URL, "demo-c", A) is None,
           "projetar um diário redigido ressuscitou a pessoa")
     print("  ok     a projeção ignora registro redigido")
@@ -386,7 +388,8 @@ def _semear_em_todo_lugar(apelido: str, cpf: str):
 
     # 1 e 2: banco (acervo e cadastro)
     banco.projetar_acervo(URL, apelido, [_pessoa_do_acervo(cpf, 2)])
-    banco.reconstruir(URL, apelido, [_registro_do_diario(cpf, "PRT-V-1")])
+    banco.reconstruir(URL, apelido, [_registro_do_diario(cpf, "PRT-V-1")],
+                      consentimento_novo=True)
     # 3: o diário em disco
     _anexar_ao_diario(ent, raiz, [_registro_do_diario(cpf, "PRT-V-1")])
     # 4: o PDF entregue
@@ -468,7 +471,7 @@ def teste_depois_de_apagar_nao_sobra_nada():
     saida = apagamento.apagar(URL, ent, raiz, A,
                               motivo="pedido do titular",
                               pedido_por="gestor@exemplo.invalid",
-                              marcar_cpf=portao.marcar_cpf)
+                              portao=portao)
 
     checa(saida["vestigios"] == [],
           f"sobrou coisa depois de apagar: {saida['vestigios']}")
@@ -494,7 +497,7 @@ def teste_sem_banco_nada_e_apagado():
     try:
         apagamento.apagar("postgresql://ninguem@/nada?host=/tmp/nao-existe",
                           ent, raiz, B, motivo="", pedido_por="",
-                          marcar_cpf=portao.marcar_cpf)
+                          portao=portao)
     except Exception:  # noqa: BLE001
         levantou = True
 
@@ -515,7 +518,7 @@ def teste_o_apagamento_e_retomavel():
     ent, raiz = _semear_em_todo_lugar("demo-j", C)
     portao = _portao_de_teste(raiz)
     apagamento.apagar(URL, ent, raiz, C, motivo="", pedido_por="",
-                      marcar_cpf=portao.marcar_cpf)
+                      portao=portao)
 
     pasta = ent.pasta(raiz)
     (pasta / rol.ARQUIVO).write_text(
@@ -524,7 +527,7 @@ def teste_o_apagamento_e_retomavel():
           "vestigios não viu a linha reposta à mão")
 
     segunda = apagamento.apagar(URL, ent, raiz, C, motivo="", pedido_por="",
-                                marcar_cpf=portao.marcar_cpf)
+                                portao=portao)
     checa(segunda["vestigios"] == [],
           f"a segunda passada não fechou: {segunda['vestigios']}")
     print("  ok     vestigios enxerga o reposto, e a retomada fecha")
@@ -537,10 +540,10 @@ def teste_apagar_duas_vezes_deixa_dois_tombstones():
     ent, raiz = _semear_em_todo_lugar("demo-k", D)
     portao = _portao_de_teste(raiz)
     apagamento.apagar(URL, ent, raiz, D, motivo="primeiro", pedido_por="g1",
-                      marcar_cpf=portao.marcar_cpf)
+                      portao=portao)
     segunda = apagamento.apagar(URL, ent, raiz, D, motivo="segundo",
                                 pedido_por="g2",
-                                marcar_cpf=portao.marcar_cpf)
+                                portao=portao)
     checa(segunda["vestigios"] == [],
           f"a segunda chamada reclamou: {segunda['vestigios']}")
     with banco.sessao(URL, "demo-k") as cur:
@@ -572,7 +575,7 @@ def teste_restaurar_backup_nao_ressuscita_quem_foi_apagado():
     checa(any(r.get("linha") for r in backup), "o backup saiu vazio")
 
     apagamento.apagar(URL, ent, raiz, A, motivo="", pedido_por="",
-                      marcar_cpf=portao.marcar_cpf)
+                      portao=portao)
 
     gravados, pulados = banco.reconstruir(URL, "demo-l", backup,
                                           marcar_cpf=portao.marcar_cpf)
@@ -583,14 +586,16 @@ def teste_restaurar_backup_nao_ressuscita_quem_foi_apagado():
     print("  ok     restaurar backup não ressuscita o apagado")
 
 
-def teste_sem_marcar_cpf_a_recuperacao_nao_filtra():
-    """A ASSIMETRIA É DELIBERADA, e vale explicar.
+def teste_esquecer_o_filtro_falha_fechado():
+    """ESQUECER NÃO PODE SIGNIFICAR "NÃO FILTRE".
 
-    `/api/cadastro` projeta o envio que a PRÓPRIA PESSOA acabou de fazer, e
-    isso é consentimento NOVO — não pode ser barrado por um tombstone
-    antigo. A recuperação de um diário velho é outra coisa, e essa tem de
-    ser barrada. Quem distingue as duas é quem chama: passar `marcar_cpf` é
-    dizer "estou reprojetando histórico, filtre".
+    A primeira forma era invertida: `marcar_cpf=None` queria dizer "deixe
+    passar", e o único caminho de recuperação de histórico é uma chamada à
+    mão — que é exatamente a que esquece o parâmetro. Quem esquecesse
+    ressuscitava quem pediu para sair, em silêncio.
+
+    Agora, numa entidade que TEM apagamento registrado, a função recusa em
+    vez de adivinhar. E quem quer declarar consentimento novo diz isso.
     """
     from servidor import apagamento, banco, deposito
 
@@ -598,14 +603,24 @@ def teste_sem_marcar_cpf_a_recuperacao_nao_filtra():
     portao = _portao_de_teste(raiz)
     backup = deposito.ler_diario(ent.pasta(raiz))
     apagamento.apagar(URL, ent, raiz, B, motivo="", pedido_por="",
-                      marcar_cpf=portao.marcar_cpf)
+                      portao=portao)
 
-    gravados, pulados = banco.reconstruir(URL, "demo-m", backup)
-    checa(pulados == 0,
-          f"filtrou sem ninguém pedir, e isso barraria consentimento novo: "
+    recusou = False
+    try:
+        banco.reconstruir(URL, "demo-m", backup)
+    except ValueError:
+        recusou = True
+    checa(recusou,
+          "esqueceu o filtro e projetou de qualquer jeito — é assim que "
+          "uma recuperação à mão ressuscita quem pediu para sair")
+
+    # E a declaração explícita de consentimento novo continua passando.
+    gravados, pulados = banco.reconstruir(URL, "demo-m", backup,
+                                          consentimento_novo=True)
+    checa(pulados == 0 and gravados >= 1,
+          f"consentimento novo foi barrado: gravados={gravados} "
           f"pulados={pulados}")
-    checa(gravados >= 1, f"não gravou o registro: {gravados}")
-    print("  ok     sem marcar_cpf não filtra — consentimento novo passa")
+    print("  ok     esquecer recusa; declarar consentimento novo passa")
 
 
 
@@ -704,6 +719,323 @@ def teste_a_ferramenta_apaga_e_confere():
     print("  ok     confere, apaga, e confere de novo — sem imprimir CPF")
 
 
+
+# ===================================================================
+# AS SOBREVIVÊNCIAS QUE A CAÇA ADVERSARIAL ACHOU
+#
+# `vestigios` devolvia VAZIO e sobrava dado em quatro lugares. A raiz é
+# uma: ele varria POR CPF, e dado pessoal também mora onde o CPF não é
+# índice — chave de dicionário, pasta indexada por protocolo, arquivo por
+# raiz em vez de por entidade.
+#
+# Medir pela metade é pior que declarar: uma declaração se desconfia, uma
+# medição se acredita. E `vestigios` vazio é a única prova que o produto
+# oferece ao sindicato para responder ao titular em 15 dias.
+# ===================================================================
+
+def teste_o_retrato_do_acervo_nao_guarda_o_cpf_apagado():
+    """S1. `remover_pessoa` tirava a pessoa da lista `pessoas` e deixava o
+    bloco `retrato` intacto — e três campos dele são chaveados por CPF:
+    `inalcancaveis_por_cpf` (chave), `falta_nominal` (item da lista) e
+    `divergencias` (chave, com nome e e-mail no valor).
+
+    O comentário que eu escrevi dizia que o `retrato` é "sobre o ARQUIVO e
+    não sobre gente". Era falso.
+    """
+    secao("as sobrevivências da caça adversarial")
+    import json as _json
+
+    from servidor import acervo, deposito
+
+    ent, raiz = _entidade_em_disco("demo-p")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    caminho = pasta / "acervo.jsonl"
+    deposito.anexar_com_fsync(caminho, _json.dumps({
+        "ingerido_em": "2026-11-02", "origem": "planilha.xlsx",
+        "retrato": {
+            "pessoas": 2,
+            "inalcancaveis_por_cpf": {A: "sem e-mail", B: "sem e-mail"},
+            "falta_nominal": {"email": [A, B]},
+            "divergencias": {A: [{"campo": "nome", "acervo": "X"}]},
+        },
+        "pessoas": [{"cpf": A, "linha_no_arquivo": 2, "campos": {},
+                     "achados": []},
+                    {"cpf": B, "linha_no_arquivo": 3, "campos": {},
+                     "achados": []}],
+    }, ensure_ascii=False) + "\n")
+
+    acervo.remover_pessoa(caminho, A)
+    bruto = caminho.read_text(encoding="utf-8")
+    checa(A not in bruto,
+          f"o CPF apagado sobreviveu no acervo:\n{bruto[:400]}")
+    registro = _json.loads(bruto.splitlines()[0])
+    checa(B in registro["retrato"]["inalcancaveis_por_cpf"],
+          "levou o vizinho junto do retrato")
+    checa(registro["retrato"]["pessoas"] == 2,
+          "mexeu na contagem do arquivo, que é sobre o arquivo")
+    print("  ok     o retrato perde o apagado e mantém o vizinho")
+
+
+def teste_o_retrato_de_verdade_nao_guarda_cpf_nenhum():
+    """O dublê era o buraco. Os testes acima escrevem o retrato À MÃO, com
+    as três chaves que eu SEI que são indexadas por CPF — e um teste assim
+    só prova que `_limpar_retrato` conhece as chaves que o teste conhece.
+    Foi exatamente um retrato de dublê (`{"pessoas": 1}`) que deixou o C1
+    passar pela suíte inteira.
+
+    Aqui o retrato é o DE VERDADE, `dataclasses.asdict(retratar(...))`, e a
+    conferência é estrutural: depois de limpar, VARRE o retrato inteiro —
+    chaves e valores, em qualquer profundidade — e exige que o CPF não
+    apareça em lugar nenhum. Um campo novo indexado por CPF no `Retrato`
+    quebra este teste no dia em que for criado, que é o dia certo.
+    """
+    import dataclasses as _dc
+
+    from servidor import acervo, completude
+
+    def _varrer(no, agulha: str, caminho: str = "retrato") -> list[str]:
+        """Onde a agulha aparece, com o caminho até lá."""
+        if isinstance(no, dict):
+            saida = []
+            for chave, valor in no.items():
+                if agulha in str(chave):
+                    saida.append(f"{caminho}[{chave!r}] (chave)")
+                saida += _varrer(valor, agulha, f"{caminho}[{chave!r}]")
+            return saida
+        if isinstance(no, (list, tuple)):
+            return [achado for i, item in enumerate(no)
+                    for achado in _varrer(item, agulha, f"{caminho}[{i}]")]
+        return [caminho] if agulha in str(no) else []
+
+    # A e B sem e-mail, o que os põe em `inalcancaveis_por_cpf`; as colunas
+    # exigidas vazias os põem em `falta_nominal`; e o cadastro de A no
+    # diário discordando do acervo o põe em `divergencias`. Os três campos
+    # do retrato que são indexados por CPF, pelo caminho de verdade.
+    def _sem_email(cpf: str, nome: str) -> "acervo.Pessoa":
+        return acervo.Pessoa(
+            cpf=cpf, linha_no_arquivo=2,
+            campos={"nome_completo": nome, "email": "", "cargo": ""},
+            achados=(acervo.Achado("email", acervo.FALTA, "sem e-mail"),),
+        )
+
+    pessoas = [_sem_email(A, "FULANA DE TAL (CADASTRO DE EXEMPLO)"),
+               _sem_email(B, "BELTRANO DE TAL (CADASTRO DE EXEMPLO)")]
+    diario = [{"linha": {"cpf": A,
+                         "nome_completo": "OUTRO NOME (CADASTRO DE EXEMPLO)"}}]
+    retrato = _dc.asdict(completude.retratar(pessoas, diario))
+
+    antes = _varrer(retrato, A)
+    checa(antes,
+          "o retrato de verdade não trouxe o CPF em lugar nenhum, então "
+          "este teste não está medindo nada — conferir `retratar`")
+
+    mudou = acervo._limpar_retrato(retrato, A)
+    checa(mudou, "_limpar_retrato disse que não mexeu em nada")
+
+    sobrou = _varrer(retrato, A)
+    checa(not sobrou,
+          "o CPF apagado sobreviveu no retrato de verdade, em:\n  "
+          + "\n  ".join(sobrou))
+    checa(_varrer(retrato, B),
+          "levou o vizinho junto: o retrato perdeu o CPF de quem NÃO pediu "
+          "para sair")
+    print(f"  ok     retrato real: {len(antes)} lugar(es) com o CPF, "
+          f"0 depois, vizinho intacto")
+
+
+def teste_vestigios_olha_o_retrato():
+    """S1, o outro lado: se alguém puser o CPF no retrato por outro
+    caminho, a varredura tem de ver."""
+    import json as _json
+
+    from servidor import apagamento, deposito
+
+    ent, raiz = _entidade_em_disco("demo-q")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    deposito.anexar_com_fsync(pasta / "acervo.jsonl", _json.dumps({
+        "ingerido_em": "2026-11-02", "origem": "x.xlsx",
+        "retrato": {"inalcancaveis_por_cpf": {A: "sem e-mail"}},
+        "pessoas": [],
+    }, ensure_ascii=False) + "\n")
+    achados = apagamento.vestigios(URL, ent, raiz, A)
+    checa(any("retrato" in v for v in achados),
+          f"vestigios não olhou o retrato do acervo: {achados}")
+    print("  ok     vestigios enxerga o CPF no retrato")
+
+
+def teste_apagar_revoga_a_sessao_e_esquece_o_marcador():
+    """S3, e é a mais grave: a sessão aberta continuava VALENDO.
+
+    Com o token na mão, `POST /api/cadastro` passa pelo portão e reprojeta
+    a pessoa inteira — o apagamento era reversível num pedido para quem
+    tivesse o token. E o `cpf_hash` sobrevivia nas tabelas `codigos` e
+    `sessoes`, que ninguém apagava.
+    """
+    from servidor import acesso, apagamento
+
+    ent, raiz = _semear_em_todo_lugar("demo-r", A)
+    portao = _portao_de_teste(raiz)
+    codigo = portao.emitir("demo-r", A, "127.0.0.1")
+    token = portao.conferir("demo-r", A, codigo)
+    checa(portao.abrir_sessao(token) is not None, "a semeadura não abriu sessão")
+
+    apagamento.apagar(URL, ent, raiz, A, motivo="", pedido_por="",
+                      portao=portao)
+
+    morreu = False
+    try:
+        portao.abrir_sessao(token)
+    except acesso.SessaoInvalida:
+        morreu = True
+    checa(morreu, "a sessão de quem foi apagado continua abrindo — o "
+                  "apagamento é reversível para quem tem o token")
+
+    import sqlite3
+
+    cx = sqlite3.connect(raiz / ".portao" / acesso.ARQUIVO)
+    marca = portao.marcar_cpf(A)
+    restou = sum(
+        cx.execute(f"SELECT count(*) FROM {t} WHERE cpf_hash = ?",
+                   (marca,)).fetchone()[0]
+        for t in ("codigos", "sessoes")
+    )
+    cx.close()
+    checa(restou == 0, f"o marcador sobreviveu no portão: {restou} linha(s)")
+    print("  ok     a sessão morre e o marcador sai do portão")
+
+
+def teste_remover_do_rol_le_por_nome_de_coluna():
+    """S5. `remover` cortava pela PRIMEIRA coluna; `_carregar` lê por NOME
+    de coluna. Rol com matrícula na frente — o formato que o próprio módulo
+    diz esperar — era lido pelo portão e nunca apagado, e `apagar` nunca
+    convergia, enquanto a ferramenta mandava "rode de novo, é seguro".
+    """
+    from servidor import rol
+
+    ent, raiz = _entidade_em_disco("demo-s")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    (pasta / rol.ARQUIVO).write_text(
+        "matricula;cpf;email\n"
+        f"0001;{A};a@exemplo.invalid\n"
+        f"0002;{B};b@exemplo.invalid\n",
+        encoding="utf-8")
+
+    checa(rol.carregar(pasta).email_de(A) == "a@exemplo.invalid",
+          "a semeadura não foi lida pelo portão")
+    saiu = rol.remover(pasta, A)
+    checa(saiu == 1, f"não tirou a linha com matrícula na frente: {saiu}")
+    checa(rol.carregar(pasta).email_de(A) is None,
+          "o CPF continua legível pelo portão depois de apagado")
+    checa(rol.carregar(pasta).email_de(B) == "b@exemplo.invalid",
+          "levou o vizinho junto")
+    print("  ok     remove por nome de coluna, não por posição")
+
+
+def teste_apagar_limpa_a_area_de_montagem():
+    """S2. Uma queda entre montar e trocar deixa o PDF em `.parcial/`, que
+    é indexado por PROTOCOLO e não por CPF — nem `apagar` nem `vestigios`
+    tinham por onde achá-lo."""
+    from servidor import apagamento, deposito
+
+    ent, raiz = _entidade_em_disco("demo-t")
+    pasta = ent.pasta(raiz)
+    _anexar_ao_diario(ent, raiz, [_registro_do_diario(A, "PRT-T-1")])
+    montagem = pasta / deposito.PARCIAL / "PRT-T-1"
+    montagem.mkdir(parents=True, exist_ok=True)
+    (montagem / "sentenca.pdf").write_bytes(b"%PDF-1.4\n(EXEMPLO FICTICIO)")
+
+    # ANTES do apagamento a montagem NÃO é vestígio de ninguém apagado —
+    # é só um envio que caiu no meio. Vestígio é o que sobra DEPOIS.
+    portao = _portao_de_teste(raiz)
+    saida = apagamento.apagar(URL, ent, raiz, A, motivo="", pedido_por="",
+                              portao=portao)
+    checa(not montagem.exists(),
+          "o PDF com a sentença ficou na área de montagem depois de apagar")
+    checa(saida["vestigios"] == [], f"sobrou coisa: {saida['vestigios']}")
+
+    # E SE ELA VOLTAR, a varredura tem de ver. O protocolo sobrevive no
+    # registro redigido, e registro redigido é de alguém apagado — é por
+    # aí que uma pasta indexada por PROTOCOLO fica atribuível.
+    montagem.mkdir(parents=True, exist_ok=True)
+    (montagem / "sentenca.pdf").write_bytes(b"%PDF-1.4\n(EXEMPLO)")
+    depois = apagamento.vestigios(URL, ent, raiz, A, portao=portao)
+    checa(any("montagem" in v for v in depois),
+          f"vestigios não viu a montagem de um envio apagado: {depois}")
+    print("  ok     a área de montagem é limpa, e vigiada se voltar")
+
+
+
+def teste_apagar_nao_destroi_recebimento_de_outra_ingestao():
+    """I1. O `DELETE FROM recebimento ... NOT EXISTS` não tinha predicado
+    ligando-o à pessoa: varria TODO recebimento órfão visível.
+
+    A camada 1 é o "o que exatamente nos mandaram?" e é irreversível.
+    Destruir a procedência de uma planilha que não tem nada a ver com o
+    pedido é o oposto do que o apagamento deve fazer — e a contagem
+    devolvida atribuía as duas ao pedido dela.
+    """
+    from servidor import banco
+
+    ent, raiz = _entidade_em_disco("demo-u")
+    # Um recebimento ÓRFÃO semeado direto — uma ingestão antiga cujas
+    # afirmações já foram consolidadas. Semeá-lo pela própria função com
+    # defeito não dava: ela já o apagava, que é o defeito.
+    with banco.sessao(URL, "demo-u") as cur:
+        cur.execute(
+            "INSERT INTO recebimento (entidade, tipo, origem, payload, "
+            "sha256) VALUES (%s,'acervo',%s,%s::jsonb,%s)",
+            ("demo-u", "planilha-antiga.xlsx", '{"linhas":9}', "f" * 64),
+        )
+        cur.execute("SELECT count(*) FROM recebimento")
+        orfaos_antes = cur.fetchone()[0]
+    checa(orfaos_antes >= 1,
+          "a semeadura não deixou recebimento órfão para o teste medir")
+
+    banco.projetar_acervo(URL, "demo-u", [_pessoa_do_acervo(A, 3)])
+    saiu = banco.apagar_pessoa(URL, "demo-u", A)
+
+    with banco.sessao(URL, "demo-u") as cur:
+        cur.execute("SELECT count(*) FROM recebimento")
+        depois = cur.fetchone()[0]
+    checa(depois >= orfaos_antes,
+          f"apagar a pessoa destruiu recebimento de outra ingestão: "
+          f"{orfaos_antes} antes, {depois} depois. Contagem devolvida: "
+          f"{saiu}")
+    print("  ok     recebimento de outra ingestão sobrevive")
+
+
+def teste_a_redacao_nao_destroi_a_linha_truncada_de_terceiro():
+    """I3. A volta pelo `ler_diario` é lossy: linha truncada por queda vira
+    `{"_ilegivel": n}`, e reescrever o arquivo a partir disso APAGA os bytes
+    crus — que são a única prova de que aquele envio existiu.
+
+    Apagar a pessoa A destruía, em silêncio e para sempre, o fragmento do
+    envio de B. O resto do sistema tolera essas linhas de propósito.
+    """
+    from servidor import deposito
+
+    ent, raiz = _entidade_em_disco("demo-v")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    _anexar_ao_diario(ent, raiz, [_registro_do_diario(A, "PRT-V-X")])
+    truncada = '{"protocolo": "PRT-TRUNCADA", "linha": {"cpf": "9'
+    with open(pasta / deposito.DIARIO, "a", encoding="utf-8") as fh:
+        fh.write(truncada + "\n")
+    _anexar_ao_diario(ent, raiz, [_registro_do_diario(B, "PRT-V-Y")])
+
+    deposito.redigir_no_diario(ent, raiz, A)
+
+    bruto = (pasta / deposito.DIARIO).read_text(encoding="utf-8")
+    checa(truncada in bruto,
+          "a redação destruiu a linha truncada de outro envio — era a única "
+          "prova de que ele existiu")
+    checa("PRT-V-Y" in bruto, "levou o registro do vizinho junto")
+    print("  ok     a linha truncada de terceiro sobrevive à redação")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -721,9 +1053,17 @@ TESTES = [
     teste_o_apagamento_e_retomavel,
     teste_apagar_duas_vezes_deixa_dois_tombstones,
     teste_restaurar_backup_nao_ressuscita_quem_foi_apagado,
-    teste_sem_marcar_cpf_a_recuperacao_nao_filtra,
+    teste_esquecer_o_filtro_falha_fechado,
     teste_a_ingestao_pula_o_apagado_e_relata,
     teste_a_ferramenta_apaga_e_confere,
+    teste_o_retrato_do_acervo_nao_guarda_o_cpf_apagado,
+    teste_o_retrato_de_verdade_nao_guarda_cpf_nenhum,
+    teste_vestigios_olha_o_retrato,
+    teste_apagar_revoga_a_sessao_e_esquece_o_marcador,
+    teste_remover_do_rol_le_por_nome_de_coluna,
+    teste_apagar_limpa_a_area_de_montagem,
+    teste_apagar_nao_destroi_recebimento_de_outra_ingestao,
+    teste_a_redacao_nao_destroi_a_linha_truncada_de_terceiro,
 ]
 
 

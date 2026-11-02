@@ -203,7 +203,8 @@ def _tipo_do_arquivo(nome: str) -> str:
 
 
 def reconstruir(url: str, entidade: str, registros,
-                marcar_cpf=None) -> tuple[int, int]:
+                marcar_cpf=None, *,
+                consentimento_novo: bool = False) -> tuple[int, int]:
     """Projeta o diário no banco. Devolve (gravados, pulados por tombstone).
 
     **IDEMPOTENTE**, e tem de ser: esta é a operação de recuperação, e uma
@@ -230,7 +231,12 @@ def reconstruir(url: str, entidade: str, registros,
     que ela não pode voltar.
 
     Passar `marcar_cpf` é, portanto, declarar "estou reprojetando
-    histórico".
+    histórico". Passar `consentimento_novo=True` é declarar o contrário.
+
+    E NÃO PASSAR NENHUM DOS DOIS, numa entidade que tem apagamento
+    registrado, é ERRO — a função recusa em vez de adivinhar. A forma
+    anterior tratava o esquecimento como "não filtre", e o único caminho de
+    recuperação é uma chamada à mão, que é justamente a que esquece.
 
     O QUE ESTA FUNÇÃO NÃO PROJETA, e é deliberado: `pessoa.alcancavel` e
     `pessoa.tem_divergencia`. As duas se calculam cruzando o ACERVO com o
@@ -241,7 +247,28 @@ def reconstruir(url: str, entidade: str, registros,
     campos = _campos_do_contrato()
     gravados = 0
     pulados = 0
-    apagados = tombstones(url, entidade) if marcar_cpf else set()
+
+    # ESQUECER O FILTRO FALHA FECHADO, e esta é a correção de uma forma
+    # invertida. Antes, `marcar_cpf=None` significava "não filtre", e o
+    # único jeito de recuperar histórico é uma chamada à mão — que é
+    # exatamente a chamada que esquece o parâmetro. Quem esquecesse
+    # ressuscitava quem pediu para sair, em silêncio.
+    #
+    # Agora: se a entidade TEM tombstone e ninguém disse como tratar, a
+    # função recusa. Quando não há tombstone não há o que filtrar, e nada
+    # muda para quem semeia dados de teste.
+    apagados: set[str] = set()
+    if not consentimento_novo:
+        marcados = tombstones(url, entidade)
+        if marcados and marcar_cpf is None:
+            raise ValueError(
+                "esta entidade tem apagamento a pedido registrado. Passe "
+                "`marcar_cpf=portao.marcar_cpf` para pular quem foi "
+                "apagado, ou `consentimento_novo=True` para declarar que "
+                "estes registros são envios novos das próprias pessoas"
+            )
+        if marcar_cpf is not None:
+            apagados = marcados
     with sessao(url, entidade) as cur:
         for registro in registros or ():
             if not isinstance(registro, dict):
@@ -913,15 +940,42 @@ def apagar_pessoa(url: str, entidade: str, cpf: str) -> dict[str, int]:
     digitos = _digitos(cpf)
     saiu: dict[str, int] = {}
     with sessao(url, entidade) as cur:
+        # OS RECEBIMENTOS QUE ESTA PESSOA REFERENCIAVA, capturados ANTES de
+        # apagar as afirmações dela. Depois não há como saber quais eram.
+        cur.execute(
+            "SELECT DISTINCT recebimento_id FROM pessoa_afirmacao "
+            "WHERE cpf = %s AND recebimento_id IS NOT NULL",
+            (digitos,),
+        )
+        candidatos = [linha[0] for linha in cur.fetchall()]
+
         for tabela in _TABELAS_DO_APAGAMENTO:
             cur.execute(f"DELETE FROM {tabela} WHERE cpf = %s", (digitos,))
             if cur.rowcount:
                 saiu[tabela] = cur.rowcount
-        cur.execute(
-            "DELETE FROM recebimento r WHERE NOT EXISTS ("
-            "  SELECT 1 FROM pessoa_afirmacao a WHERE a.recebimento_id = r.id"
-            ")"
-        )
-        if cur.rowcount:
-            saiu["recebimento"] = cur.rowcount
+
+        # SÓ OS DELA, E SÓ SE FICARAM SEM NINGUÉM.
+        #
+        # A primeira versão apagava `WHERE NOT EXISTS (...)` sem predicado
+        # nenhum — varria TODO recebimento órfão visível. Medido: uma
+        # ingestão sem relação com a pessoa foi destruída, e a contagem
+        # devolvida atribuiu as duas ao pedido dela. A camada 1 é o "o que
+        # exatamente nos mandaram?" e é irreversível.
+        #
+        # `entidade` no WHERE é redundante com a política, e está aqui de
+        # propósito: um DELETE sem predicado de entidade tem a política como
+        # única barreira, e o cabeçalho do esquema registra que isso já
+        # falhou uma vez por falta do SET ROLE.
+        if candidatos:
+            cur.execute(
+                "DELETE FROM recebimento r "
+                "WHERE r.entidade = %s AND r.id = ANY(%s) "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM pessoa_afirmacao a "
+                "  WHERE a.recebimento_id = r.id"
+                ")",
+                (entidade, candidatos),
+            )
+            if cur.rowcount:
+                saiu["recebimento"] = cur.rowcount
     return saiu

@@ -1710,6 +1710,186 @@ def teste_o_painel_conta_quantos_foram_apagados_a_pedido():
     print("  ok     o painel conta os apagados, sem nomear")
 
 
+
+def teste_gestor_de_outra_entidade_nao_apaga_e_nem_le_o_rol_alvo():
+    """Item 7 da spec, que não tinha teste. E o que ele fixa é a ORDEM.
+
+    `_gestor_de` confere primeiro que a sessão é da entidade PEDIDA, e só
+    depois lê `gestores.csv` dela. A ordem inversa diria a um gestor de
+    outra entidade se o CPF dele consta como gestor aqui.
+
+    O CÓDIGO DE STATUS NÃO SERVE DE PROVA, e eu escrevi este teste errado
+    uma vez por supor que servia: nas duas ordens a resposta é 403, porque
+    rol ilegível também dá 403. Invertida a ordem no servidor, um teste
+    sobre o status continuava passando.
+
+    O que distingue as duas ordens é se o rol do alvo é LIDO. Então é isso
+    que se mede: um gatilho em `rol.carregar_gestores` que registra por qual
+    pasta foi chamado.
+    """
+    import csv as _csv
+
+    from servidor import entidades as _ents
+    from servidor import rol as _rol
+
+    cliente, ent, raiz = _servidor()
+    outra = _ents.Cadastro(raiz).criar("demo-z", "Outro Sindicato")
+    pasta_outra = outra.pasta(raiz)
+    pasta_outra.mkdir(parents=True, exist_ok=True)
+    for arquivo, contato in (("filiados.csv", "z@exemplo.invalid"),
+                             ("gestores.csv", "gz@exemplo.invalid")):
+        with open(pasta_outra / arquivo, "w", newline="",
+                  encoding="utf-8") as fh:
+            w = _csv.writer(fh)
+            w.writerow(["cpf", "email"])
+            w.writerow([A, contato])
+
+    token_da_outra = cliente.post(
+        "/api/acesso/conferir",
+        json={"entidade": "demo-z", "cpf": A,
+              "codigo": cliente.post(
+                  "/api/acesso/codigo",
+                  json={"entidade": "demo-z", "cpf": A}
+              ).json()["codigo_do_ensaio"]},
+    ).json()["token"]
+
+    lidos: list[str] = []
+    original = _rol.carregar_gestores
+
+    def gatilho(pasta, *a, **k):
+        lidos.append(Path(pasta).name)
+        return original(pasta, *a, **k)
+
+    _rol.carregar_gestores = gatilho
+    try:
+        r = _apagar(cliente, ent.apelido,
+                    {"cpf": A, "motivo": "", "pedido_por": ""},
+                    token_da_outra)
+    finally:
+        _rol.carregar_gestores = original
+
+    checa(r.status_code == 403,
+          f"gestor de outra entidade devia dar 403, deu {r.status_code} "
+          f"{r.text[:200]}")
+    checa(ent.apelido not in lidos,
+          f"leu o rol de gestores da entidade alvo antes de conferir a "
+          f"entidade da sessão: {lidos}")
+    print("  ok     403 por entidade, sem tocar no rol do alvo")
+
+
+def teste_o_apagamento_fica_registrado_e_leitura_nao_e_apagada():
+    """Item 9 da spec, que não tinha teste — nas DUAS metades.
+
+    `leitura` não é apagada (o GRANT nega DELETE à aplicação, e o teste
+    EXERCITA a negação em vez de confiar nela), e o apagamento ENTRA nela.
+    """
+    import psycopg
+
+    from servidor import banco
+
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    token = _token(cliente, B)
+
+    # Metade 1: a aplicação não consegue apagar o próprio rastro.
+    negou = ""
+    try:
+        with banco.sessao(URL, ent.apelido) as cur:
+            cur.execute("DELETE FROM leitura")
+    except psycopg.errors.InsufficientPrivilege as e:
+        negou = str(e)
+    checa("leitura" in negou,
+          f"a aplicação conseguiu apagar o registro de auditoria: {negou!r}")
+
+    # Metade 2: o apagamento entra no registro, e diz QUEM mandou.
+    r = _apagar(cliente, ent.apelido,
+                {"cpf": A, "motivo": "pedido", "pedido_por": "g"}, token)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+
+    with banco.sessao(URL, ent.apelido) as cur:
+        cur.execute("SELECT quem_hash, alvo_hash FROM leitura "
+                    "WHERE o_que = 'apagar'")
+        linhas = cur.fetchall()
+    checa(len(linhas) == 1,
+          f"o apagamento não ficou registrado em leitura: {linhas}")
+    quem, alvo = linhas[0]
+    checa(quem and A not in quem and B not in quem,
+          f"o registro não diz quem mandou, ou traz CPF em claro: {linhas[0]}")
+    checa(alvo and A not in alvo,
+          f"o registro não diz sobre quem, ou traz CPF em claro: {linhas[0]}")
+    print("  ok     o apagamento fica registrado, e leitura nega DELETE")
+
+
+def teste_sem_registro_de_auditoria_nao_apaga_nada():
+    """I6. `_auditar` engole exceção por uma decisão tomada para LEITURA
+    ("falha de registro não derruba a consulta"), e essa decisão tem um
+    custo aceitável lá: a consulta fica sem rastro, mas nada se perde.
+
+    Aplicada a um ato DESTRUTIVO E IRREVERSÍVEL, a mesma decisão significa
+    tombstone gravado, pessoa apagada, e nenhum registro de qual gestor
+    mandou — exatamente o que o item 9 da spec existe para impedir. Aqui a
+    casa manda falhar fechado: sem registro, não apaga.
+    """
+    from servidor import banco
+
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    token = _token(cliente, B)
+
+    original = banco.registrar_leitura
+    banco.registrar_leitura = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("registro fora do ar"))
+    try:
+        r = _apagar(cliente, ent.apelido,
+                    {"cpf": A, "motivo": "pedido", "pedido_por": "g"}, token)
+    finally:
+        banco.registrar_leitura = original
+
+    checa(r.status_code >= 500,
+          f"apagou sem conseguir registrar quem mandou: {r.status_code} "
+          f"{r.text[:200]}")
+    checa(banco.tombstones(URL, ent.apelido) == set(),
+          "gravou o tombstone sem registro de quem mandou")
+    sobrou = cliente.get(f"/api/entidade/{ent.apelido}/completude",
+                         headers={"Authorization": f"Bearer {token}"})
+    checa(sobrou.json()["apagados_a_pedido"] == 0,
+          "contou um apagamento que não devia ter acontecido")
+    print("  ok     sem registro de quem mandou, não apaga")
+
+
+def teste_falha_ao_conferir_apagamento_nao_entrega_codigo():
+    """I7. O ruling anterior deixava o portão falhar ABERTO: erro ao ler os
+    tombstones virava log e o código SAÍA para quem pediu para sair.
+
+    A alternativa não precisa ser global. Tratar a falha DAQUELE pedido como
+    "sem destino" mantém a resposta idêntica — mesmo 202, mesmo corpo, nada
+    para para o usuário —, não cria oráculo, e nunca entrega credencial a
+    quem pediu para sair. A casa escreve: a dúvida nunca vira permissão.
+    """
+    from servidor import banco
+
+    cliente, ent, raiz = _servidor()
+    log = raiz / "codigos_enviados.log"
+    antes = len(log.read_text().splitlines()) if log.is_file() else 0
+
+    original = banco.tombstones
+    banco.tombstones = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("banco fora do ar"))
+    try:
+        r = cliente.post("/api/acesso/codigo",
+                         json={"entidade": ent.apelido, "cpf": A})
+    finally:
+        banco.tombstones = original
+
+    checa(r.status_code == 202,
+          f"a falha virou status próprio: {r.status_code}")
+    depois = len(log.read_text().splitlines()) if log.is_file() else 0
+    checa(depois == antes,
+          f"entregou o código sem conseguir conferir o apagamento: "
+          f"{depois - antes} linha(s) novas")
+    print("  ok     sem conferir, não entrega — e a resposta não muda")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1762,6 +1942,10 @@ TESTES = [
     teste_apagar_aceita_cpf_formatado,
     teste_apagar_cpf_de_fora_da_base_nao_e_oraculo,
     teste_o_painel_conta_quantos_foram_apagados_a_pedido,
+    teste_gestor_de_outra_entidade_nao_apaga_e_nem_le_o_rol_alvo,
+    teste_o_apagamento_fica_registrado_e_leitura_nao_e_apagada,
+    teste_sem_registro_de_auditoria_nao_apaga_nada,
+    teste_falha_ao_conferir_apagamento_nao_entrega_codigo,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,
     teste_o_registro_por_cpf_concorda_com_a_base_inteira,

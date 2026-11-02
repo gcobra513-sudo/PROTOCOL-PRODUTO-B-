@@ -89,7 +89,7 @@ def main() -> int:
     portao = acesso.Portao(raiz / ".portao-ferramenta", segredo)
 
     if args.conferir:
-        sobrou = apagamento.vestigios(args.banco, ent, raiz, cpf)
+        sobrou = apagamento.vestigios(args.banco, ent, raiz, cpf, portao=portao)
         if not sobrou:
             print("nada sobrou desta pessoa nesta entidade.")
             return 0
@@ -101,7 +101,7 @@ def main() -> int:
     saida = apagamento.apagar(args.banco, ent, raiz, cpf,
                               motivo=args.motivo,
                               pedido_por=args.pedido_por,
-                              marcar_cpf=portao.marcar_cpf)
+                              portao=portao)
     print(f"marcador: {saida['marcador']}")
     print(f"  diário    {saida['diario']} envio(s) redigido(s)")
     print(f"  arquivos  {saida['arquivos']} apagado(s) do disco")

@@ -350,3 +350,50 @@ class Portao:
         cadastrando outra pessoa.
         """
         return hmac.compare_digest(sessao.cpf_hash, self.marcar_cpf(cpf))
+
+
+    def esquecer(self, entidade: str, cpf: str) -> int:
+        """Apaga do portão tudo o que aponta para esta pessoa, e REVOGA a
+        sessão aberta dela. Devolve quantas linhas saíram.
+
+        A REVOGAÇÃO É O PONTO, não a limpeza. Um token de sessão vale 4
+        horas (`HORAS_DA_SESSAO`), e sem isto ele continuava valendo depois
+        do apagamento: quem o tivesse na mão mandava um cadastro novo, e
+        `POST /api/cadastro` reprojetava a pessoa inteira. O mecanismo
+        escolhido para o apagamento — não entregar código NOVO — era
+        contornável por até quatro horas com a credencial já emitida.
+
+        `emissoes` não entra: ela é indexada por origem (a conexão), não por
+        pessoa, e não guarda nada que aponte para alguém.
+        """
+        marca = self.marcar_cpf(cpf)
+        saiu = 0
+        with self._conectar() as cx:
+            cx.execute("BEGIN IMMEDIATE")
+            for tabela in ("codigos", "sessoes"):
+                cur = cx.execute(
+                    f"DELETE FROM {tabela} "
+                    f"WHERE entidade = ? AND cpf_hash = ?",
+                    (entidade, marca),
+                )
+                saiu += cur.rowcount
+            cx.execute("COMMIT")
+        return saiu
+
+
+    def marcadores_de(self, entidade: str, cpf: str) -> int:
+        """Quantas linhas do portão ainda apontam para esta pessoa.
+
+        Existe para a varredura do apagamento poder MEDIR o portão sem
+        importar este módulo nem conhecer o esquema dele.
+        """
+        marca = self.marcar_cpf(cpf)
+        with self._conectar() as cx:
+            return sum(
+                cx.execute(
+                    f"SELECT count(*) FROM {t} "
+                    f"WHERE entidade = ? AND cpf_hash = ?",
+                    (entidade, marca),
+                ).fetchone()[0]
+                for t in ("codigos", "sessoes")
+            )

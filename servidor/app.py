@@ -566,13 +566,25 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                         cfg.banco_url, ent.apelido):
                     destino = None
             except Exception:  # noqa: BLE001
-                # NÃO FECHA O PORTÃO INTEIRO por causa de um banco fora do
-                # ar. O risco de deixar passar é um código entregue a quem
-                # pediu para sair; o risco de recusar é o portal parar para
-                # todos os filiados do sindicato. O segundo é maior, e a
-                # falha fica no log para alguém olhar.
+                # SEM CONSEGUIR CONFERIR, NÃO ENTREGA — e isto NÃO fecha o
+                # portão.
+                #
+                # A escolha anterior aqui era deixar passar, pelo raciocínio
+                # de que recusar pararia o portal para todos os filiados por
+                # causa de um banco fora do ar. O raciocínio estava errado
+                # porque supunha só duas saídas, passar ou recusar. Há uma
+                # terceira: tratar a falha DAQUELE pedido como "sem
+                # destino" — mesmo 202, mesmo corpo, nada para para quem
+                # pede, nenhum oráculo novo — e simplesmente não entregar
+                # credencial a quem pode ter pedido para sair.
+                #
+                # O custo é real e é o lado certo de errar: enquanto o banco
+                # estiver fora, ninguém recebe código, e a falha fica no log.
+                # A dúvida nunca vira permissão.
                 log.exception("não deu para conferir apagamento ent=%s "
-                              "cpf=%s", ent.apelido, marca)
+                              "cpf=%s — não entregamos o código",
+                              ent.apelido, marca)
+                destino = None
 
         if destino is None:
             log.info("codigo sem destino ent=%s cpf=%s", ent.apelido, marca)
@@ -1272,14 +1284,37 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             )
 
         marcador = portao.marcar_cpf(cpf)
-        _auditar(ent, "apagar", quem_hash=sessao.cpf_hash,
-                 alvo_hash=marcador)
+        # AQUI NÃO SERVE `_auditar`, E A DIFERENÇA É O QUE ESTÁ EM JOGO.
+        #
+        # `_auditar` engole exceção, e essa decisão foi tomada para LEITURA:
+        # lá, registro perdido deixa a consulta sem rastro, mas nenhum dado
+        # se perde e a pessoa continua atendida. Aqui o ato é destrutivo e
+        # irreversível — o mesmo engolir significaria pessoa apagada sem
+        # nenhum registro de qual gestor mandou, que é precisamente o que o
+        # item 9 da spec existe para impedir.
+        #
+        # Então falha fechado: registra PRIMEIRO, e se o registro não entra,
+        # nada é apagado. O custo é um apagamento adiado enquanto o banco
+        # estiver fora; o custo do contrário é um apagamento sem autor.
+        try:
+            banco.registrar_leitura(cfg.banco_url, ent.apelido,
+                                    quem_hash=sessao.cpf_hash,
+                                    o_que="apagar", alvo_hash=marcador)
+        except Exception:  # noqa: BLE001
+            log.exception("AUDITORIA DO APAGAMENTO falhou ent=%s",
+                          ent.apelido)
+            raise _problema(
+                503,
+                "não conseguimos registrar quem pediu este apagamento, e "
+                "sem esse registro não apagamos nada. Nada foi alterado: "
+                "tente de novo.",
+            ) from None
         try:
             saida = apagamento.apagar(
                 cfg.banco_url, ent, cfg.raiz, cpf,
                 motivo=str(corpo.get("motivo", "")),
                 pedido_por=str(corpo.get("pedido_por", "")),
-                marcar_cpf=portao.marcar_cpf,
+                portao=portao,
             )
         except Exception:  # noqa: BLE001
             log.exception("APAGAR falhou ent=%s cpf=%s", ent.apelido,
@@ -1481,7 +1516,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 # A recuperação pelo diário inteiro continua existindo, e
                 # tem teste próprio — ela só deixou de rodar aqui.
                 banco.reconstruir(cfg.banco_url, ent.apelido,
-                                  [recibo.registro])
+                                  [recibo.registro],
+                                  consentimento_novo=True)
                 for nome, corpo in recebidos.items():
                     banco.guardar_achados(
                         cfg.banco_url, ent.apelido, limpa["cpf"],
