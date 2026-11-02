@@ -229,6 +229,69 @@ def reconstruir_manifesto(
     return destino
 
 
+def redigir_no_diario(
+    entidade: Entidade, raiz: pathlib.Path, cpf: str
+) -> int:
+    """Apaga o CONTEÚDO dos envios desta pessoa, mantendo o registro.
+
+    O QUE SOBRA: `protocolo`, `recebido_em`, `entidade` e `apagado_em`. O
+    que sai: `linha` e `arquivos` — o nome, o CPF, o e-mail e as somas dos
+    documentos.
+
+    POR QUE NÃO REMOVER A LINHA. O diário é a AUTORIDADE deste produto, e
+    remover a linha perderia duas coisas: a evidência de que houve um envio
+    ali, e o protocolo que a pessoa tem nas mãos. Ela volta perguntando
+    "o que aconteceu com o meu PRT-...?" e tem de haver resposta.
+
+    E a redação BASTA porque `banco.reconstruir` já pula registro sem
+    `linha` (`if not isinstance(linha, dict): continue`). Sem isso, o
+    apagamento teria de mexer na projeção também.
+
+    "Append-only" passa a significar **não se edita o conteúdo**, não "não
+    se apaga nunca" — e o tombstone é a prova de que foi deliberado.
+
+    Reescreve o arquivo inteiro com troca atômica, dentro da trava, como
+    `reconstruir_manifesto` faz. Refaz o manifesto no fim, porque ele é
+    derivado do diário.
+    """
+    digitos = validacao.so_digitos(cpf)
+    if len(digitos) != 11:
+        raise ValueError("redigir_no_diario exige CPF de 11 dígitos")
+
+    pasta = entidade.pasta(raiz)
+    caminho = pasta / DIARIO
+    if not caminho.is_file():
+        return 0
+
+    agora = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
+    redigidos = 0
+    with _travada(pasta):
+        saida: list[str] = []
+        for registro in ler_diario(pasta):
+            linha = registro.get("linha")
+            if (isinstance(linha, dict)
+                    and validacao.so_digitos(linha.get("cpf") or "")
+                    == digitos):
+                registro = {
+                    "protocolo": registro.get("protocolo", ""),
+                    "recebido_em": registro.get("recebido_em", ""),
+                    "entidade": registro.get("entidade", entidade.apelido),
+                    "apagado_em": agora,
+                }
+                redigidos += 1
+            saida.append(
+                json.dumps(registro, ensure_ascii=False, sort_keys=True)
+            )
+        tmp = pasta / (DIARIO + ".parcial")
+        tmp.write_text("\n".join(saida) + "\n", encoding="utf-8")
+        os.chmod(tmp, MODO_ARQUIVO)
+        tmp.replace(caminho)
+
+    # O manifesto é derivado: refazer é o reparo, e é idempotente.
+    reconstruir_manifesto(entidade, raiz)
+    return redigidos
+
+
 def depositar(
     entidade: Entidade,
     raiz: pathlib.Path,

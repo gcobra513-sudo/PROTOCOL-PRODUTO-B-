@@ -18,6 +18,7 @@ Spec: `docs/superpowers/specs/2026-11-02-apagamento-a-pedido-design.md`
 from __future__ import annotations
 
 import os
+import pathlib
 import sys
 from pathlib import Path
 
@@ -202,12 +203,101 @@ def teste_apagar_nao_atravessa_entidade():
     print("  ok     apagar não atravessa entidade")
 
 
+
+# --------------------------------------------- a redação no diário
+
+def _entidade_em_disco(apelido: str = "demo-a"):
+    """Uma entidade de verdade numa raiz temporária, com diário."""
+    import tempfile
+
+    from servidor import entidades
+
+    raiz = pathlib.Path(tempfile.mkdtemp(prefix="apagamento-"))
+    ent = entidades.Cadastro(raiz).criar(apelido, "Sindicato de Exemplo")
+    return ent, raiz
+
+
+def _anexar_ao_diario(ent, raiz, registros: list[dict]) -> None:
+    import json as _json
+
+    from servidor import deposito
+
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    for r in registros:
+        deposito.anexar_com_fsync(
+            pasta / deposito.DIARIO,
+            _json.dumps(r, ensure_ascii=False, sort_keys=True) + "\n",
+        )
+
+
+def teste_a_redacao_mantem_o_protocolo_e_perde_o_conteudo():
+    """A REDAÇÃO É O QUE FAZ "append-only" SIGNIFICAR "não se edita".
+
+    O diário é a autoridade do produto. Remover a linha inteira perderia a
+    evidência de que houve um envio e tornaria inexistente o protocolo que
+    a pessoa tem nas mãos. Então o registro fica, e o CONTEÚDO sai.
+
+    E `reconstruir` já pula registro sem `linha` — é isso que faz a redação
+    bastar sem mudar a projeção.
+    """
+    secao("a redação no diário")
+    from servidor import deposito
+
+    ent, raiz = _entidade_em_disco()
+    _anexar_ao_diario(ent, raiz, [
+        _registro_do_diario(A, "PRT-A-1"),
+        _registro_do_diario(B, "PRT-B-1"),
+        _registro_do_diario(A, "PRT-A-2"),
+    ])
+
+    quantos = deposito.redigir_no_diario(ent, raiz, A)
+    checa(quantos == 2, f"devia redigir os 2 envios dela, redigiu {quantos}")
+
+    registros = deposito.ler_diario(ent.pasta(raiz))
+    checa(len(registros) == 3,
+          f"a redação mudou o número de linhas do diário: {len(registros)}")
+
+    redigidos = [r for r in registros if r.get("apagado_em")]
+    checa(len(redigidos) == 2, f"só {len(redigidos)} ficaram redigidos")
+    for r in redigidos:
+        checa(bool(r.get("protocolo")) and bool(r.get("recebido_em")),
+              f"perdeu o protocolo, e a pessoa tem esse número na mão: {r}")
+        checa("linha" not in r and "arquivos" not in r,
+              f"sobrou conteúdo no registro redigido: {r}")
+
+    sobrou = [r for r in registros if r.get("linha", {}).get("cpf") == B]
+    checa(len(sobrou) == 1 and sobrou[0]["linha"].get("nome_completo"),
+          "redigiu o registro da OUTRA pessoa")
+    print("  ok     protocolo mantido, conteúdo apagado, vizinho intacto")
+
+
+def teste_a_projecao_ignora_registro_redigido():
+    """A razão de a redação bastar: `reconstruir` pula registro sem `linha`.
+
+    Se não pulasse, projetar um diário redigido levantaria ou gravaria
+    pessoa sem CPF — e o apagamento teria de mexer na projeção também.
+    """
+    from servidor import banco, deposito
+
+    ent, raiz = _entidade_em_disco("demo-c")
+    _anexar_ao_diario(ent, raiz, [_registro_do_diario(A, "PRT-C-1")])
+    deposito.redigir_no_diario(ent, raiz, A)
+
+    banco.reconstruir(URL, "demo-c", deposito.ler_diario(ent.pasta(raiz)))
+    checa(banco.registro_do_cpf(URL, "demo-c", A) is None,
+          "projetar um diário redigido ressuscitou a pessoa")
+    print("  ok     a projeção ignora registro redigido")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
     teste_apagar_pessoa_limpa_o_que_e_dela,
     teste_apagar_nao_estraga_o_dado_de_terceiro,
     teste_apagar_nao_atravessa_entidade,
+    teste_a_redacao_mantem_o_protocolo_e_perde_o_conteudo,
+    teste_a_projecao_ignora_registro_redigido,
 ]
 
 
