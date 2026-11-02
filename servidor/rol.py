@@ -30,9 +30,12 @@ from __future__ import annotations
 
 import csv
 import io
+import os
 import pathlib
+import stat
 from dataclasses import dataclass
 
+from . import acervo
 from .validacao import cpf_valido, so_digitos
 
 ARQUIVO = "filiados.csv"
@@ -95,8 +98,6 @@ def _carregar(caminho: pathlib.Path) -> Rol:
     # portal recusar silenciosamente cada filiado.
     #
     # E o separador também: a exportação de Excel em português usa ';'.
-    from . import acervo
-
     texto = acervo._decodificar(caminho.read_bytes())
     primeira = texto.splitlines()[0] if texto.strip() else ""
     with io.StringIO(texto, newline="") as fh:
@@ -144,15 +145,18 @@ def remover(pasta_entidade: pathlib.Path, cpf: str) -> int:
     `;`, e em latin-1 com frequência — `_carregar` aprendeu isso derrubando
     o portão inteiro uma vez. Só a LINHA sai; o cabeçalho e as outras ficam.
     """
-    from . import acervo
-
     digitos = so_digitos(cpf)
     sairam = 0
     for nome in (ARQUIVO, ARQUIVO_GESTORES):
         caminho = pasta_entidade / nome
         if not caminho.is_file():
             continue
-        texto = acervo._decodificar(caminho.read_bytes())
+        bruto = caminho.read_bytes()
+        texto, encoding = acervo._decodificar_dizendo_como(bruto)
+        # O TERMINADOR TAMBÉM É DIALETO. `splitlines()` come CRLF, e
+        # `"\n".join` devolvia arquivo de Unix para quem entregou arquivo de
+        # Windows. Quem decide é o que está no arquivo, não o nosso sistema.
+        fim = "\r\n" if b"\r\n" in bruto else "\n"
         linhas = texto.splitlines()
         if not linhas:
             continue
@@ -177,6 +181,9 @@ def remover(pasta_entidade: pathlib.Path, cpf: str) -> int:
                 continue
             guardadas.append(linha)
         tmp = caminho.with_suffix(caminho.suffix + ".parcial")
-        tmp.write_text("\n".join(guardadas) + "\n", encoding="utf-8")
+        tmp.write_bytes((fim.join(guardadas) + fim).encode(encoding))
+        # A PERMISSÃO É DO ARQUIVO DO SINDICATO. `replace` troca o inode, e
+        # sem isto o modo do temporário (guiado pelo umask) passa a valer.
+        os.chmod(tmp, stat.S_IMODE(caminho.stat().st_mode))
         tmp.replace(caminho)
     return sairam

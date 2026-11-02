@@ -1890,6 +1890,45 @@ def teste_falha_ao_conferir_apagamento_nao_entrega_codigo():
     print("  ok     sem conferir, não entrega — e a resposta não muda")
 
 
+def teste_motivo_e_pedido_por_tem_teto_e_recusa_em_vez_de_cortar():
+    """Adiado 4. `motivo` e `pedido_por` iam para colunas `text` sem
+    limite, e o teto de corpo HTTP é dimensionado para PDF — então o
+    registro de um apagamento podia receber megabytes de texto.
+
+    RECUSA, NÃO CORTA. Cortar em silêncio guardaria no registro legal algo
+    DIFERENTE do que o gestor escreveu, e é justamente esse registro que
+    responde "quem mandou apagar e por quê". Um 400 que diz o limite o
+    manda reescrever; um corte silencioso o deixa achando que registrou o
+    que não registrou.
+    """
+    from servidor import apagamento, banco
+
+    cliente, ent, raiz = _servidor()
+    _cadastrar(cliente, A)
+    token = _token(cliente, B)
+    teto = apagamento.TETO_DO_TEXTO
+
+    for campo in ("motivo", "pedido_por"):
+        corpo = {"cpf": A, "motivo": "ok", "pedido_por": "g"}
+        corpo[campo] = "x" * (teto + 1)
+        r = _apagar(cliente, ent.apelido, corpo, token)
+        checa(r.status_code == 400,
+              f"{campo} com {teto + 1} caracteres deu {r.status_code}")
+        checa(str(teto) in r.text,
+              f"a recusa não diz o limite, então o gestor não sabe o que "
+              f"encurtar: {r.text[:200]}")
+        checa(banco.tombstones(URL, ent.apelido) == set(),
+              f"{campo} longo demais e o tombstone foi gravado de todo modo")
+
+    # No limite exato, passa — e o texto chega inteiro ao registro.
+    r = _apagar(cliente, ent.apelido,
+                {"cpf": A, "motivo": "m" * teto, "pedido_por": "g"}, token)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    print(f"  ok     teto de {teto} em motivo e pedido_por, recusando "
+          f"em vez de cortar")
+
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1945,6 +1984,7 @@ TESTES = [
     teste_gestor_de_outra_entidade_nao_apaga_e_nem_le_o_rol_alvo,
     teste_o_apagamento_fica_registrado_e_leitura_nao_e_apagada,
     teste_sem_registro_de_auditoria_nao_apaga_nada,
+    teste_motivo_e_pedido_por_tem_teto_e_recusa_em_vez_de_cortar,
     teste_falha_ao_conferir_apagamento_nao_entrega_codigo,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,

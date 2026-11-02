@@ -37,7 +37,7 @@ from __future__ import annotations
 import pathlib
 import shutil
 
-from . import banco, deposito, rol, validacao
+from . import acervo, banco, deposito, rol, validacao
 from .entidades import Entidade
 
 #: Extensões que a varredura de bytes abre. PDF fica de fora de propósito: o
@@ -50,9 +50,20 @@ _TEXTO = {".csv", ".json", ".jsonl", ".log", ".txt", ".md", ""}
 #: centenas de MB, e abrir tudo a cada conferência não se paga.
 _TETO_VARREDURA = 64 * 1024 * 1024
 
+#: Teto de `motivo` e `pedido_por`. As colunas são `text` sem limite e o teto
+#: de corpo HTTP é dimensionado para PDF, então sem isto o registro de um
+#: apagamento aceita megabytes de texto. 500 cabe num motivo de verdade
+#: ("pedido do titular por e-mail em 02/11/2026, protocolo interno 1234") com
+#: folga larga.
+#:
+#: QUEM PASSA DO TETO É RECUSADO, NÃO CORTADO. Cortar em silêncio guardaria
+#: no registro legal algo diferente do que o gestor escreveu — e é esse
+#: registro que responde quem mandou apagar e por quê.
+TETO_DO_TEXTO = 500
+
 
 def vestigios(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
-              portao=None, email: str = "") -> list[str]:
+              portao, email: str = "") -> list[str]:
     """O que AINDA existe desta pessoa, em qualquer lugar.
 
     Vazio é a única prova aceitável de que o apagamento terminou, e é o que
@@ -60,41 +71,56 @@ def vestigios(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     Por isso medir pela metade é pior que declarar: uma declaração se
     desconfia, uma medição se acredita.
 
-    `portao` é opcional só para a primitiva poder ser chamada direto; sem
-    ele o portão NÃO é medido, e a sessão aberta da pessoa não aparece. Os
-    dois caminhos de produção passam.
+    RECUSA MEDIR SEM BANCO E SEM PORTÃO, e isto é a correção de um defeito
+    meu. Antes, `url` vazia pulava o banco e `portao=None` pulava os códigos
+    e sessões — os dois EM SILÊNCIO, com os dois pulos anotados aqui no
+    docstring. Docstring não é medição: a lista voltava vazia, e o jeito
+    mais fácil de obter "nada sobrou" passava a ser medir menos. Os dois
+    caminhos de produção sempre passaram os dois argumentos, então recusar
+    não tira capacidade de ninguém — tira a possibilidade de uma resposta ao
+    titular apoiada em meia medição.
 
     `email` permite varrer os logs do remetente de arquivo, que guardam o
     endereço e não o CPF. Quem chama captura o e-mail ANTES de tirar o rol.
     """
+    if not url:
+        raise ValueError(
+            "não dá para medir o apagamento sem o banco: as tabelas de "
+            "consulta são o lugar com mais cópias da pessoa, e lista vazia "
+            "sem conferi-las afirmaria um apagamento não medido"
+        )
+    if portao is None:
+        raise ValueError(
+            "não dá para medir o apagamento sem o portão: o código e a "
+            "sessão de acesso sobrevivem ao resto, e uma sessão viva torna "
+            "o apagamento reversível por horas"
+        )
     digitos = validacao.so_digitos(cpf)
     achados: list[str] = []
     if len(digitos) != 11:
         return achados
-    marca = portao.marcar_cpf(digitos)[:12] if portao else "sem-portao"
+    marca = portao.marcar_cpf(digitos)[:12]
     pasta = ent.pasta(raiz)
 
-    if url:
-        with banco.sessao(url, ent.apelido) as cur:
-            for tabela in banco._TABELAS_DO_APAGAMENTO:
-                cur.execute(
-                    f"SELECT count(*) FROM {tabela} WHERE cpf = %s",
-                    (digitos,),
+    with banco.sessao(url, ent.apelido) as cur:
+        for tabela in banco._TABELAS_DO_APAGAMENTO:
+            cur.execute(
+                f"SELECT count(*) FROM {tabela} WHERE cpf = %s",
+                (digitos,),
+            )
+            quantas = cur.fetchone()[0]
+            if quantas:
+                achados.append(
+                    f"banco: {quantas} linha(s) em {tabela} ({marca})"
                 )
-                quantas = cur.fetchone()[0]
-                if quantas:
-                    achados.append(
-                        f"banco: {quantas} linha(s) em {tabela} ({marca})"
-                    )
 
     # O PORTÃO. Não é só dado parado: a linha de `sessoes` é um token de
     # portador vivo, e com ele a pessoa volta inteira num só pedido.
-    if portao is not None:
-        quantas = portao.marcadores_de(ent.apelido, digitos)
-        if quantas:
-            achados.append(
-                f"portão: {quantas} linha(s) de código/sessão ({marca})"
-            )
+    quantas = portao.marcadores_de(ent.apelido, digitos)
+    if quantas:
+        achados.append(
+            f"portão: {quantas} linha(s) de código/sessão ({marca})"
+        )
 
     # OS LUGARES NOMEADOS. Dão o RÓTULO, que é o que o operador usa para
     # consertar. A varredura de bytes, adiante, é a rede — e ela PULA o que
@@ -239,6 +265,12 @@ def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     O `portao` é INJETADO e não importado: o apagamento não decide nada
     sobre autenticação, só precisa esquecer o que o portão guarda.
     """
+    for rotulo, texto in (("motivo", motivo), ("pedido_por", pedido_por)):
+        if len(texto or "") > TETO_DO_TEXTO:
+            raise ValueError(
+                f"{rotulo} tem {len(texto)} caracteres e o limite é "
+                f"{TETO_DO_TEXTO}"
+            )
     digitos = validacao.so_digitos(cpf)
     if len(digitos) != 11:
         raise ValueError("apagar exige CPF de 11 dígitos")
@@ -306,9 +338,7 @@ def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
 
 
 def _remover_do_acervo(pasta: pathlib.Path, cpf: str) -> int:
-    from . import acervo as mod_acervo
-
-    return mod_acervo.remover_pessoa(pasta / "acervo.jsonl", cpf)
+    return acervo.remover_pessoa(pasta / "acervo.jsonl", cpf)
 
 
 def _limpar_logs(raiz: pathlib.Path, cpf: str, email: str) -> int:

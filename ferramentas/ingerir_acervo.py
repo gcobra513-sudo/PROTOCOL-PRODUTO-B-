@@ -143,12 +143,17 @@ def main() -> int:
                     "PROTOCOL_SEGREDO não está definida, e sem ela não dá "
                     "para reconhecer o marcador de quem foi apagado"
                 )
-            portao = acesso.Portao(raiz / ".portao", segredo)
+            # SÓ O HMAC, sem abrir nem criar banco de acesso. Esta linha
+            # construía um `Portao` inteiro — `mkdir` mais esquema SQLite —
+            # para calcular um marcador que depende apenas do segredo, e
+            # deixava um banco descartável no disco do sindicato.
             marcados = mod_banco.tombstones(args.banco, ent.apelido)
             if marcados:
                 antes = len(pessoas)
-                pessoas = [p for p in pessoas
-                           if portao.marcar_cpf(p.cpf) not in marcados]
+                pessoas = [
+                    p for p in pessoas
+                    if acesso.marcador_de_cpf(segredo, p.cpf) not in marcados
+                ]
                 apagadas = antes - len(pessoas)
         except Exception as e:  # noqa: BLE001
             # FALHA FECHADA: sem conseguir ler os tombstones não dá para

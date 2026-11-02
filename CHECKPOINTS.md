@@ -123,8 +123,9 @@ PROTOCOL_DATABASE_URL='postgresql://...' python3 tests/rodar_todos.py
 Verde não quer dizer "produto pronto": quer dizer "o que está escrito aqui
 faz o que diz". O que não existe não tem teste, e está na tabela acima.
 
-Hoje são **419 grupos em Python e 89 testes no portal** (21 suítes), e
-12.628 linhas de teste contra 13.280 de código.
+Hoje são **424 grupos em Python e 89 testes no portal** (21 suítes), e
+12.864 linhas de teste contra 16.481 de código (13.403 em `servidor/`,
+`ferramentas/` e `portal/src/`, mais 3.078 em `nucleo/`).
 
 E uma coisa que a auditoria ensinou e que vale mais que o número:
 **comentário não é teste.** Em sete dos doze defeitos encontrados havia um
@@ -142,6 +143,19 @@ descrevia é real e continua aberto: o que o navegador manda e o servidor não
 espera. O que há hoje contra isso são os testes de contrato de fio em
 `portal/src/lib/envio.test.ts`; um ensaio de navegador de verdade é dívida
 declarada.
+
+E uma terceira forma da mesma doença, que eu mesmo produzi: **rótulo de
+gravidade também não é medição.** Cinco defeitos ficaram adiados como
+"menores" depois da revisão. Ao atacá-los, um deles — "a ferramenta
+constrói um `Portao` inteiro só para um HMAC" — era, medido, o apagamento
+pela linha de comando **revogando a sessão no banco errado**: o servidor
+abre o portão em `cfg.raiz`, a ferramenta abria em `.portao-ferramenta`.
+A sessão da pessoa continuava viva por até quatro horas e a ferramenta
+imprimia "nada sobrou". É o mesmo defeito que a revisão já havia achado
+pelo caminho do servidor (S3), de volta por outra porta — e o HMAC casava
+por acaso, porque ele só depende do segredo, o que deixou o tombstone
+certo e o defeito invisível. O rótulo "menor" era uma hipótese sobre o
+custo, escrita sem medir.
 
 ---
 
