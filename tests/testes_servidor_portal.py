@@ -508,14 +508,23 @@ def teste_arquivos_recusados():
     r = c.enviar(token, linha(), nao_pdf)
     checa(r.status_code == 422, "arquivo que não é PDF devia dar 422")
 
+    # A REGRA MUDOU EM 10/11/2026, e este trecho media a antiga. Ele chamava
+    # de "só imagem" um arquivo que é só o cabeçalho de um PDF — coisa que
+    # NÃO ABRE — e exigia a recusa por falta de "texto selecionável", com a
+    # mensagem "devia ser recusado AQUI, não no escritório": a hipótese do
+    # Produto A. Hoje são duas perguntas: o que não abre continua recusado
+    # (ninguém lê); o que abre sem texto ENTRA e fica aguardando leitura
+    # humana — e isso é medido em `tests/testes_espelho.py`, com um PDF de
+    # scanner de verdade.
     token = c.token()
-    so_imagem = [
+    nao_abre = [
         ("arquivos", ("contribuicao-1.pdf", b"%PDF-1.4\n%%EOF\n", "application/pdf"))
     ]
-    r = c.enviar(token, linha(), so_imagem)
+    r = c.enviar(token, linha(), nao_abre)
     checa(
-        r.status_code == 422 and "texto selecionável" in r.json()["detail"]["erro"],
-        "PDF sem camada de texto devia ser recusado AQUI, não no escritório",
+        r.status_code == 422 and "abrir" in r.json()["detail"]["erro"],
+        f"PDF que não abre devia ser recusado dizendo isso: "
+        f"{r.status_code} {r.text[:160]}",
     )
 
     # INVERTIDO EM RELAÇÃO AO PRODUTO A, e de propósito: lá, declarar

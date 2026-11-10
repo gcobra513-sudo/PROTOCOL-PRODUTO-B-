@@ -1206,6 +1206,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "entidade": ent.apelido,
             "nome": ent.nome,
             "mudancas": _o_que_mudou(ent, catalogo, registros),
+            "aguardando_leitura": _aguardando_leitura(ent),
             "manchete": visao.manchete(),
             "pessoas": visao.pessoas,
             "cadastrados": visao.cadastrados,
@@ -1315,6 +1316,29 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 in sorted(grupos.items())
             ],
         }
+
+    def _aguardando_leitura(ent: entidades.Entidade) -> dict:
+        """Quantos documentos esperam que uma PESSOA leia, e de quanta gente.
+
+        Aceitar o documento escaneado e não mostrar a fila criaria uma fila
+        invisível: o filiado acha que entregou, o sindicato não sabe que há
+        o que ler. CONTAGEM, não lista — quem são aparece nas pendências.
+
+        SEM BANCO, DIZ QUE NÃO SABE, pela mesma razão das mudanças: zero
+        afirmaria que não há nada esperando.
+        """
+        vazio = {"documentos": 0, "pessoas": 0, "sem_banco": not cfg.tem_banco}
+        if not cfg.tem_banco:
+            return vazio
+        try:
+            documentos_, pessoas = banco.aguardando_leitura(cfg.banco_url,
+                                                            ent.apelido)
+        except Exception:  # noqa: BLE001
+            log.exception("não deu para contar a fila de leitura ent=%s",
+                          ent.apelido)
+            return {**vazio, "sem_banco": True}
+        return {"documentos": documentos_, "pessoas": pessoas,
+                "sem_banco": False}
 
     def _apagados_na_planilha(ent: entidades.Entidade, pessoas) -> int:
         """Quantos CPFs da planilha do sindicato têm tombstone.
@@ -1531,6 +1555,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             )
 
         recebidos: dict[str, bytes] = {}
+        #: Os arquivos que ABREM mas não têm texto que a máquina leia.
+        aguardando: list[str] = []
         total = 0
         for arquivo in arquivos:
             nome = (arquivo.filename or "").strip()
@@ -1551,16 +1577,23 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     422,
                     f"o arquivo {nome} não é um PDF; converta antes de enviar",
                 )
-            serve, caracteres = validacao.texto_extraivel(corpo)
-            if not serve:
+            abre, tem_texto, _caracteres = validacao.examinar_pdf(corpo)
+            if not abre:
+                # Este ninguém lê — nem a máquina, nem uma pessoa. Guardá-lo
+                # como "aguardando leitura" criaria uma fila que não anda,
+                # com a pessoa achando que entregou.
                 raise _problema(
                     422,
-                    f"o arquivo {nome} não tem texto selecionável — é uma "
-                    f"imagem digitalizada, e sem texto não há o que ler. "
-                    f"Gere o PDF a partir do arquivo original, ou digitalize "
-                    f"com reconhecimento de texto (OCR).",
-                    caracteres=caracteres,
+                    f"não conseguimos abrir o arquivo {nome}. Ele pode estar "
+                    f"corrompido ou protegido por senha. Envie o arquivo "
+                    f"original, sem senha.",
                 )
+            if not tem_texto:
+                # ACEITA E MARCA. Scanner e foto são o caso comum de quem tem
+                # papel físico, e recusar aqui derrubava o cadastro inteiro —
+                # inclusive por um anexo opcional. A máquina não lê; uma
+                # pessoa lê. Ver `validacao.examinar_pdf`.
+                aguardando.append(nome)
             recebidos[nome] = corpo
 
         # O que falta NÃO depende do que a pessoa declarou sobre processo:
@@ -1575,7 +1608,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             raise _problema(422, "pacote incompleto", problemas=faltas)
 
         anterior = deposito.ja_cadastrado(ent, cfg.raiz, limpa["cpf"])
-        recibo = deposito.depositar(ent, cfg.raiz, limpa, recebidos)
+        recibo = deposito.depositar(ent, cfg.raiz, limpa, recebidos,
+                                    aguardando_leitura=tuple(aguardando))
         # Um token, um envio.
         portao.gastar_sessao(token)
 

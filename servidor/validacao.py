@@ -355,32 +355,58 @@ def parece_pdf(corpo: bytes) -> bool:
 MINIMO_DE_CARACTERES = 120
 
 
-def texto_extraivel(corpo: bytes) -> tuple[bool, int]:
-    """(serve, quantos caracteres). Um PDF só-imagem devolve (False, 0).
+def examinar_pdf(corpo: bytes) -> tuple[bool, bool, int]:
+    """(abre, tem_texto, quantos caracteres). SÃO DUAS PERGUNTAS, e eram uma.
 
-    POR QUE NO SERVIDOR TAMBÉM, se o portal já confere: porque
-    `ferramentas/conferir_entrega.py` REPROVA documento sem camada de texto,
-    e a reprovação acontece na conferência, dias depois, longe da pessoa que
-    tem o documento na mão. Se o servidor aceita o que o motor recusa, o
-    portal entrega recibo para um cadastro que já nasceu reprovado.
+        abre       um leitor de PDF consegue abrir e há página. Se não, NINGUÉM
+                   lê — nem máquina, nem gente: corrompido, ou com senha
+        tem_texto  há camada de texto que a máquina consiga ler
 
-    O portal confere para a pessoa não errar; aqui conferimos porque o
-    navegador não é fonte de verdade — e um POST montado à mão não passa pelo
-    portal nenhum.
+    A versão anterior (`texto_extraivel`) devolvia um booleano só, e quem
+    chamava recusava o cadastro inteiro quando ele era falso. A justificativa
+    escrita aqui era do PRODUTO A: citava `ferramentas/conferir_entrega.py`,
+    que "REPROVA documento sem camada de texto" — ferramenta que nem existe
+    neste repositório. No A, sem texto não há petição a montar. No B, um
+    documento que a máquina não lê pode esperar que uma PESSOA leia, e a base
+    deste produto é de aposentados com papel físico: scanner e foto são o
+    caso comum, não a exceção.
+
+    Então: não abre -> recusa, com o motivo. Abre sem texto -> ACEITA, e quem
+    chama marca "aguardando leitura". Decidido em 10/11/2026, depois de a
+    auditoria de produto medir o 422.
+
+    Aqui se confere porque o navegador não é fonte de verdade: um POST
+    montado à mão não passa pelo portal nenhum.
     """
     try:
         from pypdf import PdfReader
     except ImportError:
-        # Sem pypdf não inventamos aprovação: devolvemos "não sei" como
-        # serve=True e 0 caracteres, e quem chama decide. Veja o uso em
-        # `app.py`: lá isso vira aviso, não recusa, porque recusar todo mundo
-        # por falta de biblioteca no servidor é pior que deixar o motor pegar.
-        return True, 0
+        # Sem pypdf não inventamos resposta: "abre, e tem texto" com 0
+        # caracteres, e quem chama decide. Recusar todo mundo — ou marcar
+        # tudo como ilegível — por falta de biblioteca no servidor seria pior.
+        return True, True, 0
     import io as _io
 
     try:
         leitor = PdfReader(_io.BytesIO(corpo))
-        texto = "".join(pagina.extract_text() or "" for pagina in leitor.pages)
+        if leitor.is_encrypted:
+            return False, False, 0
+        paginas = list(leitor.pages)
     except Exception:
-        return False, 0
-    return len(texto.strip()) >= MINIMO_DE_CARACTERES, len(texto.strip())
+        return False, False, 0
+    if not paginas:
+        return False, False, 0
+    try:
+        texto = "".join(pagina.extract_text() or "" for pagina in paginas)
+    except Exception:
+        # Abre, tem página, e o texto não sai: é o caso de uma pessoa ler.
+        return True, False, 0
+    caracteres = len(texto.strip())
+    return True, caracteres >= MINIMO_DE_CARACTERES, caracteres
+
+
+def texto_extraivel(corpo: bytes) -> tuple[bool, int]:
+    """(tem texto, quantos caracteres). Mantida para quem só quer saber isso;
+    a decisão de aceitar ou recusar é de `examinar_pdf`."""
+    _, tem_texto, caracteres = examinar_pdf(corpo)
+    return tem_texto, caracteres

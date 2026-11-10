@@ -130,6 +130,9 @@ export interface Recibo {
   entidade: string;
   arquivos: Record<string, string>;
   substituiu_protocolo: string;
+  /** Os arquivos que a máquina não leu (scanner, foto) e uma pessoa vai
+   *  ler. Ausente em servidor antigo: aí é lista vazia, não erro. */
+  aguardando_leitura?: string[];
 }
 
 /**
@@ -517,6 +520,14 @@ export interface Mudancas {
   grupos: MudancaDeVeredicto[];
 }
 
+/** O que espera leitura por uma PESSOA: documentos que abrem mas que a
+ *  máquina não lê (foto, scanner). `sem_banco` = não dá para saber. */
+export interface FilaDeLeitura {
+  documentos: number;
+  pessoas: number;
+  sem_banco: boolean;
+}
+
 export interface Panorama {
   entidade: string;
   nome: string;
@@ -534,6 +545,7 @@ export interface Panorama {
   gargalos: Gargalo[];
   limite: string;
   mudancas: Mudancas;
+  aguardando_leitura: FilaDeLeitura;
 }
 
 /** O que o sindicato resolve primeiro. Só para gestor da própria entidade:
@@ -572,6 +584,10 @@ export async function verPanorama(
     // que está tudo igual.
     mudancas: corpo.mudancas ?? {
       catalogo: "", total: 0, sem_banco: true, grupos: [],
+    },
+    // Mesma regra: sem a chave, "não dá para saber", nunca "fila vazia".
+    aguardando_leitura: corpo.aguardando_leitura ?? {
+      documentos: 0, pessoas: 0, sem_banco: true,
     },
   };
 }

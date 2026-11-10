@@ -14,6 +14,7 @@
  * A segunda é a que vale a reunião.
  */
 import type {
+  FilaDeLeitura,
   Gargalo,
   Mudancas,
   MudancaDeVeredicto,
@@ -182,5 +183,43 @@ export function resumoDasMudancas(m: Mudancas): ResumoDasMudancas {
       `${pessoas(m.total)} mudou de situação desde o catálogo anterior. ` +
       "Nada foi avisado a ninguém: quem fala com o filiado é o sindicato.",
     catalogo: m.catalogo,
+  };
+}
+
+/** A fila de leitura humana, como o painel a diz.
+ *
+ *  Documento de foto ou de scanner ENTRA (decisão de 10/11/2026), e uma
+ *  pessoa lê. Aceitar e não mostrar criaria uma fila invisível: o filiado
+ *  acha que entregou, e o sindicato não sabe que há o que ler.
+ *
+ *  O QUE ESTA FRASE NÃO PODE FAZER é prometer o fluxo que ainda não existe.
+ *  Hoje a fila tem entrada e contador, e NÃO tem saída: não há tela para
+ *  registrar o que a pessoa leu. Então a frase diz o estado e a
+ *  consequência — "a resposta fica incompleta" — e não diz "em análise".
+ */
+export function resumoDaFilaDeLeitura(f: FilaDeLeitura): {
+  mostra: boolean;
+  frase: string;
+} {
+  if (f.sem_banco) {
+    return {
+      mostra: true,
+      frase:
+        "Sem o banco, não dá para saber quantos documentos esperam leitura " +
+        "por uma pessoa.",
+    };
+  }
+  if (f.documentos <= 0) return { mostra: false, frase: "" };
+  const docs =
+    f.documentos === 1
+      ? "1 documento chegou"
+      : `${f.documentos} documentos chegaram`;
+  const espera = f.documentos === 1 ? "espera" : "esperam";
+  return {
+    mostra: true,
+    frase:
+      `${docs} como imagem (foto ou scanner), de ${pessoas(f.pessoas)}, e ` +
+      `${espera} leitura por uma pessoa: a máquina não consegue ler. Até ` +
+      "lá, a resposta sobre essas pessoas fica incompleta.",
   };
 }

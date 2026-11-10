@@ -314,6 +314,18 @@ export function App() {
                 {Object.keys(recibo.arquivos).length}.
               </p>
             </div>
+            {recibo.aguardando_leitura?.length ? (
+              // O SERVIDOR é quem diz, não o navegador: é ele que guarda a
+              // marca. Dito no recibo para a pessoa não ficar esperando uma
+              // resposta sem saber por que ela demora.
+              <Aviso tom="neutro">
+                {recibo.aguardando_leitura.length === 1
+                  ? "1 dos seus documentos chegou como imagem"
+                  : `${recibo.aguardando_leitura.length} dos seus documentos chegaram como imagem`}
+                . Eles foram recebidos e vão ser lidos por uma pessoa — a
+                resposta sobre eles demora mais que a dos outros.
+              </Aviso>
+            ) : null}
             <div className="rounded-lg border border-borda bg-papel p-5">
               <p className="font-medium text-tinta">O que acontece agora</p>
               <p className="mt-2 text-[15px] leading-relaxed text-tinta/75">

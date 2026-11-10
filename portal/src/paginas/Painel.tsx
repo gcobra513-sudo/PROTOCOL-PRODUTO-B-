@@ -36,6 +36,7 @@ import {
   pessoas,
   presosNoTribunal,
   primeiroAcionavel,
+  resumoDaFilaDeLeitura,
   resumoDasMudancas,
   resumoDoApagamento,
 } from "../lib/painel";
@@ -504,6 +505,14 @@ export function Painel({ entidade }: { entidade: string }) {
   return (
     <div className="space-y-6">
       {panorama ? <MudouDeVeredicto p={panorama} /> : null}
+      {panorama && resumoDaFilaDeLeitura(panorama.aguardando_leitura).mostra ? (
+        // A FILA DE LEITURA HUMANA, à vista. Sem isto o servidor contava e
+        // tela nenhuma mostrava — o mesmo erro de entregar pela metade que
+        // já custou uma revisão neste repositório.
+        <Aviso tom="neutro">
+          {resumoDaFilaDeLeitura(panorama.aguardando_leitura).frase}
+        </Aviso>
+      ) : null}
       {panorama ? <OQueResolverPrimeiro p={panorama} /> : null}
       {erroPanorama ? (
         <Aviso tom="alerta">

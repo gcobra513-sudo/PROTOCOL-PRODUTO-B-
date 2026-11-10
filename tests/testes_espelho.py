@@ -2107,6 +2107,194 @@ def teste_ler_os_documentos_nao_faz_o_painel_custar_por_pessoa():
           f"com 9 — plano")
 
 
+# ------------------------------- o documento que a máquina não consegue ler
+
+def _so_imagem() -> bytes:
+    """Um PDF sem camada de texto — o que sai de scanner e de foto."""
+    import testes_documentos as td
+
+    return td.pdf_so_imagem()
+
+
+def _enviar(cliente, cpf: str, entidade: str, arquivos: dict[str, bytes]):
+    import json as _json
+
+    return cliente.post(
+        "/api/cadastro",
+        data={"token": _token(cliente, cpf, entidade),
+              "linha": _json.dumps(linha(cpf))},
+        files=[("arquivos", (nome, corpo, "application/pdf"))
+               for nome, corpo in arquivos.items()],
+    )
+
+
+def teste_documento_escaneado_entra_e_fica_aguardando_leitura():
+    """Achado 3 da auditoria de produto, e decisão de 10/11/2026: ACEITA E
+    MARCA, em vez de recusar.
+
+    O servidor devolvia 422 para PDF sem camada de texto, e o cadastro
+    INTEIRO caía — inclusive por causa de um anexo opcional. A mensagem
+    mandava um aposentado "digitalizar com reconhecimento de texto (OCR)".
+    A justificativa escrita no código era do Produto A: lá, sem texto não
+    há petição a montar. Aqui, um documento que a máquina não lê pode
+    esperar que uma pessoa leia — e quem tem papel físico é justamente a
+    base deste produto.
+
+    O QUE FICA GRAVADO, E ONDE: no DIÁRIO, que é a autoridade. O banco é
+    projeção, e uma marca que só existisse nele sumiria na primeira
+    recuperação.
+    """
+    import json as _json
+
+    from servidor import banco, deposito
+
+    secao("o documento que a máquina não lê")
+    entidade = "demo-leitura"
+    cliente, ent, raiz = _servidor(entidade)
+
+    r = _enviar(cliente, A, entidade, {
+        "contribuicao-1.pdf": _pdf(CONTRIB),
+        "sentenca.pdf": _so_imagem(),
+    })
+    checa(r.status_code == 200,
+          f"sentença escaneada derrubou o cadastro: {r.status_code} "
+          f"{r.text[:200]}")
+    if r.status_code != 200:
+        return
+    checa(r.json().get("aguardando_leitura") == ["sentenca.pdf"],
+          f"a resposta não diz à pessoa o que ficou aguardando leitura: "
+          f"{r.json()}")
+
+    registro = deposito.ler_diario(ent.pasta(raiz))[-1]
+    checa(registro.get("aguardando_leitura") == ["sentenca.pdf"],
+          f"o DIÁRIO não registra o que aguarda leitura: "
+          f"{_json.dumps(registro, ensure_ascii=False)[:300]}")
+    checa((ent.entrega(raiz) / A / "sentenca.pdf").is_file(),
+          "o arquivo escaneado não foi guardado")
+
+    def do_banco() -> dict:
+        with banco.sessao(URL, entidade) as cur:
+            cur.execute("SELECT tipo, tem_texto FROM documento "
+                        "WHERE cpf = %s", (A,))
+            return dict(cur.fetchall())
+
+    checa(do_banco() == {"contribuicao": True, "sentenca": False},
+          f"`documento.tem_texto` não diz a verdade: {do_banco()} — a coluna "
+          f"existia e ficava em `false` para TODO documento, legível ou não")
+
+    # E A RECUPERAÇÃO REFAZ A MARCA a partir do diário.
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute("DELETE FROM documento WHERE cpf = %s", (A,))
+    banco.reconstruir(URL, entidade, deposito.ler_diario(ent.pasta(raiz)),
+                      consentimento_novo=True)
+    checa(do_banco() == {"contribuicao": True, "sentenca": False},
+          f"reconstruir pelo diário perdeu a marca: {do_banco()}")
+    print("  ok     escaneado entra, o diário marca, o banco projeta")
+
+
+def teste_so_o_comprovante_escaneado_tambem_entra():
+    """O caso mais comum de todos: o ÚNICO documento obrigatório é um
+    contracheque de papel, fotografado."""
+    entidade = "demo-leitura-2"
+    cliente, ent, raiz = _servidor(entidade)
+    r = _enviar(cliente, A, entidade, {"contribuicao-1.pdf": _so_imagem()})
+    checa(r.status_code == 200,
+          f"comprovante escaneado foi recusado: {r.status_code} "
+          f"{r.text[:200]}")
+    checa(r.status_code != 200
+          or r.json().get("aguardando_leitura") == ["contribuicao-1.pdf"],
+          f"{r.text[:200]}")
+    print("  ok     só o comprovante, e escaneado: entra")
+
+
+def teste_pdf_que_nao_abre_continua_recusado():
+    """ACEITAR O ILEGÍVEL POR MÁQUINA NÃO É ACEITAR QUALQUER COISA.
+
+    Sem camada de texto, uma pessoa lê. Corrompido ou protegido por senha,
+    ninguém lê — e guardar isso como "aguardando leitura" criaria uma fila
+    que não anda, com a pessoa achando que entregou.
+    """
+    entidade = "demo-leitura-3"
+    cliente, ent, raiz = _servidor(entidade)
+    quebrado = b"%PDF-1.4\n" + b"isto nao e um pdf de verdade " * 40
+    r = _enviar(cliente, A, entidade, {
+        "contribuicao-1.pdf": _pdf(CONTRIB),
+        "sentenca.pdf": quebrado,
+    })
+    checa(r.status_code == 422,
+          f"PDF que não abre foi aceito: {r.status_code} {r.text[:200]}")
+    checa("abrir" in r.text,
+          f"a recusa não diz que o arquivo não abre: {r.text[:200]}")
+    print("  ok     PDF que não abre continua recusado, com o motivo")
+
+
+def teste_o_painel_conta_o_que_aguarda_leitura():
+    """Marcar e não mostrar criaria uma fila invisível. O sindicato precisa
+    ver QUANTO espera leitura humana — e de quantas pessoas."""
+    entidade = "demo-leitura-4"
+    cliente, ent, raiz = _servidor(entidade)
+    _enviar(cliente, A, entidade, {
+        "contribuicao-1.pdf": _so_imagem(),
+        "sentenca.pdf": _so_imagem(),
+    })
+    painel = cliente.get(
+        f"/api/entidade/{entidade}/panorama",
+        headers={"Authorization": f"Bearer {_token(cliente, B, entidade)}"},
+    ).json()
+    fila = painel.get("aguardando_leitura")
+    checa(fila == {"documentos": 2, "pessoas": 1, "sem_banco": False},
+          f"o painel não conta o que aguarda leitura: {fila}")
+    print("  ok     o painel conta documentos e pessoas aguardando leitura")
+
+
+def teste_documento_do_sindicato_entra_na_fila_so_se_for_imagem():
+    """Um defeito que a própria mudança de 10/11 criaria, pego antes — e uma
+    premissa minha derrubada no caminho.
+
+    `ingerir_documentos.py` também grava em `documento`, e gravava SEM
+    `tem_texto`: a coluna ficava no padrão `false`. Enquanto ninguém a lia,
+    não fazia mal. No dia em que o painel passou a contar "o que aguarda
+    leitura" por ela, TODO documento entregue pelo sindicato apareceria na
+    fila — inclusive sentença que a máquina leu sem problema.
+
+    A primeira versão deste teste afirmava "se casou com alguém, foi lido".
+    FALSO: a ferramenta casa também pelo CPF no NOME do arquivo, e um
+    documento de scanner casa assim sem ter texto nenhum. Então a marca não
+    se presume — se MEDE, documento por documento.
+    """
+    import subprocess
+    import tempfile
+
+    from servidor import banco
+
+    entidade = "demo-leitura-5"
+    cliente, ent, raiz = _servidor(entidade)
+    acervo = Path(tempfile.mkdtemp(prefix="docs-sind-"))
+    (acervo / f"{A}-sentenca.pdf").write_bytes(_pdf(SENTENCA))
+    (acervo / f"{A}-certidao.pdf").write_bytes(_so_imagem())
+
+    t = subprocess.run(
+        [sys.executable, str(RAIZ / "ferramentas" / "ingerir_documentos.py"),
+         "--pasta", str(acervo), "--entidade", entidade,
+         "--raiz", str(raiz), "--banco", URL],
+        capture_output=True, text=True,
+        env={**os.environ, "PROTOCOL_DATABASE_URL": URL},
+    )
+    checa(t.returncode in (0, 1),
+          f"a ingestão não rodou: {t.returncode} {t.stderr[:300]}")
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute("SELECT tem_texto, count(*) FROM documento "
+                    "WHERE cpf = %s GROUP BY tem_texto", (A,))
+        por_marca = dict(cur.fetchall())
+    checa(por_marca == {True: 1, False: 1},
+          f"devia haver 1 documento lido e 1 aguardando leitura, há "
+          f"{por_marca} — saída da ferramenta: {t.stdout[-300:]}")
+    checa(banco.aguardando_leitura(URL, entidade) == (1, 1),
+          f"a fila devia ter só o documento de scanner: "
+          f"{banco.aguardando_leitura(URL, entidade)}")
+    print("  ok     do sindicato: o lido fica fora da fila, o de scanner entra")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -2165,6 +2353,11 @@ TESTES = [
     teste_motivo_e_pedido_por_tem_teto_e_recusa_em_vez_de_cortar,
     teste_as_tres_superficies_dizem_o_mesmo_sobre_a_mesma_pessoa,
     teste_ler_os_documentos_nao_faz_o_painel_custar_por_pessoa,
+    teste_documento_escaneado_entra_e_fica_aguardando_leitura,
+    teste_so_o_comprovante_escaneado_tambem_entra,
+    teste_pdf_que_nao_abre_continua_recusado,
+    teste_o_painel_conta_o_que_aguarda_leitura,
+    teste_documento_do_sindicato_entra_na_fila_so_se_for_imagem,
     teste_falha_ao_conferir_apagamento_nao_entrega_codigo,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,
