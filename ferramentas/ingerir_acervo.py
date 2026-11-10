@@ -118,101 +118,51 @@ def main() -> int:
     pasta = ent.pasta(raiz)
     pasta.mkdir(parents=True, exist_ok=True)
 
-    # QUEM PEDIU PARA SAIR NÃO VOLTA PELA PLANILHA.
-    #
-    # O apagamento a pedido (LGPD art. 18, VI) não se sustentaria se a
-    # próxima planilha do sindicato recriasse a pessoa — e ela VAI estar
-    # lá, porque a planilha é o cadastro dele e nós não mexemos nela.
-    #
-    # E RELATA, em vez de pular calado: sem o aviso o sindicato reenviaria
-    # o mesmo CPF para sempre sem saber que precisa corrigir a FONTE. Mas
-    # nunca imprime o CPF — a pessoa pediu para sair.
-    apagadas = 0
-    if args.banco:
-        from servidor import acesso, banco as mod_banco
+    # O MIOLO MORA EM `servidor/ingestao.py`, e é o MESMO que a rota da web
+    # chama: tirar quem pediu para sair, recalcular o retrato sobre o que
+    # sobra, gravar o arquivo e projetar no banco. Dois caminhos para a
+    # mesma coisa divergem; o que esta ferramenta tem de seu é imprimir.
+    from servidor import acesso, ingestao
 
-        try:
-            # O SEGREDO VEM DO AMBIENTE, não de `config.carregar()`: aquela
-            # função exige SMTP configurado, e uma ferramenta de ingestão
-            # não tem nada a ver com entregar e-mail. Pedir a configuração
-            # inteira aqui faria a ingestão falhar por um motivo que não é
-            # dela.
-            segredo = os.environ.get("PROTOCOL_SEGREDO", "").strip()
-            if not segredo:
-                raise RuntimeError(
-                    "PROTOCOL_SEGREDO não está definida, e sem ela não dá "
-                    "para reconhecer o marcador de quem foi apagado"
-                )
-            # SÓ O HMAC, sem abrir nem criar banco de acesso. Esta linha
-            # construía um `Portao` inteiro — `mkdir` mais esquema SQLite —
-            # para calcular um marcador que depende apenas do segredo, e
-            # deixava um banco descartável no disco do sindicato.
-            marcados = mod_banco.tombstones(args.banco, ent.apelido)
-            if marcados:
-                antes = len(pessoas)
-                pessoas = [
-                    p for p in pessoas
-                    if acesso.marcador_de_cpf(segredo, p.cpf) not in marcados
-                ]
-                apagadas = antes - len(pessoas)
-        except Exception as e:  # noqa: BLE001
-            # FALHA FECHADA: sem conseguir ler os tombstones não dá para
-            # saber quem pediu para sair, e gravar assim pode ressuscitar
-            # alguém. Melhor não gravar nada e dizer por quê.
-            print(f"\nNÃO DEU PARA CONFERIR QUEM FOI APAGADO A PEDIDO: {e}",
-                  file=sys.stderr)
-            print("  nada gravado. Sem esta conferência a ingestão pode "
-                  "recriar quem pediu para sair.", file=sys.stderr)
-            return 2
+    # O SEGREDO VEM DO AMBIENTE, não de `config.carregar()`: aquela função
+    # exige SMTP configurado, e uma ferramenta de ingestão não tem nada a
+    # ver com entregar e-mail.
+    segredo = os.environ.get("PROTOCOL_SEGREDO", "").strip()
+
+    def marcador_de(cpf: str) -> str:
+        if not segredo:
+            raise RuntimeError(
+                "PROTOCOL_SEGREDO não está definida, e sem ela não dá para "
+                "reconhecer o marcador de quem foi apagado"
+            )
+        return acesso.marcador_de_cpf(segredo, cpf)
+
+    try:
+        pessoas, apagadas = ingestao.sem_apagados(
+            pessoas, banco_url=args.banco, apelido=ent.apelido,
+            marcador_de=marcador_de)
+    except ingestao.IngestaoRecusada as e:
+        print(f"\nNÃO DEU PARA CONFERIR QUEM FOI APAGADO A PEDIDO: {e}",
+              file=sys.stderr)
+        print("  nada gravado. Sem esta conferência a ingestão pode "
+              "recriar quem pediu para sair.", file=sys.stderr)
+        return 2
 
     if apagadas:
-        # RECALCULA O RETRATO SEM OS APAGADOS. A primeira versão filtrava
-        # as `pessoas` e gravava o retrato JÁ CALCULADO, que é indexado por
-        # CPF — então a ferramenta imprimia "não gravei a pessoa" e gravava
-        # o CPF dela numa linha nova. Cada planilha reenviada acrescentava
-        # um CPF em disco, DEPOIS do pedido de apagamento.
-        retrato = completude.retratar(pessoas)
+        # NUNCA IMPRIME O CPF — a pessoa pediu para sair. E relata, em vez de
+        # pular calado: sem o aviso o sindicato reenviaria o mesmo CPF para
+        # sempre sem saber que precisa corrigir a FONTE.
         print(f"\n  {apagadas} pessoa(s) da planilha foram apagada(s) a "
               f"pedido e NÃO foram gravada(s).")
         print("  Tire-as do arquivo: enquanto estiverem nele, toda ingestão "
               "vai pulá-las de novo.")
 
-    agora = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
-    deposito.anexar_com_fsync(
-        pasta / ARQUIVO,
-        json.dumps(
-            {
-                "ingerido_em": agora,
-                "origem": str(pathlib.Path(args.acervo).name),
-                "retrato": dataclasses.asdict(retrato),
-                "pessoas": [
-                    {
-                        "cpf": p.cpf,
-                        "linha_no_arquivo": p.linha_no_arquivo,
-                        "campos": p.campos,
-                        "achados": [
-                            {"coluna": a.coluna, "estado": a.estado,
-                             "detalhe": a.detalhe}
-                            for a in p.achados
-                        ],
-                    }
-                    for p in pessoas
-                ],
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        ) + "\n",
-    )
+    feito = ingestao.gravar_planilha(ent, raiz, pessoas, origem=args.acervo,
+                                     banco_url=args.banco)
     print(f"\n  gravado em {pasta / ARQUIVO}")
-    # E A PROJEÇÃO NO BANCO. O arquivo é a autoridade; sem esta linha a
-    # planilha continuava alimentando UMA tela — o retrato da base — e o
-    # motor nunca a via. Um sindicato com 4.812 filiados e 200 cadastrados
-    # via um painel de 200.
     if args.banco:
-        from servidor import banco
-
-        quantas = banco.projetar_acervo(args.banco, ent.apelido, pessoas)
-        print(f"  banco: {quantas} pessoa(s) projetada(s) em {ent.apelido}")
+        print(f"  banco: {feito['projetadas']} pessoa(s) projetada(s) em "
+              f"{ent.apelido}")
     else:
         print(
             "\n  AVISO: sem --banco (ou PROTOCOL_DATABASE_URL), esta planilha\n"

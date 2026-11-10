@@ -2782,6 +2782,222 @@ def teste_sem_registro_de_quem_exportou_nao_exporta():
     print("  ok     sem registro de quem exportou, não exporta")
 
 
+# ------------------------------------ a porta de entrada do sindicato
+
+C_PLAN = _cpf_sintetico(8101)
+D_PLAN = _cpf_sintetico(8102)
+
+
+def _planilha(cpfs_e_nomes: list[tuple[str, str, str]]) -> bytes:
+    """Uma planilha como o Excel em português exporta: `;`, CRLF, latin-1."""
+    linhas = ["CPF;Nome Completo;E-mail;Cargo"]
+    for cpf, nome, email in cpfs_e_nomes:
+        linhas.append(f"{cpf};{nome};{email};Auditor Fiscal da Receita Federal")
+    return ("\r\n".join(linhas) + "\r\n").encode("latin-1")
+
+
+def _enviar_planilha(cliente, entidade: str, corpo: bytes,
+                     confirmar: str = "", nome: str = "base.csv",
+                     cabecalho: dict | None = None):
+    return cliente.post(
+        f"/api/entidade/{entidade}/planilha",
+        data={"confirmar": confirmar},
+        files={"arquivo": (nome, corpo, "text/csv")},
+        headers=cabecalho if cabecalho is not None
+        else _gestor(cliente, entidade),
+    )
+
+
+def _nomes_na_lista(cliente, entidade: str) -> list[str]:
+    return [p["nome"] for p in cliente.get(
+        f"/api/entidade/{entidade}/pessoas",
+        headers=_gestor(cliente, entidade)).json()["pessoas"]]
+
+
+def teste_o_gestor_envia_a_planilha_pela_web_em_duas_etapas():
+    """Achado 4 da auditoria de produto. "O sindicato manda a lista de
+    filiados" é a primeira frase do produto, e não havia por onde: a
+    planilha só entrava por linha de comando, rodada por nós.
+
+    DUAS ETAPAS, e a primeira NÃO GRAVA NADA. A planilha é a base inteira
+    do sindicato; o gestor precisa VER o que o arquivo traz — quantas
+    pessoas, quantas ele não alcança — antes de ela valer. E a confirmação
+    carrega a impressão digital do arquivo conferido: o que entra é
+    exatamente o que ele viu.
+    """
+    import json as _json
+
+    secao("a porta de entrada do sindicato")
+    entidade = "demo-porta"
+    cliente, ent, raiz = _servidor(entidade)
+    corpo = _planilha([
+        (C_PLAN, "JOSÉ DA CONCEIÇÃO (CADASTRO DE EXEMPLO)", "jose@exemplo.invalid"),
+        (D_PLAN, "MARIA SEM EMAIL (CADASTRO DE EXEMPLO)", ""),
+    ])
+
+    r = _enviar_planilha(cliente, entidade, corpo)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    if r.status_code != 200:
+        return
+    previa = r.json()
+    checa(previa["gravado"] is False, "a PRÉVIA gravou")
+    checa((previa["pessoas"], previa["alcancaveis"], previa["inalcancaveis"])
+          == (2, 1, 1),
+          f"a prévia não diz o que o arquivo traz: {previa}")
+    checa(not (ent.pasta(raiz) / "acervo.jsonl").exists(),
+          "a prévia escreveu o acervo no disco")
+    checa(_nomes_na_lista(cliente, entidade) == [],
+          "a prévia pôs gente na base")
+    checa(C_PLAN not in _json.dumps(previa),
+          "a prévia devolveu CPF em claro")
+
+    r = _enviar_planilha(cliente, entidade, corpo,
+                         confirmar=previa["sha256"])
+    checa(r.status_code == 200 and r.json()["gravado"] is True,
+          f"{r.status_code} {r.text[:200]}")
+    nomes = _nomes_na_lista(cliente, entidade)
+    checa(nomes == ["JOSÉ DA CONCEIÇÃO (CADASTRO DE EXEMPLO)",
+                    "MARIA SEM EMAIL (CADASTRO DE EXEMPLO)"],
+          f"a planilha confirmada não virou a base (e o latin-1 tem de "
+          f"chegar com os acentos): {nomes}")
+    registro = _json.loads(
+        (ent.pasta(raiz) / "acervo.jsonl").read_text().splitlines()[-1])
+    checa(registro.get("enviado_por") and B not in registro["enviado_por"],
+          "a ingestão pela web não registra QUEM enviou, ou guarda o CPF "
+          "do gestor em claro")
+    print("  ok     prévia não grava; confirmada, a planilha vira a base")
+
+
+def teste_confirmar_outro_arquivo_e_recusado():
+    """A confirmação vale para O ARQUIVO CONFERIDO. Se o que chega na
+    segunda etapa é outro, o gestor confirmaria uma base que não viu."""
+    entidade = "demo-porta-2"
+    cliente, ent, raiz = _servidor(entidade)
+    visto = _planilha([(C_PLAN, "FULANO (CADASTRO DE EXEMPLO)",
+                        "f@exemplo.invalid")])
+    outro = _planilha([(D_PLAN, "BELTRANO (CADASTRO DE EXEMPLO)",
+                        "b@exemplo.invalid")])
+    sha = _enviar_planilha(cliente, entidade, visto).json()["sha256"]
+    r = _enviar_planilha(cliente, entidade, outro, confirmar=sha)
+    checa(r.status_code == 409,
+          f"confirmou um arquivo diferente do conferido: {r.status_code}")
+    checa(_nomes_na_lista(cliente, entidade) == [],
+          "gravou mesmo com a recusa")
+    print("  ok     confirmar um arquivo que não foi o conferido: 409")
+
+
+def teste_planilha_que_nao_serve_e_recusada_com_o_motivo():
+    entidade = "demo-porta-3"
+    cliente, ent, raiz = _servidor(entidade)
+    sem_cpf = "Nome;E-mail\r\nFULANO;f@exemplo.invalid\r\n".encode("latin-1")
+    r = _enviar_planilha(cliente, entidade, sem_cpf)
+    checa(r.status_code == 422 and "CPF" in r.text,
+          f"planilha sem coluna de CPF: {r.status_code} {r.text[:200]}")
+    r = _enviar_planilha(cliente, entidade, sem_cpf, cabecalho={})
+    checa(r.status_code == 401, f"sem sessão deu {r.status_code}")
+    do_filiado = {"Authorization": f"Bearer {_token(cliente, A, entidade)}"}
+    r = _enviar_planilha(cliente, entidade, sem_cpf, cabecalho=do_filiado)
+    checa(r.status_code == 403, f"filiado enviando planilha deu {r.status_code}")
+    print("  ok     sem CPF 422 com motivo; sem sessão 401; filiado 403")
+
+
+def teste_quem_pediu_para_sair_nao_volta_pela_planilha_da_web():
+    """A trava do apagamento vale neste caminho também — e vale porque a
+    rota chama a MESMA função da ferramenta, não uma cópia. A prévia já
+    avisa quantos serão pulados, sem dizer quem."""
+    entidade = "demo-porta-4"
+    cliente, ent, raiz = _servidor(entidade)
+    _apagar(cliente, entidade,
+            {"cpf": C_PLAN, "motivo": "pedido do titular", "pedido_por": "g"},
+            _token(cliente, B, entidade))
+    corpo = _planilha([
+        (C_PLAN, "QUEM PEDIU PARA SAIR (CADASTRO DE EXEMPLO)", "s@exemplo.invalid"),
+        (D_PLAN, "QUEM FICA (CADASTRO DE EXEMPLO)", "f@exemplo.invalid"),
+    ])
+    previa = _enviar_planilha(cliente, entidade, corpo).json()
+    checa(previa.get("apagados_a_pedido") == 1 and previa["pessoas"] == 1,
+          f"a prévia não avisa de quem pediu para sair: {previa}")
+    _enviar_planilha(cliente, entidade, corpo, confirmar=previa["sha256"])
+    checa(_nomes_na_lista(cliente, entidade)
+          == ["QUEM FICA (CADASTRO DE EXEMPLO)"],
+          f"quem pediu para sair voltou: {_nomes_na_lista(cliente, entidade)}")
+    checa(C_PLAN not in (ent.pasta(raiz) / "acervo.jsonl").read_text(),
+          "o CPF apagado foi escrito no acervo")
+    print("  ok     quem pediu para sair não volta, e a prévia avisa quantos")
+
+
+def _enviar_documentos(cliente, entidade: str, arquivos: dict[str, bytes],
+                       confirmar: str = ""):
+    return cliente.post(
+        f"/api/entidade/{entidade}/documentos-do-sindicato",
+        data={"confirmar": confirmar},
+        files=[("arquivos", (nome, corpo, "application/pdf"))
+               for nome, corpo in arquivos.items()],
+        headers=_gestor(cliente, entidade),
+    )
+
+
+def teste_o_gestor_envia_os_documentos_que_o_sindicato_tem():
+    """A outra metade da porta: as sentenças e certidões que o SINDICATO já
+    guarda. Cada arquivo casa com alguém da base pelo CPF — no nome ou no
+    texto —, e o que não casa volta numa pilha, com o motivo, em vez de
+    sumir numa contagem."""
+    from servidor import banco
+
+    entidade = "demo-porta-5"
+    cliente, ent, raiz = _servidor(entidade)
+    planilha = _planilha([(C_PLAN, "FULANA (CADASTRO DE EXEMPLO)",
+                           "f@exemplo.invalid")])
+    sha = _enviar_planilha(cliente, entidade, planilha).json()["sha256"]
+    _enviar_planilha(cliente, entidade, planilha, confirmar=sha)
+
+    arquivos = {
+        f"{C_PLAN}-sentenca.pdf": _pdf(SENTENCA),
+        f"{C_PLAN}-certidao.pdf": _so_imagem(),
+        "sem-dono.pdf": _pdf(CONTRIB),
+    }
+    r = _enviar_documentos(cliente, entidade, arquivos)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    if r.status_code != 200:
+        return
+    previa = r.json()
+    checa(previa["gravado"] is False and previa["casaram"] == 2
+          and previa["pessoas"] == 1 and len(previa["sobraram"]) == 1,
+          f"a prévia dos documentos: {previa}")
+    checa(previa["sobraram"][0]["arquivo"] == "sem-dono.pdf"
+          and previa["sobraram"][0]["motivo"],
+          f"o que não casou não volta com o motivo: {previa['sobraram']}")
+    checa(not (ent.entrega(raiz) / C_PLAN).exists(),
+          "a prévia dos documentos gravou arquivo")
+
+    r = _enviar_documentos(cliente, entidade, arquivos,
+                           confirmar=previa["sha256"])
+    checa(r.status_code == 200 and r.json()["gravado"] is True,
+          f"{r.status_code} {r.text[:200]}")
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute("SELECT origem, tem_texto, count(*) FROM documento "
+                    "WHERE cpf = %s GROUP BY origem, tem_texto", (C_PLAN,))
+        linhas_ = sorted(cur.fetchall())
+    checa(linhas_ == [("sindicato", False, 1), ("sindicato", True, 1)],
+          f"os documentos do sindicato não entraram como tais: {linhas_}")
+    checa(len(list((ent.entrega(raiz) / C_PLAN).glob("*.pdf"))) == 2,
+          "os arquivos não foram para a entrega")
+    print("  ok     dois casam e entram, um sobra com o motivo")
+
+
+def teste_documentos_sem_base_sao_recusados_dizendo_o_que_fazer():
+    """Sem base, nenhum arquivo casa com ninguém. Aceitar e devolver "0
+    casaram" faria o gestor achar que os arquivos dele estão errados."""
+    entidade = "demo-porta-6"
+    cliente, ent, raiz = _servidor(entidade)
+    (ent.pasta(raiz) / "filiados.csv").write_text("cpf,email\n")
+    r = _enviar_documentos(cliente, entidade,
+                           {f"{C_PLAN}-sentenca.pdf": _pdf(SENTENCA)})
+    checa(r.status_code == 409 and "planilha" in r.text,
+          f"{r.status_code} {r.text[:200]}")
+    print("  ok     documentos antes da planilha: recusa dizendo a ordem")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -2856,6 +3072,12 @@ TESTES = [
     teste_so_gestor_ve_a_lista_e_exporta,
     teste_a_lista_nao_custa_por_pessoa,
     teste_sem_registro_de_quem_exportou_nao_exporta,
+    teste_o_gestor_envia_a_planilha_pela_web_em_duas_etapas,
+    teste_confirmar_outro_arquivo_e_recusado,
+    teste_planilha_que_nao_serve_e_recusada_com_o_motivo,
+    teste_quem_pediu_para_sair_nao_volta_pela_planilha_da_web,
+    teste_o_gestor_envia_os_documentos_que_o_sindicato_tem,
+    teste_documentos_sem_base_sao_recusados_dizendo_o_que_fazer,
     teste_falha_ao_conferir_apagamento_nao_entrega_codigo,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,

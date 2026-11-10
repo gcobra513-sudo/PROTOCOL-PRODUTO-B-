@@ -408,31 +408,157 @@ def _achados_de_repeticao(pessoas: list[Pessoa]) -> dict[int, Achado]:
     return saida
 
 
+#: Quanto um .xlsx pode ocupar DEPOIS de aberto. Um .xlsx é um zip, e um zip
+#: pequeno pode declarar um conteúdo enorme. A planilha de 100 mil filiados
+#: não chega a um décimo disto.
+TETO_DO_XLSX_ABERTO = 200 * 1024 * 1024
+#: Teto de linhas. Planilha de sindicato não tem um milhão de linhas; a que
+#: tem é erro de exportação (o Excel "usando" a folha inteira).
+TETO_DE_LINHAS_DO_XLSX = 300_000
+
+
+def _celula(valor) -> str:
+    """Uma célula do Excel, como o sindicato a VÊ na tela.
+
+    No Excel a data é data e o número é número — não texto. A data sai como
+    dd/mm/aaaa, que é como ela aparece na planilha em português e como o
+    CSV exportado a traria; o número inteiro sai sem o `.0` que o Excel põe
+    por baixo (o CPF e a matrícula guardados como número).
+    """
+    if valor is None:
+        return ""
+    if isinstance(valor, dt.datetime):
+        return valor.strftime("%d/%m/%Y")
+    if isinstance(valor, dt.date):
+        return valor.strftime("%d/%m/%Y")
+    if isinstance(valor, float) and valor.is_integer():
+        return str(int(valor))
+    return str(valor).strip()
+
+
+def _linhas_de_xlsx(corpo: bytes) -> tuple[list[str], list[dict[str, str]]]:
+    """(cabeçalho, registros) da PRIMEIRA folha de um .xlsx.
+
+    O sindicato tem a base no Excel. Exigir CSV é exigir que alguém saiba
+    "salvar como" no formato certo — e é nessa conversão que o `;`, o
+    latin-1 e o zero à esquerda do CPF se perdem.
+
+    UM .XLSX É UM ZIP, e isto abre arquivo mandado por um gestor. Então o
+    tamanho DECLARADO do conteúdo é somado antes de abrir: no Python deste
+    projeto o `zipfile` não lê além do tamanho declarado, então um arquivo
+    que mente para menos sai truncado e vira erro de leitura, não bomba.
+    """
+    import zipfile
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(corpo)) as z:
+            declarado = sum(info.file_size for info in z.infolist())
+            nomes = set(z.namelist())
+    except zipfile.BadZipFile:
+        raise AcervoIlegivel(
+            "o arquivo tem nome de planilha do Excel e não abre como uma"
+        ) from None
+    if declarado > TETO_DO_XLSX_ABERTO:
+        raise AcervoIlegivel(
+            f"a planilha é grande demais depois de aberta "
+            f"({declarado // (1024 * 1024)} MB). Divida-a em partes."
+        )
+    if "xl/workbook.xml" not in nomes:
+        raise AcervoIlegivel(
+            "o arquivo tem nome de planilha do Excel, mas não é uma — "
+            "salve de novo como .xlsx ou como CSV"
+        )
+    try:
+        import openpyxl
+    except ImportError:
+        raise AcervoIlegivel(
+            "este servidor não lê .xlsx (falta a biblioteca openpyxl). "
+            "Salve a planilha como CSV e envie de novo."
+        ) from None
+
+    try:
+        livro = openpyxl.load_workbook(io.BytesIO(corpo), read_only=True,
+                                       data_only=True)
+        folha = livro.worksheets[0]
+        linhas = folha.iter_rows(values_only=True)
+        cabecalho: list[str] = []
+        for bruta in linhas:
+            cabecalho = [_celula(c) for c in bruta]
+            if any(cabecalho):
+                break
+        registros: list[dict[str, str]] = []
+        for n, bruta in enumerate(linhas):
+            if n >= TETO_DE_LINHAS_DO_XLSX:
+                raise AcervoIlegivel(
+                    f"a planilha tem mais de {TETO_DE_LINHAS_DO_XLSX} "
+                    f"linhas — confira se a exportação não levou a folha "
+                    f"inteira"
+                )
+            valores = [_celula(c) for c in bruta]
+            if not any(valores):
+                continue        # linha em branco no meio não é pessoa
+            registros.append({
+                coluna: valores[i] if i < len(valores) else ""
+                for i, coluna in enumerate(cabecalho) if coluna
+            })
+    except AcervoIlegivel:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise AcervoIlegivel(
+            f"não foi possível ler a planilha do Excel: {type(e).__name__}"
+        ) from None
+    return [c for c in cabecalho if c], registros
+
+
 def ler(caminho: pathlib.Path | str) -> tuple[list[Pessoa], list[str]]:
+    """Lê o acervo de um ARQUIVO. Ver `ler_bytes`, que é quem lê."""
+    caminho = pathlib.Path(caminho)
+    try:
+        corpo = caminho.read_bytes()
+    except OSError as e:
+        return [], [f"não foi possível abrir {caminho}: {e}"]
+    return ler_bytes(corpo, caminho.name)
+
+
+def ler_bytes(corpo: bytes, nome: str) -> tuple[list[Pessoa], list[str]]:
     """Lê o acervo. Devolve as pessoas e os problemas DO ARQUIVO.
 
     A separação importa: problema de arquivo (sem coluna de CPF, encoding
     impossível) impede ler qualquer coisa e é falha fechada. Problema de
     LINHA não impede nada — vira achado e segue.
+
+    RECEBE BYTES, e não caminho, porque a planilha passou a entrar também
+    pela web — e lá não há arquivo em disco, nem deve haver antes de o
+    gestor confirmar. CSV e .xlsx passam pelo MESMO miolo a partir daqui: o
+    formato só decide como as linhas são tiradas do arquivo.
     """
-    caminho = pathlib.Path(caminho)
     problemas: list[str] = []
-    try:
-        texto = _decodificar(caminho.read_bytes())
-    except AcervoIlegivel as e:
-        return [], [str(e)]
-    except OSError as e:
-        return [], [f"não foi possível abrir {caminho}: {e}"]
+    # Um .xlsx é um zip, e todo zip começa com estes dois bytes. Decidir
+    # pelo conteúdo cobre o arquivo que veio com o nome errado.
+    if corpo[:2] == b"PK" or nome.lower().endswith((".xlsx", ".xlsm")):
+        try:
+            cabecalho, registros = _linhas_de_xlsx(corpo)
+        except AcervoIlegivel as e:
+            return [], [f"{nome}: {e}"]
+        if not cabecalho:
+            return [], [f"{nome} está vazio"]
+    else:
+        try:
+            texto = _decodificar(corpo)
+        except AcervoIlegivel as e:
+            return [], [str(e)]
+        primeira = texto.splitlines()[0] if texto.strip() else ""
+        if not primeira:
+            return [], [f"{nome} está vazio"]
+        leitor = csv.DictReader(io.StringIO(texto),
+                                delimiter=_separador(primeira))
+        cabecalho = list(leitor.fieldnames or [])
+        registros = leitor
 
-    primeira = texto.splitlines()[0] if texto.strip() else ""
-    if not primeira:
-        return [], [f"{caminho} está vazio"]
-
-    leitor = csv.DictReader(io.StringIO(texto), delimiter=_separador(primeira))
     mapa: dict[str, str] = {}
     desconhecidas: dict[str, str] = {}
     origens: dict[str, list[str]] = {}
-    for bruto in leitor.fieldnames or []:
+    for bruto in cabecalho:
         chave = normalizar_cabecalho(bruto)
         if chave in APELIDOS:
             mapa[bruto] = APELIDOS[chave]
@@ -451,7 +577,7 @@ def ler(caminho: pathlib.Path | str) -> tuple[list[Pessoa], list[str]]:
     for destino, brutas in sorted(origens.items()):
         if len(brutas) > 1:
             problemas.append(
-                f"{caminho.name}: as colunas {', '.join(repr(b) for b in brutas)} "
+                f"{nome}: as colunas {', '.join(repr(b) for b in brutas)} "
                 f"apontam todas para {destino!r}. O primeiro valor preenchido "
                 f"vence, mas confira a planilha — concatenação de exportações "
                 f"costuma ser a causa."
@@ -459,14 +585,14 @@ def ler(caminho: pathlib.Path | str) -> tuple[list[Pessoa], list[str]]:
 
     if "cpf" not in mapa.values():
         problemas.append(
-            f"{caminho} não tem coluna de CPF (cabeçalhos lidos: "
-            f"{sorted(normalizar_cabecalho(c) for c in leitor.fieldnames or [])}). "
+            f"{nome} não tem coluna de CPF (cabeçalhos lidos: "
+            f"{sorted(normalizar_cabecalho(c) for c in cabecalho)}). "
             f"Sem CPF não há como identificar ninguém."
         )
         return [], problemas
 
     pessoas: list[Pessoa] = []
-    for numero, registro in enumerate(leitor, start=2):
+    for numero, registro in enumerate(registros, start=2):
         campos: dict[str, str] = {}
         for bruto, valor in registro.items():
             destino = mapa.get(bruto) or desconhecidas.get(bruto)

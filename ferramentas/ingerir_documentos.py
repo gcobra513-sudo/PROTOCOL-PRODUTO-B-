@@ -48,27 +48,10 @@ def _ler_pasta(pasta: pathlib.Path) -> list[tuple[str, bytes]]:
 
 
 def _cpfs_da_base(url: str, apelido: str, pasta: pathlib.Path) -> set[str]:
-    """Quem a entidade declarou atender. Do banco quando há banco; do rol em
-    disco quando não há — e o rol é o mínimo, porque é por ele que alguém
-    recebe código de acesso."""
-    cpfs: set[str] = set()
-    if url:
-        from servidor import banco
+    """Mora em `servidor/ingestao.py`, que a rota da web também chama."""
+    from servidor import ingestao
 
-        for r in banco.base(url, apelido):
-            digitos = "".join(c for c in r["linha"].get("cpf", "")
-                              if c.isdigit())
-            if digitos:
-                cpfs.add(digitos)
-    if not cpfs:
-        from servidor import rol
-
-        try:
-            cpfs = {"".join(c for c in k if c.isdigit())
-                    for k in rol.carregar(pasta).por_cpf}
-        except Exception:  # noqa: BLE001
-            cpfs = set()
-    return {c for c in cpfs if c}
+    return ingestao.cpfs_da_base(url, apelido, pasta)
 
 
 def main() -> int:
@@ -166,51 +149,13 @@ def main() -> int:
         print("  (nada gravado — passe --entidade para ingerir)")
         return 1 if r.sobraram else 0
 
-    # OS BYTES VÃO PARA A ENTREGA, com o nome do contrato: é a pasta que
-    # quem confere abre, e ela já tem uma convenção. O documento do sindicato
-    # entra do mesmo jeito que o do filiado — depois de dentro, não há dois
-    # tipos de documento.
+    # A GRAVAÇÃO MORA EM `servidor/ingestao.py`, e é a MESMA que a rota da
+    # web chama: bytes para a entrega com o nome do contrato, e no banco
+    # `origem = 'sindicato'` com `tem_texto` medido.
+    from servidor import ingestao
+
     entrega = ent.entrega(raiz)
-    for cpf, docs in r.casados.items():
-        destino = entrega / cpf
-        destino.mkdir(parents=True, exist_ok=True)
-        por_tipo: dict[str, int] = {}
-        for d in docs:
-            indice = por_tipo.get(d.tipo, 0) + 1
-            por_tipo[d.tipo] = indice
-            nome = (f"{d.tipo}.pdf" if indice == 1 and d.tipo != lote.OUTRO
-                    else f"{d.tipo}-{indice}.pdf")
-            (destino / nome).write_bytes(d.corpo)
-
-        if args.banco:
-            from servidor import banco
-
-            from servidor import validacao
-
-            for d in docs:
-                soma = hashlib.sha256(d.corpo).hexdigest()
-                # `tem_texto` É MEDIDO, documento por documento. Esta
-                # inserção não o gravava, e a coluna ficava no padrão
-                # `false` — o que passaria a pôr TODO documento do sindicato
-                # na fila de leitura humana do painel. E não dá para
-                # presumir "casou, foi lido": o documento casa também pelo
-                # CPF no NOME do arquivo, e um de scanner casa assim sem
-                # texto nenhum. Esse, sim, espera uma pessoa.
-                _abre, tem_texto, _n = validacao.examinar_pdf(d.corpo)
-                with banco.sessao(args.banco, ent.apelido) as cur:
-                    cur.execute(
-                        # `origem = 'sindicato'`: é o que impede o reenvio
-                        # de um filiado de apagar o que o sindicato entregou.
-                        "INSERT INTO documento (entidade, cpf, tipo, sha256,"
-                        " tem_texto, origem) "
-                        "VALUES (%s,%s,%s,%s,%s,'sindicato') "
-                        "ON CONFLICT (entidade, cpf, tipo, sha256) "
-                        "DO UPDATE SET tem_texto = EXCLUDED.tem_texto,"
-                        " origem = 'sindicato'",
-                        (ent.apelido, cpf, d.tipo, soma, tem_texto),
-                    )
-                banco.guardar_achados(args.banco, ent.apelido, cpf, soma,
-                                      d.achados)
+    ingestao.gravar_documentos(ent, raiz, r, args.banco)
 
     print(f"  gravado em {entrega}")
     if not args.banco:

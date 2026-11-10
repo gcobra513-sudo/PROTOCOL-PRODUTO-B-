@@ -63,6 +63,9 @@ sys.path.insert(0, str(RAIZ_DO_REPO))
 CPF_FILIADO = "111.444.777-35"
 CPF_GESTOR = "529.982.247-25"
 NOME_FILIADO = "FULANA DE TAL (CADASTRO DE EXEMPLO)"
+#: Quem entra pela PLANILHA do sindicato, e nunca passou pelo portal.
+CPF_DA_PLANILHA = "390.533.447-05"
+NOME_DA_PLANILHA = "BELTRANO DE TAL (CADASTRO DE EXEMPLO)"
 SEGREDO_DO_ENSAIO = "segredo-do-ensaio-de-navegador"
 
 #: UMA ENTIDADE NOVA POR EXECUÇÃO, e isto foi um defeito que o próprio
@@ -207,6 +210,21 @@ def _pdfs(pasta: pathlib.Path) -> list[tuple[str, list[str]]]:
     ]
 
 
+def _planilha_xlsx(caminho: pathlib.Path) -> None:
+    """A planilha do sindicato em .XLSX, que é o que ele tem de verdade — e
+    com o CPF guardado como NÚMERO, que é como o Excel o guarda quando
+    ninguém formata a coluna."""
+    import openpyxl
+
+    livro = openpyxl.Workbook()
+    folha = livro.active
+    folha.append(["CPF", "Nome Completo", "E-mail", "Cargo"])
+    folha.append([int("".join(c for c in CPF_DA_PLANILHA if c.isdigit())),
+                  NOME_DA_PLANILHA, "beltrano@exemplo.invalid",
+                  "Auditor Fiscal da Receita Federal"])
+    livro.save(caminho)
+
+
 def _compilar_portal(api: str, destino: pathlib.Path) -> None:
     ambiente = {**os.environ, "VITE_API": api}
     r = subprocess.run(
@@ -229,6 +247,12 @@ def main() -> int:
                    help="imprime cada passo do navegador enquanto acontece")
     args = p.parse_args()
 
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        print("openpyxl não está instalado, e sem ele não há planilha .xlsx "
+              "para o gestor enviar", file=sys.stderr)
+        return 2
     for exigido in ("npx", "node"):
         if not shutil.which(exigido):
             print(f"{exigido} não está nesta máquina, e o ensaio precisa dele",
@@ -257,6 +281,7 @@ def main() -> int:
     try:
         _semear(raiz)
         documentos = _pdfs(raiz / "pdfs")
+        _planilha_xlsx(raiz / "pdfs" / "base-do-sindicato.xlsx")
         print(f"  {sum(len(d[1]) for d in documentos)} documentos: 3 PDFs com "
               f"texto, 1 de scanner, 1 foto")
 
@@ -316,6 +341,8 @@ def main() -> int:
                 "filiadoDesde": "2004-03",
             },
             "gestor": {"cpf": CPF_GESTOR},
+            "planilha": {"caminho": str(raiz / "pdfs" / "base-do-sindicato.xlsx"),
+                         "nome": NOME_DA_PLANILHA},
             "fazerPainel": bool(banco_url),
         }
         # UMA CHAMADA POR FASE, e a ORDEM é o que importa: o cadastro
@@ -341,6 +368,8 @@ def main() -> int:
                 falhas += _conferir_a_leitura(raiz, banco_url,
                                               da_fila.get("conferencia"))
                 falhas += _conferir_a_lista(da_fila.get("lista"))
+                falhas += _conferir_a_planilha(raiz, da_fila.get("planilha"),
+                                               da_fila.get("lista"))
 
         if banco_url and not falhas:
             print("  dirigindo o Chromium — o gestor…")
@@ -560,6 +589,35 @@ def _conferir_a_lista(da_tela) -> list[str]:
         problemas.append(f"cabeçalho inesperado na planilha: {linhas[0][:60]!r}")
     if not any(l.startswith(f"{digitos};{NOME_FILIADO};") for l in linhas):
         problemas.append("a planilha baixada não traz a pessoa, com CPF e nome")
+    return problemas
+
+
+def _conferir_a_planilha(raiz: pathlib.Path, enviada, lista) -> list[str]:
+    """A planilha que o gestor mandou pelo navegador, conferida no disco.
+
+    O arquivo de acervo tem de registrar QUEM enviou, e a pessoa da
+    planilha — que nunca passou pelo portal — tem de estar na base que o
+    gestor baixou, com o CPF que o Excel guardava como número.
+    """
+    from servidor import entidades, validacao
+
+    if not enviada or not enviada.get("gravou"):
+        return ["o gestor não conseguiu enviar a planilha pelo painel"]
+    problemas: list[str] = []
+    ent = entidades.Cadastro(raiz).resolver(APELIDO)
+    acervo_ = ent.pasta(raiz) / "acervo.jsonl"
+    if not acervo_.is_file():
+        return ["a planilha confirmada não gravou o acervo"]
+    registro = json.loads(acervo_.read_text(encoding="utf-8").splitlines()[-1])
+    if not registro.get("enviado_por"):
+        problemas.append("o acervo não registra quem enviou a planilha")
+    digitos = validacao.so_digitos(CPF_DA_PLANILHA)
+    baixada = (lista or {}).get("planilha") or ""
+    if f"{digitos};{NOME_DA_PLANILHA};" not in baixada:
+        problemas.append(
+            "quem entrou pela planilha .xlsx não está na base que o gestor "
+            "baixou — ou o CPF guardado como número chegou torto"
+        )
     return problemas
 
 

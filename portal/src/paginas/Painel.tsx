@@ -43,6 +43,7 @@ import {
   presosNoTribunal,
   primeiroAcionavel,
   resumoDaFilaDeLeitura,
+  resumoDaPlanilha,
   resumoDasMudancas,
   resumoDoApagamento,
   rotuloDoDispositivo,
@@ -704,7 +705,16 @@ const LINHAS_NA_TELA = 50;
  * de propósito, vem como arquivo e fica registrada — porque é por ele que o
  * sindicato casa esta lista com os registros dele.
  */
-function NomePorNome({ entidade, token }: { entidade: string; token: string }) {
+function NomePorNome({
+  entidade,
+  token,
+  versao,
+}: {
+  entidade: string;
+  token: string;
+  /** Sobe quando a base muda (planilha gravada, leitura registrada). */
+  versao: number;
+}) {
   const [lista, setLista] = useState<api.PessoaNaLista[] | null>(null);
   const [texto, setTexto] = useState("");
   const [dono, setDono] = useState("");
@@ -718,7 +728,7 @@ function NomePorNome({ entidade, token }: { entidade: string; token: string }) {
       .catch((e) =>
         setErro(e instanceof Error ? e.message : "não foi possível abrir"),
       );
-  }, [entidade, token]);
+  }, [entidade, token, versao]);
 
   async function baixar() {
     setBaixando(true);
@@ -819,6 +829,208 @@ function NomePorNome({ entidade, token }: { entidade: string; token: string }) {
           os seus registros. Fica registrado quem baixou.
         </p>
       </div>
+    </Cartao>
+  );
+}
+
+
+/** O sindicato ENTREGA a base: a planilha de filiados e os documentos.
+ *
+ * "O sindicato manda a lista de filiados" é a primeira frase do produto, e
+ * não havia por onde: a planilha e os documentos só entravam por linha de
+ * comando, rodada por nós.
+ *
+ * AS DUAS ENTREGAS SÃO EM DUAS ETAPAS, e a primeira não grava nada. O
+ * gestor escolhe o arquivo, o servidor LÊ e devolve o que ele traz, e só o
+ * segundo clique grava — levando a impressão digital do que foi conferido.
+ * A planilha é a base inteira do sindicato: a confirmação é a única
+ * conferência que ela recebe.
+ */
+function EnviarBase({
+  entidade,
+  token,
+  onMudou,
+}: {
+  entidade: string;
+  token: string;
+  onMudou: () => void;
+}) {
+  const [planilha, setPlanilha] = useState<File | null>(null);
+  const [previa, setPrevia] = useState<api.PreviaDaPlanilha | null>(null);
+  const [docs, setDocs] = useState<File[]>([]);
+  const [previaDocs, setPreviaDocs] =
+    useState<api.PreviaDosDocumentos | null>(null);
+  const [indo, setIndo] = useState("");
+  const [erro, setErro] = useState("");
+
+  async function fazer(qual: string, acao: () => Promise<void>) {
+    setIndo(qual);
+    setErro("");
+    try {
+      await acao();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "não foi possível enviar");
+    } finally {
+      setIndo("");
+    }
+  }
+
+  const conferirPlanilha = () =>
+    fazer("planilha", async () => {
+      if (planilha) setPrevia(await api.enviarPlanilha(entidade, token, planilha));
+    });
+  const gravarPlanilha = () =>
+    fazer("planilha", async () => {
+      if (!planilha || !previa) return;
+      setPrevia(
+        await api.enviarPlanilha(entidade, token, planilha, previa.sha256),
+      );
+      onMudou();
+    });
+  const conferirDocs = () =>
+    fazer("docs", async () => {
+      if (docs.length) {
+        setPreviaDocs(
+          await api.enviarDocumentosDoSindicato(entidade, token, docs),
+        );
+      }
+    });
+  const gravarDocs = () =>
+    fazer("docs", async () => {
+      if (!docs.length || !previaDocs) return;
+      setPreviaDocs(
+        await api.enviarDocumentosDoSindicato(
+          entidade, token, docs, previaDocs.sha256,
+        ),
+      );
+      onMudou();
+    });
+
+  return (
+    <Cartao
+      titulo="Enviar a base do sindicato"
+      explicacao="Primeiro a planilha de filiados; depois, se tiver, as sentenças e certidões que o sindicato já guarda. Nada é gravado antes de você conferir."
+    >
+      <div className="space-y-3 rounded-lg border border-borda bg-carta p-4">
+        <label className="block text-[15px] font-medium text-tinta">
+          A planilha de filiados (Excel .xlsx ou CSV)
+          <input
+            type="file"
+            accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="mt-2 block text-sm font-normal"
+            onChange={(e) => {
+              setPlanilha(e.target.files?.[0] ?? null);
+              setPrevia(null);
+            }}
+          />
+        </label>
+        {previa ? (
+          <div className="space-y-2">
+            {previa.gravado ? (
+              <Aviso tom="bom">
+                Planilha gravada: {pessoas(previa.pessoas)} na base.
+              </Aviso>
+            ) : (
+              <Aviso tom="neutro">
+                <strong>Confira antes de gravar.</strong> Nada foi gravado
+                ainda.
+              </Aviso>
+            )}
+            {resumoDaPlanilha(previa).map((linha) => (
+              <p key={linha} className="text-sm text-tinta/80">
+                {linha}
+              </p>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-3">
+          {!previa ? (
+            <Botao
+              tamanho="pequeno"
+              disabled={!planilha || indo === "planilha"}
+              onClick={() => void conferirPlanilha()}
+            >
+              {indo === "planilha" ? "Lendo…" : "Conferir a planilha"}
+            </Botao>
+          ) : !previa.gravado ? (
+            <Botao
+              tamanho="pequeno"
+              disabled={indo === "planilha"}
+              onClick={() => void gravarPlanilha()}
+            >
+              {indo === "planilha" ? "Gravando…" : "Confirmar e gravar a planilha"}
+            </Botao>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="space-y-3 rounded-lg border border-borda bg-carta p-4">
+        <label className="block text-[15px] font-medium text-tinta">
+          Documentos que o sindicato já tem (PDFs, ou um .zip)
+          <input
+            type="file"
+            multiple
+            accept="application/pdf,.pdf,.zip,application/zip"
+            className="mt-2 block text-sm font-normal"
+            onChange={(e) => {
+              setDocs(Array.from(e.target.files ?? []));
+              setPreviaDocs(null);
+            }}
+          />
+        </label>
+        <p className="text-sm text-tinta/60">
+          Cada arquivo encontra o dono pelo CPF — no nome do arquivo ou no
+          texto do documento. O que não encontrar volta numa lista, com o
+          motivo.
+        </p>
+        {previaDocs ? (
+          <div className="space-y-2">
+            <Aviso tom={previaDocs.gravado ? "bom" : "neutro"}>
+              {previaDocs.gravado ? "Gravado: " : "Confira antes de gravar: "}
+              {previaDocs.casaram} de {previaDocs.arquivos} documento(s)
+              encontraram o dono, de {pessoas(previaDocs.pessoas)}.
+            </Aviso>
+            {previaDocs.sobraram.length ? (
+              <div>
+                <p className="text-sm font-medium text-tinta">
+                  Não encontraram dono ({previaDocs.sobraram_total}):
+                </p>
+                {previaDocs.sobraram.map((x) => (
+                  <p key={x.arquivo} className="text-sm text-tinta/75">
+                    {x.arquivo} — {x.motivo}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {previaDocs.avisos.map((a) => (
+              <p key={a} className="text-sm text-tinta/75">
+                Atenção: {a}
+              </p>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-3">
+          {!previaDocs ? (
+            <Botao
+              tamanho="pequeno"
+              disabled={!docs.length || indo === "docs"}
+              onClick={() => void conferirDocs()}
+            >
+              {indo === "docs" ? "Lendo…" : "Conferir os documentos"}
+            </Botao>
+          ) : !previaDocs.gravado && previaDocs.casaram > 0 ? (
+            <Botao
+              tamanho="pequeno"
+              disabled={indo === "docs"}
+              onClick={() => void gravarDocs()}
+            >
+              {indo === "docs" ? "Gravando…" : "Confirmar e gravar os documentos"}
+            </Botao>
+          ) : null}
+        </div>
+      </div>
+
+      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
     </Cartao>
   );
 }
@@ -1005,7 +1217,13 @@ export function Painel({ entidade }: { entidade: string }) {
       </Aviso>
     </Cartao>
 
-      <NomePorNome entidade={entidade} token={token} />
+      <NomePorNome entidade={entidade} token={token} versao={versaoDaFila} />
+
+      <EnviarBase
+        entidade={entidade}
+        token={token}
+        onMudou={() => setVersaoDaFila((v) => v + 1)}
+      />
 
       <ApagarAPedido
         entidade={entidade}

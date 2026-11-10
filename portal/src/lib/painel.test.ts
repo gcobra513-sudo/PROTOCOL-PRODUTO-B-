@@ -25,6 +25,7 @@ import {
   rotuloDoDispositivo,
   filtrarPessoas,
   situacaoDaPessoa,
+  resumoDaPlanilha,
 } from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
@@ -353,5 +354,36 @@ describe("a lista nome por nome", () => {
     expect(s).toContain("depende do tribunal");
     // Quem não tem pendência nem pode: não se inventa estado.
     expect(situacaoDaPessoa(P("X"))).toBe("sem ação que a alcance");
+  });
+});
+
+describe("a prévia da planilha, antes de o gestor confirmar", () => {
+  const PREVIA: api.PreviaDaPlanilha = {
+    sha256: "abc", arquivo: "base.xlsx", manchete: "", linhas: 12,
+    pessoas: 10, alcancaveis: 7, inalcancaveis: 3, divergentes: 2,
+    colunas_ausentes: ["telefone"], apagados_a_pedido: 1, gravado: false,
+  };
+
+  it("diz quantas pessoas, e quantas o sindicato NÃO alcança", () => {
+    const linhas = resumoDaPlanilha(PREVIA).join("\n");
+    expect(linhas).toContain("10 pessoas");
+    expect(linhas).toContain("3");
+    expect(linhas.toLowerCase()).toContain("não consegue falar");
+  });
+
+  it("avisa de quem pediu apagamento — quantos, nunca quem", () => {
+    const linhas = resumoDaPlanilha(PREVIA).join("\n");
+    expect(linhas).toContain("1 pessoa");
+    expect(linhas.toLowerCase()).toContain("apagamento");
+    expect(linhas.toLowerCase()).toContain("tire");
+  });
+
+  it("não fala do que não aconteceu", () => {
+    // Linha "0 pediram apagamento" em toda prévia vira ruído que ninguém lê
+    // no dia em que o número não for zero.
+    const limpa = resumoDaPlanilha({ ...PREVIA, apagados_a_pedido: 0,
+                                     divergentes: 0, colunas_ausentes: [] });
+    expect(limpa.join("\n").toLowerCase()).not.toContain("apagamento");
+    expect(limpa.join("\n").toLowerCase()).not.toContain("divergen");
   });
 });

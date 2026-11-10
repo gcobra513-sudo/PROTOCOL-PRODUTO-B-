@@ -109,6 +109,25 @@ impede. O que sobra: nenhum e-mail sai (o portão consulta o tombstone), e
 `--conferir` **detecta** a linha reposta. No dia em que existir rota de
 ingestão de rol, ela consulta o tombstone como as outras duas.
 
+## O sindicato envia a base pelo painel
+
+```
+POST /api/entidade/{apelido}/planilha                   CSV ou .xlsx
+POST /api/entidade/{apelido}/documentos-do-sindicato    PDFs, ou um .zip
+```
+
+**Em duas etapas.** Sem o campo `confirmar`, o servidor só lê e devolve o
+que o arquivo traz — nada é gravado. Com `confirmar` igual ao `sha256` que a
+prévia devolveu, grava; se o arquivo for outro, 409.
+
+O miolo é `servidor/ingestao.py`, o **mesmo** de `ferramentas/ingerir_acervo.py`
+e `ferramentas/ingerir_documentos.py`: as ferramentas continuam existindo,
+para volumes que não cabem num envio pela web (o teto é o do pacote, 60 MB)
+e para quem opera.
+
+**A planilha alimenta a base, não o portão.** Quem pode entrar no portal
+continua em `filiados.csv`, posto à mão — ver T26 em `CHECKPOINTS.md`.
+
 ## Nome por nome, e a planilha da base
 
 ```
