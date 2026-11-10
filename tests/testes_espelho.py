@@ -1207,8 +1207,16 @@ def teste_a_saude_denuncia_o_agendador_parado():
           f"disse ok com o trabalho de fundo nunca tendo rodado: {corpo}")
     checa(corpo["atrasados"] >= 1, f"{corpo}")
     tarefas = {t["tarefa"] for t in corpo["trabalho_de_fundo"]}
-    checa(tarefas == {"coletar", "avisar"},
-          f"as tarefas não aparecem na saúde: {tarefas}")
+    # CONTRA `agenda.TAREFAS`, não contra uma lista escrita aqui: a asserção
+    # é "TODAS as tarefas aparecem na saúde". Travar o literal fazia
+    # acrescentar uma tarefa nova quebrar um teste cujo assunto não é
+    # quantas tarefas existem — e isso ensina a editar o teste em vez de ler
+    # o que ele diz.
+    from servidor import agenda as _agenda
+
+    checa(tarefas == set(_agenda.TAREFAS),
+          f"as tarefas não aparecem na saúde: {tarefas} contra "
+          f"{set(_agenda.TAREFAS)}")
     print(f"  ok     saúde: ok={corpo['ok']}, "
           f"{corpo['atrasados']} atrasada(s)")
 

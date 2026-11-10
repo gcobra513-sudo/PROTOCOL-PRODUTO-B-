@@ -13,7 +13,12 @@
  *
  * A segunda é a que vale a reunião.
  */
-import type { Gargalo, ResultadoDoApagamento } from "./envio";
+import type {
+  Gargalo,
+  Mudancas,
+  MudancaDeVeredicto,
+  ResultadoDoApagamento,
+} from "./envio";
 
 /** O maior gargalo que o próprio sindicato destrava, ou nulo se não houver.
  *
@@ -112,5 +117,70 @@ export function resumoDoApagamento(
       ? undefined
       : "O sindicato não tinha e-mail desta pessoa em cadastro, então o " +
         "aviso de que o pedido foi atendido precisa sair por outro caminho.",
+  };
+}
+
+/** A frase de um grupo de mudança, no sentido certo.
+ *
+ *  OS DOIS SENTIDOS NA MESMA TELA, e confundi-los é o pior erro possível
+ *  aqui: dizer "agora pode" a quem DEIXOU de poder faria o sindicato ligar
+ *  para a pessoa com a notícia errada — e notícia errada sobre direito é o
+ *  que destrói a confiança no produto inteiro.
+ *
+ *  `PODE` de um lado e qualquer outra coisa do outro basta para decidir o
+ *  sentido: `FALTA` e `NAO_PODE` são os dois "não dá hoje", e a diferença
+ *  entre eles não muda o que o gestor faz com a notícia.
+ */
+export function frasesDaMudanca(m: MudancaDeVeredicto): string {
+  const quantos = pessoas(m.pessoas);
+  const trilha = m.trilha === "executar" ? "executar" : "ajuizar";
+  if (m.para === "PODE") {
+    return `${quantos} passou a poder ${trilha} em ${m.referencia}.`;
+  }
+  if (m.de === "PODE") {
+    return `${quantos} deixou de poder ${trilha} em ${m.referencia}.`;
+  }
+  return `${quantos} mudou de situação em ${m.referencia} ` +
+    `(${m.de} para ${m.para}).`;
+}
+
+export interface ResumoDasMudancas {
+  /** Ocupa espaço na tela? Nada mudou NÃO ocupa; não dar para saber ocupa. */
+  mostra: boolean;
+  frase: string;
+  catalogo: string;
+}
+
+/** Se a seção de mudanças aparece, e com que manchete.
+ *
+ *  TRÊS ESTADOS, E O TERCEIRO É O QUE IMPORTA:
+ *
+ *    mudou alguma coisa   aparece, com a contagem
+ *    nada mudou           NÃO aparece — seção vazia é ruído, e o painel
+ *                         tem assunto melhor
+ *    não dá para saber    APARECE, dizendo isso
+ *
+ *  O terceiro existe porque `total: 0` e "sem banco" produziriam a mesma
+ *  tela se ninguém os separasse — e aí o painel tranquilizaria sem base.
+ */
+export function resumoDasMudancas(m: Mudancas): ResumoDasMudancas {
+  if (m.sem_banco) {
+    return {
+      mostra: true,
+      frase:
+        "Não temos como saber o que mudou: este servidor está sem o banco " +
+        "que guarda o veredicto anterior.",
+      catalogo: m.catalogo,
+    };
+  }
+  if (m.total <= 0) {
+    return { mostra: false, frase: "", catalogo: m.catalogo };
+  }
+  return {
+    mostra: true,
+    frase:
+      `${pessoas(m.total)} mudou de situação desde o catálogo anterior. ` +
+      "Nada foi avisado a ninguém: quem fala com o filiado é o sindicato.",
+    catalogo: m.catalogo,
   };
 }

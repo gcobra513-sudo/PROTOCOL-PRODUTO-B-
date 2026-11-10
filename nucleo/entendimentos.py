@@ -29,6 +29,7 @@ nova vira INDETERMINADO para sempre.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import tomllib
 import unicodedata
@@ -209,6 +210,15 @@ class Catalogo:
     versoes: dict[str, int]
     entendimentos: tuple[Entendimento, ...]
     acoes: tuple[AcaoColetiva, ...]
+    #: slug -> impressão digital MEDIDA do conteúdo do arquivo.
+    #:
+    #: `versoes` é o que o catálogo DIZ de si; isto é o que ele É. Enquanto
+    #: os dois concordam, a versão basta. O comentário da própria `versao`
+    #: no TOML registra o dia em que não concordaram: "ninguém conferia, e
+    #: nada casava". Um veredicto guardado que cita uma versão que o
+    #: conteúdo não tem é prova FALSA, e prova falsa é pior que prova
+    #: nenhuma — por isso quem grava compara os dois e recusa na divergência.
+    digestos: dict[str, str] = field(default_factory=dict)
 
     #: Derivado de `cargos`: grafia normalizada -> categoria. Montado no
     #: __post_init__ para não poder divergir, e porque a busca roda uma vez
@@ -266,6 +276,24 @@ class Catalogo:
             f"{slug}@{self.versoes[slug]}" for slug in sorted(self.versoes)
         )
 
+    @property
+    def digest(self) -> str:
+        """A impressão do conteúdo que produziu um veredicto.
+
+        RECORTADA PELO CONTRATO, igual à assinatura, e isso é o que permite
+        comparar as duas. Se esta cobrisse a pasta inteira e aquela só o
+        contratado, editar o catálogo de uma carreira que o sindicato não
+        contratou faria as duas divergirem — e a trava de "conteúdo mudou
+        sem subir versão" recusaria gravar para quem não tem nada a ver com
+        aquilo.
+        """
+        if not self.digestos:
+            return ""
+        junto = " ".join(
+            f"{slug}:{self.digestos[slug]}" for slug in sorted(self.digestos)
+        )
+        return hashlib.sha256(junto.encode("utf-8")).hexdigest()
+
     def restrito_a(self, categorias) -> "Catalogo":
         """Só as categorias contratadas — mas com a tabela de cargos inteira.
 
@@ -281,6 +309,8 @@ class Catalogo:
             slugs=slugs,
             versoes={s: v for s, v in self.versoes.items()
                      if s in set(slugs.values())},
+            digestos={s: d for s, d in self.digestos.items()
+                      if s in set(slugs.values())},
             entendimentos=tuple(e for e in self.entendimentos
                                 if e.categoria in manter),
             acoes=tuple(a for a in self.acoes if a.categoria in manter),
@@ -391,7 +421,11 @@ def carregar(caminho: Path | str) -> Catalogo:
     """O catálogo de UMA categoria. O nome do arquivo é o slug."""
     caminho = Path(caminho)
     try:
-        dados = tomllib.loads(caminho.read_text(encoding="utf-8"))
+        # LIDO EM BYTES para a impressão digital sair dos bytes do arquivo,
+        # e decodificado depois. Medir o digest do texto já decodificado
+        # perderia a diferença entre dois arquivos que decodificam igual.
+        bruto_em_bytes = caminho.read_bytes()
+        dados = tomllib.loads(bruto_em_bytes.decode("utf-8"))
     except FileNotFoundError:
         raise ErroDeCatalogo(f"catálogo não encontrado em {caminho}") from None
     except tomllib.TOMLDecodeError as e:
@@ -495,6 +529,10 @@ def carregar(caminho: Path | str) -> Catalogo:
         cargos={categoria: grafias},
         slugs={categoria: slug},
         versoes={slug: int(cabeca.get("versao", 0))},
+        # MEDIDO DOS BYTES DO ARQUIVO, não do que o parser entendeu: um
+        # comentário trocado também é conteúdo trocado, e é em comentário
+        # que mora metade do argumento jurídico destes arquivos.
+        digestos={slug: hashlib.sha256(bruto_em_bytes).hexdigest()},
         entendimentos=tuple(entradas),
         acoes=tuple(acoes),
     )
@@ -517,6 +555,7 @@ def juntar(catalogos: list[Catalogo]) -> Catalogo:
     cargos: dict[str, tuple[str, ...]] = {}
     slugs: dict[str, str] = {}
     versoes: dict[str, int] = {}
+    digestos: dict[str, str] = {}
     entendimentos: list[Entendimento] = []
     acoes: list[AcaoColetiva] = []
     dono_do_cargo: dict[str, str] = {}
@@ -543,6 +582,7 @@ def juntar(catalogos: list[Catalogo]) -> Catalogo:
                     )
                 dono_do_cargo[grafia] = categoria
         versoes.update(cat.versoes)
+        digestos.update(cat.digestos)
         entendimentos += list(cat.entendimentos)
         acoes += list(cat.acoes)
 
@@ -560,6 +600,7 @@ def juntar(catalogos: list[Catalogo]) -> Catalogo:
         cargos=cargos,
         slugs=slugs,
         versoes=versoes,
+        digestos=digestos,
         entendimentos=tuple(entendimentos),
         acoes=tuple(acoes),
     )

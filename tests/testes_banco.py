@@ -351,31 +351,42 @@ def teste_a_divergencia_sobrevive_no_banco():
     print("  ok     as duas afirmações sobrevivem, e o rol vence até homologar")
 
 
-def teste_oportunidade_guarda_a_versao_do_catalogo():
-    """O que torna o veredicto auditável: quando o Tema 1.302 for julgado, a
-    reavaliação muda o resultado — e dá para provar por quê."""
+def teste_oportunidade_guarda_a_origem_do_catalogo():
+    """O que torna o veredicto auditável: quando o tema for julgado, a
+    reavaliação muda o resultado — e dá para provar por quê.
+
+    A COLUNA ERA `catalogo_versao integer`, e o inteiro é a hipótese de um
+    contrato só: um sindicato com duas carreiras tem duas versões. Virou
+    `catalogo_assinatura` (o que o catálogo DIZ) mais `catalogo_digest` (o
+    que ele É). Quem exercita a gravação inteira é
+    `tests/testes_oportunidade.py`; o que SÓ aqui se prova é a trava do
+    ESQUEMA: veredicto que não existe é recusado pelo banco, não pelo Python.
+    """
     from servidor import banco
 
     with banco.sessao(URL, "demo-a") as cur:
         cur.execute("DELETE FROM oportunidade")
         cur.execute(
             "INSERT INTO oportunidade (entidade, cpf, trilha, referencia, "
-            "veredicto, motivos, catalogo_versao) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+            "veredicto, motivos, catalogo_assinatura, catalogo_digest) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
             ("demo-a", "52998224725", "executar", "GIFA-2006", "FALTA",
-             '["fora do rol, Tema 1.302 pendente"]', 1),
+             '["fora do rol, Tema 1.302 pendente"]', "slug@1", "abc123"),
         )
-        cur.execute("SELECT veredicto, catalogo_versao FROM oportunidade")
-        checa(cur.fetchone() == ("FALTA", 1), "o veredicto não foi guardado")
+        cur.execute("SELECT veredicto, catalogo_assinatura, catalogo_digest "
+                    "FROM oportunidade")
+        checa(cur.fetchone() == ("FALTA", "slug@1", "abc123"),
+              "o veredicto não foi guardado com a origem")
         try:
             cur.execute(
                 "INSERT INTO oportunidade (entidade, cpf, trilha, referencia, "
-                "veredicto, catalogo_versao) VALUES (%s,%s,%s,%s,%s,%s)",
-                ("demo-a", "11144477735", "executar", "X", "TALVEZ", 1),
+                "veredicto, catalogo_assinatura) VALUES (%s,%s,%s,%s,%s,%s)",
+                ("demo-a", "11144477735", "executar", "X", "TALVEZ", "slug@1"),
             )
             checa(False, "o banco aceitou um veredicto que não existe")
         except Exception:
             pass
-    print("  ok     veredicto versionado, e valor inválido é recusado")
+    print("  ok     veredicto com origem, e valor inválido é recusado")
 
 
 def teste_apagar_pessoa_deixa_tombstone():
@@ -510,7 +521,7 @@ TESTES.extend([
     teste_nao_da_para_escrever_na_entidade_alheia,
     teste_o_dono_da_tabela_tambem_obedece,
     teste_a_divergencia_sobrevive_no_banco,
-    teste_oportunidade_guarda_a_versao_do_catalogo,
+    teste_oportunidade_guarda_a_origem_do_catalogo,
     teste_apagar_pessoa_deixa_tombstone,
     teste_a_auditoria_nao_pode_ser_reescrita,
     teste_toda_tabela_tem_politica,

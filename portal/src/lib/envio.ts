@@ -494,6 +494,29 @@ export interface AcaoNaBase {
   meses_somados: number;
 }
 
+/** Uma oportunidade que MUDOU de veredicto de um catálogo para o outro. */
+export interface MudancaDeVeredicto {
+  referencia: string;
+  trilha: string;
+  de: string;
+  para: string;
+  pessoas: number;
+  /** Nomes, nunca CPF. "3 pessoas mudaram" não é acionável: o gestor liga
+   *  para gente. */
+  exemplos: string[];
+}
+
+export interface Mudancas {
+  /** Qual catálogo produziu o veredicto de agora. */
+  catalogo: string;
+  total: number;
+  /** `true` significa NÃO DÁ PARA SABER, e é diferente de `total: 0`.
+   *  Um painel que diz "nada mudou" sem ter como saber é pior que um painel
+   *  que não diz nada. */
+  sem_banco: boolean;
+  grupos: MudancaDeVeredicto[];
+}
+
 export interface Panorama {
   entidade: string;
   nome: string;
@@ -510,6 +533,7 @@ export interface Panorama {
   /** Do maior para o menor. A ORDEM É A INFORMAÇÃO. */
   gargalos: Gargalo[];
   limite: string;
+  mudancas: Mudancas;
 }
 
 /** O que o sindicato resolve primeiro. Só para gestor da própria entidade:
@@ -543,6 +567,12 @@ export async function verPanorama(
     por_acao: corpo.por_acao ?? [],
     gargalos: corpo.gargalos ?? [],
     limite: corpo.limite ?? "",
+    // SEM A CHAVE, "não dá para saber" — e não "nada mudou". Um servidor
+    // mais antigo que não manda `mudancas` não deve fazer a tela afirmar
+    // que está tudo igual.
+    mudancas: corpo.mudancas ?? {
+      catalogo: "", total: 0, sem_banco: true, grupos: [],
+    },
   };
 }
 

@@ -51,6 +51,7 @@ SUITES = [
     "tests/testes_conformidade_portal.py",
     "tests/testes_repositorio.py",
     "tests/testes_apagamento.py",
+    "tests/testes_oportunidade.py",
 ]
 
 # Dependências opcionais: faltar uma delas é "pulado", não "falha". Mas o

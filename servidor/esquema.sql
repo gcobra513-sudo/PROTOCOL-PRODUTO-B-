@@ -223,10 +223,30 @@ CREATE TABLE IF NOT EXISTS aviso_enviado (
 );
 
 
--- O VEREDICTO DO MOTOR, e `catalogo_versao` é o que torna o produto
--- auditável: quando o STJ julgar o Tema 1.302, a gente reavalia e quem
--- estava FALTA vira PODE — com a prova de por que mudou. Sem este campo, o
--- veredicto de ontem é inexplicável hoje.
+-- O VEREDICTO DO MOTOR, e a origem dele é o que torna o produto auditável:
+-- quando o tribunal julgar, a gente reavalia e quem estava FALTA vira PODE —
+-- com a prova de por que mudou. Sem a origem, o veredicto de ontem é
+-- inexplicável hoje.
+--
+-- DUAS COLUNAS PARA A ORIGEM, E A SEGUNDA EXISTE PORQUE A PRIMEIRA É UMA
+-- DECLARAÇÃO.
+--
+--   catalogo_assinatura  o que o catálogo DIZ de si: "slug@2 outro@1".
+--                        Era `catalogo_versao integer`, e o inteiro é a
+--                        hipótese de um contrato só — um sindicato com duas
+--                        carreiras tem duas versões.
+--   catalogo_digest      o que o conteúdo É: impressão digital MEDIDA dos
+--                        arquivos. O comentário da própria `versao` no TOML
+--                        registra o que já aconteceu uma vez: "ninguém
+--                        conferia, e nada casava". Editar o conteúdo e
+--                        esquecer de subir a versão produz dois veredictos
+--                        diferentes citando a mesma origem, e aí a prova de
+--                        auditoria é FALSA — pior que não ter prova.
+--
+-- APPEND-ONLY, COM A ASSINATURA NA CHAVE. Reavaliar sob catálogo novo
+-- INSERE linha nova em vez de sobrescrever a antiga, e tem de ser assim
+-- porque o veredicto antigo NÃO é recalculável: o catálogo que o produziu
+-- pode já ter sido editado em disco. É o mesmo argumento do diário.
 CREATE TABLE IF NOT EXISTS oportunidade (
     entidade        text NOT NULL,
     cpf             text NOT NULL,
@@ -235,9 +255,10 @@ CREATE TABLE IF NOT EXISTS oportunidade (
     veredicto       text NOT NULL CHECK (veredicto IN ('PODE', 'NAO_PODE', 'FALTA')),
     motivos         jsonb NOT NULL DEFAULT '[]'::jsonb,
     falta           jsonb NOT NULL DEFAULT '[]'::jsonb,
-    catalogo_versao integer NOT NULL,
+    catalogo_assinatura text NOT NULL,
+    catalogo_digest text NOT NULL DEFAULT '',
     avaliado_em     timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (entidade, cpf, trilha, referencia)
+    PRIMARY KEY (entidade, cpf, trilha, referencia, catalogo_assinatura)
 );
 
 

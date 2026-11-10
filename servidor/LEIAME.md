@@ -109,6 +109,56 @@ impede. O que sobra: nenhum e-mail sai (o portão consulta o tombstone), e
 `--conferir` **detecta** a linha reposta. No dia em que existir rota de
 ingestão de rol, ela consulta o tombstone como as outras duas.
 
+## O veredicto guardado, e a prova de por que mudou
+
+A tabela `oportunidade` guarda o que o motor respondeu para cada pessoa, com
+a **origem**: a assinatura que o catálogo DECLARA (`slug@2 outro@1`) e a
+impressão digital MEDIDA do conteúdo dos arquivos.
+
+```bash
+python3 ferramentas/reavaliar_oportunidades.py --entidade sindicato-x
+```
+
+Roda sozinha também: é a tarefa **`reavaliar`** do agendador, a última da
+rodada. A ferramenta nunca imprime CPF — quem precisa saber de quem é cada
+mudança abre o painel, com sessão de gestor.
+
+**APPEND-ONLY POR ASSINATURA.** Reavaliar sob catálogo novo INSERE em vez de
+sobrescrever, e é isso que faz a transição existir: o veredicto antigo **não
+é recalculável**, porque o catálogo que o produziu pode já ter sido editado
+em disco.
+
+**CONTEÚDO MUDADO SEM SUBIR A `versao` É RECUSADO** (código de saída 3). Se
+já existe veredicto gravado com aquela assinatura e OUTRA impressão, alguém
+editou o TOML e esqueceu de subir a versão — e aí a linha guardada citaria
+uma origem que não produziu aquele resultado. Prova falsa é pior que prova
+nenhuma, porque ninguém desconfia dela.
+
+**NADA É AVISADO A NINGUÉM.** Esta parte registra e mostra ao sindicato; não
+manda e-mail. Quem fala com o filiado é o sindicato, e a decisão de avisar é
+dele — com advogado, não com agendador.
+
+### Uma coisa que o painel diz e que não é "zero"
+
+Sem banco, o painel mostra **"não temos como saber o que mudou"**, e não
+"nada mudou". São respostas diferentes: a segunda é o relatório
+tranquilizador que faz ninguém perceber.
+
+## Migrar um banco que já existe
+
+`esquema.sql` é a forma de agora, e `CREATE TABLE IF NOT EXISTS` **não
+altera tabela existente**. Banco que já está no ar precisa da migração
+datada:
+
+```bash
+psql "$PROTOCOL_DATABASE_URL" -f servidor/migracoes/<arquivo>.sql
+```
+
+`servidor/migracoes/LEIA.md` tem a lista e diz quais já foram aplicadas.
+**Suíte verde não quer dizer que o banco de produção foi migrado** — a suíte
+roda com `recriar=True`, que derruba e recria, então ela nunca exercita a
+migração contra um banco antigo.
+
 ## Cadastrar uma entidade
 
 ```bash

@@ -269,11 +269,21 @@ def teste_tarefa_que_estoura_nao_derruba_o_agendador():
 
 def teste_a_ordem_e_coletar_depois_avisar():
     """Avisar antes de coletar avisaria sobre o que chegou ontem, sempre um
-    dia atrasado."""
+    dia atrasado.
+
+    A ASSERÇÃO É SOBRE A RELAÇÃO, não sobre a lista inteira. Ela travava
+    `== ["coletar", "avisar"]`, e aí acrescentar uma tarefa nova quebrava um
+    teste cujo assunto não é "quantas tarefas existem" — o que ensina a
+    editar o teste em vez de ler o que ele diz.
+    """
     from servidor import agenda
 
-    checa(list(agenda.TAREFAS) == ["coletar", "avisar"],
-          f"a ordem está trocada: {agenda.TAREFAS}")
+    ordem = list(agenda.TAREFAS)
+    checa("coletar" in ordem and "avisar" in ordem,
+          f"faltou uma das duas: {ordem}")
+    checa(ordem.index("coletar") < ordem.index("avisar"),
+          f"avisar roda antes de coletar, e aí o aviso é sempre de ontem: "
+          f"{ordem}")
     print("  ok     coleta primeiro, aviso depois")
 
 
