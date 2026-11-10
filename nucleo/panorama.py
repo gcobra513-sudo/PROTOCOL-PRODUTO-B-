@@ -227,29 +227,62 @@ def fatos_do_cadastro(
     )
 
 
-def montar(
+#: O que aparece no lugar do nome quando a base não tem um. NUNCA o CPF: a
+#: versão anterior fazia `fatos.nome or cpf`, e o CPF em claro ia para os
+#: exemplos de cada pendência, que o painel mostra.
+SEM_NOME = "(sem nome na base)"
+
+
+@dataclass(frozen=True)
+class Avaliada:
+    """UMA pessoa, com tudo o que o produto sabe dizer sobre ela.
+
+    É a unidade de que saem o panorama (somando) e a lista "nome por nome"
+    (mostrando). Os dois saem DAQUI, do mesmo laço — dois laços um dia
+    divergem, e foi esse o defeito das três superfícies.
+    """
+
+    cpf: str
+    nome: str
+    cadastrou: bool
+    entregues: tuple[str, ...]
+    participacoes: tuple
+    oportunidades: tuple
+
+    @property
+    def pode(self) -> bool:
+        return any(o.veredicto == motor.PODE for o in self.oportunidades)
+
+    @property
+    def depende_de(self) -> tuple[str, ...]:
+        """De QUEM depende a resposta desta pessoa — todos os donos, na
+        ordem de leitura. Sem prioridade inventada: uma pessoa pode depender
+        dela mesma E do tribunal, e escolher um esconderia o outro do
+        gestor que filtra por "o que depende de mim"."""
+        donos = {f.quem for o in self.oportunidades
+                 for f in (*o.falta, *o.falta_para_valor)}
+        return tuple(d for d in pendencia.DONOS if d in donos)
+
+    @property
+    def pendencias(self) -> set[tuple[str, str]]:
+        """(dono, o que falta), sem repetir: uma pessoa conta UMA vez por
+        pendência, por mais ações que a tenham."""
+        return {(f.quem, f.o_que) for o in self.oportunidades
+                for f in (*o.falta, *o.falta_para_valor)}
+
+
+def por_pessoa(
     registros,
     catalogo: ent.Catalogo,
-    exemplos: int = EXEMPLOS_PADRAO,
     lidos_por_cpf: dict[str, dict[str, str]] | None = None,
-) -> Panorama:
-    """O panorama desta entidade, a partir do diário e do catálogo dela.
+) -> list[Avaliada]:
+    """Cada pessoa da base, avaliada. Ordenada pelo nome, depois pelo CPF.
 
-    `registros` são os de `deposito.ler_diario`. `catalogo` traz SÓ as
-    categorias que a entidade contratou — `entendimentos.VAZIO` quando ela
-    não declarou nenhuma, e aí não há ação a cruzar, que é o certo.
+    O ÚNICO LAÇO que avalia a base: `montar` soma o que sai daqui, e a lista
+    do sindicato mostra o que sai daqui.
     """
-    pessoas = ultimo_envio_por_cpf(registros)
-
-    contagem: dict[str, list[int]] = {a.id: [0, 0, 0] for a in catalogo.acoes}
-    meses: dict[str, int] = {a.id: 0 for a in catalogo.acoes}
-    rotulos: dict[str, str] = {a.id: a.rotulo for a in catalogo.acoes}
-    # (dono, o_que) -> nomes de quem está preso nela. A chave é o par, e não
-    # só o texto: a mesma frase com donos diferentes é pendência diferente.
-    presos: dict[tuple[str, str], list[str]] = {}
-    aptos = 0
-
-    for cpf, envio in pessoas.items():
+    saida: list[Avaliada] = []
+    for cpf, envio in ultimo_envio_por_cpf(registros).items():
         linha = envio["linha"]
         # `None` no mapa inteiro = ninguém olhou documento nenhum. Com o
         # mapa em mãos, quem não aparece nele foi olhado e não tinha fato.
@@ -262,7 +295,42 @@ def montar(
             filiado_desde=fatos.filiado_desde,
             filiado_ate=fatos.filiado_ate,
         )
-        for p in part.participacoes(quem, catalogo):
+        saida.append(Avaliada(
+            cpf=cpf,
+            nome=fatos.nome.strip() or SEM_NOME,
+            cadastrou=bool(envio["cadastrou"]),
+            entregues=tuple(envio["entregues"]),
+            participacoes=tuple(part.participacoes(quem, catalogo)),
+            oportunidades=tuple(motor.avaliar(fatos, catalogo)),
+        ))
+    saida.sort(key=lambda a: (a.nome, a.cpf))
+    return saida
+
+
+def montar(
+    registros,
+    catalogo: ent.Catalogo,
+    exemplos: int = EXEMPLOS_PADRAO,
+    lidos_por_cpf: dict[str, dict[str, str]] | None = None,
+) -> Panorama:
+    """O panorama desta entidade, a partir do diário e do catálogo dela.
+
+    `registros` são os de `deposito.ler_diario`. `catalogo` traz SÓ as
+    categorias que a entidade contratou — `entendimentos.VAZIO` quando ela
+    não declarou nenhuma, e aí não há ação a cruzar, que é o certo.
+    """
+    pessoas = por_pessoa(registros, catalogo, lidos_por_cpf)
+
+    contagem: dict[str, list[int]] = {a.id: [0, 0, 0] for a in catalogo.acoes}
+    meses: dict[str, int] = {a.id: 0 for a in catalogo.acoes}
+    rotulos: dict[str, str] = {a.id: a.rotulo for a in catalogo.acoes}
+    # (dono, o_que) -> nomes de quem está preso nela. A chave é o par, e não
+    # só o texto: a mesma frase com donos diferentes é pendência diferente.
+    presos: dict[tuple[str, str], list[str]] = {}
+    aptos = 0
+
+    for pessoa in pessoas:
+        for p in pessoa.participacoes:
             alvo = contagem[p.acao]
             if p.estado == part.PARTICIPA:
                 alvo[0] += 1
@@ -272,8 +340,7 @@ def montar(
             else:
                 alvo[2] += 1
 
-        oportunidades = motor.avaliar(fatos, catalogo)
-        if any(o.veredicto == motor.PODE for o in oportunidades):
+        if pessoa.pode:
             aptos += 1
         # UMA PESSOA CONTA UMA VEZ POR PENDÊNCIA, por mais ações que a
         # tenham: "287 pessoas esperam o rol" é gente, não ocorrências.
@@ -282,11 +349,8 @@ def montar(
         # diferentes — e para o gestor as duas são acionáveis, porque uma só
         # informação (a data de ajuizamento da coletiva) pode destravar a
         # conta da base inteira.
-        dela = {(f.quem, f.o_que) for o in oportunidades
-                for f in (*o.falta, *o.falta_para_valor)}
-        nome = fatos.nome or cpf
-        for chave in dela:
-            presos.setdefault(chave, []).append(nome)
+        for chave in pessoa.pendencias:
+            presos.setdefault(chave, []).append(pessoa.nome)
 
     gargalos = [
         Gargalo(quem=dono, o_que=texto, pessoas=len(nomes),
@@ -301,7 +365,7 @@ def montar(
 
     return Panorama(
         pessoas=len(pessoas),
-        cadastrados=sum(1 for e in pessoas.values() if e["cadastrou"]),
+        cadastrados=sum(1 for a in pessoas if a.cadastrou),
         categorias=catalogo.categorias,
         catalogo=catalogo.assinatura,
         por_acao=tuple(

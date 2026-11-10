@@ -109,6 +109,19 @@ impede. O que sobra: nenhum e-mail sai (o portão consulta o tombstone), e
 `--conferir` **detecta** a linha reposta. No dia em que existir rota de
 ingestão de rol, ela consulta o tombstone como as outras duas.
 
+## Nome por nome, e a planilha da base
+
+```
+GET /api/entidade/{apelido}/pessoas        a lista, com o CPF mascarado
+GET /api/entidade/{apelido}/pessoas.csv    a planilha, com o CPF inteiro
+```
+
+As duas só para gestor da própria entidade, e as duas saem do mesmo laço do
+panorama. **A planilha é a maior saída de dado do produto**: o registro de
+quem exportou é síncrono — sem ele, não exporta —, e o arquivo vem como
+anexo, sem cache. Separador `;` e marca de UTF-8, que é como o Excel em
+português abre; toda célula passa pela trava de fórmula.
+
 ## Scanner e foto: entram, e ficam aguardando leitura
 
 Documento que **abre mas a máquina não lê** — página de scanner, foto de

@@ -18,6 +18,7 @@ import type {
   Gargalo,
   Mudancas,
   MudancaDeVeredicto,
+  PessoaNaLista,
   ResultadoDoApagamento,
 } from "./envio";
 
@@ -300,4 +301,52 @@ const DISPOSITIVOS: Record<string, string> = {
 
 export function rotuloDoDispositivo(valor: string): string {
   return DISPOSITIVOS[valor] ?? valor;
+}
+
+// ----------------------------------------------------- nome por nome
+
+const semAcento = (t: string) =>
+  t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** O filtro da lista. `dono` é um dos três donos de pendência, ou `"PODE"`
+ *  para quem já pode alguma coisa, ou vazio para todo mundo.
+ *
+ *  A BUSCA NÃO EXIGE ACENTO NEM MAIÚSCULA: o gestor digita "jose" e
+ *  "joao", e exigir o acento seria fazer a busca falhar para quem escreve
+ *  como todo mundo escreve.
+ *
+ *  Quem depende de dois donos aparece nos DOIS filtros. Escolher um só
+ *  esconderia a pessoa de quem filtra por "o que depende de mim". */
+export function filtrarPessoas(
+  pessoas: PessoaNaLista[],
+  filtro: { texto: string; dono: string },
+): PessoaNaLista[] {
+  const texto = semAcento(filtro.texto.trim());
+  return pessoas.filter((p) => {
+    if (texto && !semAcento(p.nome).includes(texto)) return false;
+    if (filtro.dono === "PODE") return p.pode;
+    if (filtro.dono) return p.depende_de.includes(filtro.dono);
+    return true;
+  });
+}
+
+/** As MESMAS palavras de `pendencia.ROTULO_CURTO` no servidor: a pendência
+ *  com outro nome aqui faria o gestor achar que são coisas diferentes. */
+const DEPENDE: Record<string, string> = {
+  VOCE: "depende do filiado",
+  CONFERENCIA: "depende do sindicato",
+  TRIBUNAL: "depende do tribunal",
+};
+
+export function rotuloDoDono(dono: string): string {
+  return DEPENDE[dono] ?? dono;
+}
+
+/** A situação de uma pessoa, numa linha. Quem não pode nada e não tem
+ *  pendência não ganha estado inventado: nenhuma ação a alcança. */
+export function situacaoDaPessoa(p: PessoaNaLista): string {
+  const partes: string[] = [];
+  if (p.pode) partes.push("já pode");
+  for (const dono of p.depende_de) partes.push(rotuloDoDono(dono));
+  return partes.length ? partes.join(" · ") : "sem ação que a alcance";
 }

@@ -520,6 +520,66 @@ export interface Mudancas {
   grupos: MudancaDeVeredicto[];
 }
 
+/** Uma pessoa na lista "nome por nome" do gestor. O CPF vem MASCARADO: o
+ *  inteiro só sai na exportação, que é pedida de propósito e registrada. */
+export interface PessoaNaLista {
+  nome: string;
+  cpf: string;
+  cadastrou: boolean;
+  pode: boolean;
+  /** Os donos das pendências dela: VOCE, CONFERENCIA, TRIBUNAL. */
+  depende_de: string[];
+  acoes: { id: string; estado: string }[];
+  oportunidades: {
+    trilha: string;
+    referencia: string;
+    rotulo: string;
+    veredicto: string;
+    falta: { quem: string; o_que: string }[];
+  }[];
+}
+
+function pessoasEm(apelido: string, sufixo = ""): string {
+  return `${BASE}/api/entidade/${encodeURIComponent(apelido)}/pessoas${sufixo}`;
+}
+
+/** A base, nome por nome, para o gestor da própria entidade. */
+export async function verPessoas(
+  apelido: string,
+  token: string,
+): Promise<PessoaNaLista[]> {
+  const r = await fetch(pessoasEm(apelido), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      corpo?.detail?.erro ?? "não foi possível abrir a lista",
+      r.status,
+    );
+  }
+  return corpo.pessoas ?? [];
+}
+
+/** A planilha da base, com o CPF inteiro. Vem como `Blob` pelo mesmo motivo
+ *  do documento da fila: a sessão vai no cabeçalho, nunca na URL. */
+export async function exportarPessoas(
+  apelido: string,
+  token: string,
+): Promise<Blob> {
+  const r = await fetch(pessoasEm(apelido, ".csv"), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) {
+    const corpo = await r.json().catch(() => ({}));
+    throw new ErroDoServidor(
+      corpo?.detail?.erro ?? "não foi possível exportar",
+      r.status,
+    );
+  }
+  return r.blob();
+}
+
 /** O que espera leitura por uma PESSOA: documentos que abrem mas que a
  *  máquina não lê (foto, scanner). `sem_banco` = não dá para saber. */
 export interface FilaDeLeitura {

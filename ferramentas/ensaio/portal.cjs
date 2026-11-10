@@ -239,6 +239,24 @@ async function faseConferencia(navegador, gritos, resultado) {
       .waitFor({ state: "detached", timeout: 20000 });
     resultado.conferencia.registradas += 1;
     marco("leitura do comprovante fotografado registrada — a fila esvaziou");
+
+    // NOME POR NOME, e a planilha. O gestor vê a pessoa na lista — com o
+    // CPF mascarado — e baixa a base. O que se confere do lado de fora é o
+    // ARQUIVO que o navegador recebeu: é ele que o sindicato leva embora.
+    await g.getByRole("heading", { name: "Nome por nome" }).waitFor({ timeout: 20000 });
+    const lista = await g.innerText("body");
+    resultado.lista = {
+      viuNome: lista.includes(cfg.filiado.nome),
+      cpfInteiroNaTela: lista.includes(cfg.filiado.cpf) ||
+        lista.includes(cfg.filiado.cpf.replace(/\D/g, "")),
+    };
+    const [baixado] = await Promise.all([
+      g.waitForEvent("download", { timeout: 20000 }),
+      g.getByRole("button", { name: "Baixar a planilha da base" }).click(),
+    ]);
+    resultado.lista.planilha = await fs.readFile(await baixado.path(), "utf-8");
+    resultado.lista.nomeDoArquivo = baixado.suggestedFilename();
+    marco(`o gestor baixou ${resultado.lista.nomeDoArquivo}`);
   } finally {
     await contexto.close();
   }
