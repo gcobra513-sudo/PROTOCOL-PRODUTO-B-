@@ -13,9 +13,24 @@ está no rol não entra, e isso é resposta certa: o portal atende filiados de u
 entidade que contratou o serviço, não o público. É o que o modelo por sindicato
 dá de graça, e é por isso que ele é mais seguro, não só mais defensável.
 
-CONSEQUÊNCIA ASSUMIDA: sem `filiados.csv` a entidade não emite código nenhum.
-O servidor diz isso com todas as letras em vez de deixar passar. Um portão que
+CONSEQUÊNCIA ASSUMIDA: sem `filiados.csv` nenhum FILIADO recebe código. O
+servidor diz isso com todas as letras em vez de deixar passar. Um portão que
 abre para todos é pior que um portão fechado, porque parece que existe.
+
+(O GESTOR recebe, desde que a planilha dele passou a criar este arquivo: sem
+isso o sindicato novo não teria como enviar a lista. Ele não é "todos" — está
+em `gestores.csv`, que também vem da entidade.)
+
+QUEM ESCREVE NESTE ARQUIVO, e é uma lista fechada:
+
+- `acrescentar` — a planilha do sindicato, só para quem é NOVO no portão;
+- `trocar_email` — só a ferramenta de quem opera, depois de conferir;
+- `remover` — o apagamento a pedido.
+
+A planilha NÃO troca o e-mail de quem já entra e NÃO tira ninguém. As duas
+coisas dariam a uma sessão de gestor o poder de redirecionar o código de
+outra pessoa — que é exatamente o que o primeiro parágrafo proíbe a quem
+digita. O porquê inteiro está em `trocas.py`.
 
 FORMATO, de propósito o mais simples que o sindicato consegue exportar:
 
@@ -29,13 +44,16 @@ Colunas a mais são ignoradas (a exportação do sindicato vem cheia delas);
 from __future__ import annotations
 
 import csv
+import fcntl
+import functools
 import io
 import os
 import pathlib
+import re
 import stat
 from dataclasses import dataclass
 
-from . import acervo
+from . import acervo, deposito
 from .validacao import cpf_valido, so_digitos
 
 ARQUIVO = "filiados.csv"
@@ -52,6 +70,69 @@ ARQUIVO = "filiados.csv"
 #: painel. Ausência de `filiados.csv` é erro, porque sem ele o portão abriria
 #: para todos.
 ARQUIVO_GESTORES = "gestores.csv"
+
+#: QUEM REESCREVE O ROL, REESCREVE SOZINHO.
+#:
+#: O rol tinha um escritor só — o apagamento a pedido, que TIRA a linha.
+#: Quando a planilha do gestor passou a ACRESCENTAR, viraram dois, e os dois
+#: leem o arquivo inteiro e gravam o arquivo inteiro. Sem trava, a planilha
+#: que leu antes do apagamento e gravou depois devolve ao rol a linha de quem
+#: acabou de pedir para sair — depois de a varredura de vestígios ter dito
+#: que não sobrou nada.
+TRAVA = ".rol.trava"
+
+
+def _com_trava(funcao):
+    """Segura a trava da entidade do começo da leitura ao fim da escrita."""
+
+    @functools.wraps(funcao)
+    def travada(pasta_entidade: pathlib.Path, *args, **kwargs):
+        if not pasta_entidade.is_dir():
+            # Sem pasta não há rol para disputar — e criá-la aqui faria
+            # `remover` deixar uma pasta vazia para trás em entidade que
+            # nunca recebeu nada.
+            return funcao(pasta_entidade, *args, **kwargs)
+        fd = os.open(pasta_entidade / TRAVA, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            return funcao(pasta_entidade, *args, **kwargs)
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+
+    return travada
+
+
+#: O E-MAIL QUE PODE SER ESCRITO NO ROL POR UMA PLANILHA.
+#:
+#: Mais estreito que o `validacao.EMAIL` de propósito. Aquele serve para
+#: dizer ao sindicato "este e-mail não serve"; este decide o que vira LINHA
+#: de um CSV que o portão lê. Um endereço com `,` ou `;` dentro é coluna a
+#: mais, com quebra de linha é uma pessoa a mais, e começando por `=` é
+#: fórmula no dia em que alguém abrir o rol no Excel. Nada disso aparece num
+#: endereço que o sindicato use de verdade, então recusar custa pouco.
+#:
+#: Só ASCII: o rol pode estar em latin-1, e um endereço fora dele não teria
+#: como ser escrito sem mudar o arquivo inteiro de codificação.
+_EMAIL_DO_ROL = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9.!#$%&'*+/=?^_`{}~-]*"
+    r"@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+"
+)
+
+
+def email_serve(email: str) -> bool:
+    return len(email) <= 254 and bool(_EMAIL_DO_ROL.fullmatch(email))
+
+
+def mesmo_email(a: str, b: str) -> bool:
+    """Maiúscula não faz outro endereço.
+
+    Pela norma a parte antes do `@` poderia distinguir caixa; na prática
+    nenhum provedor distingue, e o Excel do sindicato troca caixa à vontade.
+    Tratar `Fulana@` e `fulana@` como endereços diferentes encheria a fila de
+    trocas de pedidos que não são troca nenhuma.
+    """
+    return a.strip().casefold() == b.strip().casefold()
 
 
 class RolAusente(FileNotFoundError):
@@ -125,6 +206,7 @@ def _carregar(caminho: pathlib.Path) -> Rol:
     return Rol(caminho=caminho, por_cpf=por_cpf, recusados=tuple(recusados))
 
 
+@_com_trava
 def remover(pasta_entidade: pathlib.Path, cpf: str) -> int:
     """Tira este CPF dos dois róis. Devolve quantas linhas saíram.
 
@@ -187,3 +269,132 @@ def remover(pasta_entidade: pathlib.Path, cpf: str) -> int:
         os.chmod(tmp, stat.S_IMODE(caminho.stat().st_mode))
         tmp.replace(caminho)
     return sairam
+
+
+def _escrever(caminho: pathlib.Path, conteudo: bytes) -> None:
+    """Troca o arquivo inteiro de uma vez: quem lê vê o velho ou o novo."""
+    tmp = caminho.with_suffix(caminho.suffix + ".parcial")
+    modo = (stat.S_IMODE(caminho.stat().st_mode) if caminho.is_file()
+            else deposito.MODO_ARQUIVO)
+    fd = os.open(tmp, os.O_CREAT | os.O_TRUNC | os.O_WRONLY, modo)
+    try:
+        os.write(fd, conteudo)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    # `os.open` aplica o umask por cima do modo pedido.
+    os.chmod(tmp, modo)
+    tmp.replace(caminho)
+
+
+def _dialeto(caminho: pathlib.Path) -> tuple[list[str], str, str, str]:
+    """(linhas, codificação, fim de linha, separador) do rol como ele está."""
+    bruto = caminho.read_bytes()
+    texto, encoding = acervo._decodificar_dizendo_como(bruto)
+    fim = "\r\n" if b"\r\n" in bruto else "\n"
+    linhas = texto.splitlines()
+    return linhas, encoding, fim, acervo._separador(linhas[0] if linhas else "")
+
+
+def _celulas(linha: str, separador: str) -> list[str]:
+    return next(csv.reader([linha], delimiter=separador), [])
+
+
+def _linha(celulas: list[str], separador: str) -> str:
+    saida = io.StringIO()
+    csv.writer(saida, delimiter=separador, lineterminator="").writerow(celulas)
+    return saida.getvalue()
+
+
+@_com_trava
+def acrescentar(pasta_entidade: pathlib.Path,
+                pares: list[tuple[str, str]]) -> int:
+    """Põe gente NOVA no rol de filiados. Devolve quantas linhas entraram.
+
+    SÓ ACRESCENTA. Quem já tem linha válida não é tocado — nem para "atualizar"
+    o e-mail: trocar o destino do código de quem já entra é exatamente o que
+    este produto não deixa uma planilha fazer sozinha (`trocar_email`, e a
+    fila em `trocas.py`).
+
+    CONFERE DE NOVO o que recebe, embora quem chama já tenha conferido: esta
+    é a última função antes do arquivo que o portão lê, e uma linha torta
+    aqui é uma credencial indo para o endereço errado.
+
+    ESCREVE NO DIALETO DO ARQUIVO — separador, fim de linha, codificação e
+    ordem das colunas —, e as linhas de quem já estava ficam byte a byte.
+    Sem arquivo, cria um, no formato que o docstring do módulo descreve.
+    """
+    novos: list[tuple[str, str]] = []
+    for cpf, email in pares:
+        digitos = so_digitos(cpf)
+        if not cpf_valido(digitos):
+            raise ValueError("CPF que não fecha não entra no rol")
+        if not email_serve(email):
+            raise ValueError("este e-mail não pode ser escrito no rol")
+        novos.append((digitos, email))
+    if not novos:
+        return 0
+
+    caminho = pasta_entidade / ARQUIVO
+    if not caminho.is_file():
+        pasta_entidade.mkdir(parents=True, exist_ok=True)
+        corpo = "cpf,email\n" + "".join(f"{c},{e}\n" for c, e in novos)
+        _escrever(caminho, corpo.encode("utf-8"))
+        return len(novos)
+
+    ja = _carregar(caminho).por_cpf     # levanta se o arquivo não é um rol
+    linhas, encoding, fim, separador = _dialeto(caminho)
+    cabecalho = [c.strip().lower() for c in _celulas(linhas[0], separador)]
+    i_cpf, i_email = cabecalho.index("cpf"), cabecalho.index("email")
+    acrescimo = []
+    for digitos, email in novos:
+        if digitos in ja:
+            continue
+        celulas = [""] * len(cabecalho)
+        celulas[i_cpf], celulas[i_email] = digitos, email
+        acrescimo.append(_linha(celulas, separador))
+        ja[digitos] = email
+    if not acrescimo:
+        return 0
+    bruto = caminho.read_bytes()
+    if bruto and not bruto.endswith((b"\n", b"\r")):
+        bruto += fim.encode(encoding)
+    _escrever(caminho,
+              bruto + "".join(l + fim for l in acrescimo).encode(encoding))
+    return len(acrescimo)
+
+
+@_com_trava
+def trocar_email(pasta_entidade: pathlib.Path, cpf: str, novo: str) -> int:
+    """Troca o e-mail de quem JÁ está no portão. Devolve quantas linhas mudou.
+
+    NÃO É CHAMADA POR ROTA NENHUMA, e isso é a trava: quem chama é a
+    ferramenta de quem opera o servidor, depois de conferir a troca por fora.
+
+    Muda o arquivo de onde o portão tira o destino HOJE: `filiados.csv` se a
+    pessoa tem linha válida lá, senão `gestores.csv`. Só a célula do e-mail,
+    só nas linhas da pessoa; o resto do arquivo fica byte a byte.
+    """
+    digitos = so_digitos(cpf)
+    if not email_serve(novo):
+        raise ValueError("este e-mail não pode ser escrito no rol")
+    for nome in (ARQUIVO, ARQUIVO_GESTORES):
+        caminho = pasta_entidade / nome
+        if not caminho.is_file() or digitos not in _carregar(caminho).por_cpf:
+            continue
+        linhas, encoding, fim, separador = _dialeto(caminho)
+        cabecalho = [c.strip().lower() for c in _celulas(linhas[0], separador)]
+        i_cpf, i_email = cabecalho.index("cpf"), cabecalho.index("email")
+        mudou = 0
+        for n, linha in enumerate(linhas[1:], start=1):
+            celulas = _celulas(linha, separador)
+            if (len(celulas) > max(i_cpf, i_email)
+                    and so_digitos(celulas[i_cpf]) == digitos):
+                celulas[i_email] = novo
+                linhas[n] = _linha(celulas, separador)
+                mudou += 1
+        if mudou:
+            _escrever(caminho,
+                      "".join(l + fim for l in linhas).encode(encoding))
+        return mudou
+    return 0

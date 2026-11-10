@@ -26,6 +26,7 @@ import {
   filtrarPessoas,
   situacaoDaPessoa,
   resumoDaPlanilha,
+  resumoDoAcesso,
 } from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
@@ -385,5 +386,53 @@ describe("a prévia da planilha, antes de o gestor confirmar", () => {
                                      divergentes: 0, colunas_ausentes: [] });
     expect(limpa.join("\n").toLowerCase()).not.toContain("apagamento");
     expect(limpa.join("\n").toLowerCase()).not.toContain("divergen");
+  });
+});
+
+describe("o que a planilha muda em quem consegue entrar (T26)", () => {
+  const ACESSO: api.AcessoPelaPlanilha = {
+    novos: 40, trocas_aguardando: 3, trocas_recusadas: 1, sem_email: 5,
+    divergentes: 2, fora_da_planilha: 7,
+  };
+
+  it("antes de gravar fala no futuro; depois, no que aconteceu", () => {
+    expect(resumoDoAcesso(ACESSO, false).join("\n")).toContain("vão poder entrar");
+    expect(resumoDoAcesso(ACESSO, true).join("\n")).toContain("já podem entrar");
+  });
+
+  it("a troca de e-mail NÃO é anunciada como feita", () => {
+    // O erro caro: o gestor lê "3 e-mails atualizados", avisa os filiados, e
+    // o código continua indo para o endereço antigo. A frase tem de dizer
+    // que NÃO vale ainda, e para onde o código vai enquanto isso.
+    const linhas = resumoDoAcesso(ACESSO, true).join("\n").toLowerCase();
+    expect(linhas).toContain("3 pessoas");
+    expect(linhas).toContain("não vale");
+    expect(linhas).toContain("e-mail de antes");
+    expect(linhas).not.toContain("atualizad");
+  });
+
+  it("quem sumiu da planilha continua entrando, e isso é dito", () => {
+    const linhas = resumoDoAcesso(ACESSO, true).join("\n").toLowerCase();
+    expect(linhas).toContain("7 pessoas");
+    expect(linhas).toContain("continuam");
+  });
+
+  it("recusada, sem e-mail e divergente têm cada um a sua frase", () => {
+    const linhas = resumoDoAcesso(ACESSO, false).join("\n").toLowerCase();
+    expect(linhas).toContain("recusad");
+    expect(linhas).toContain("5 pessoas");
+    expect(linhas).toContain("dois e-mails");
+  });
+
+  it("não fala do que não aconteceu, e aguenta servidor antigo", () => {
+    const nada = { novos: 0, trocas_aguardando: 0, trocas_recusadas: 0,
+                   sem_email: 0, divergentes: 0, fora_da_planilha: 0 };
+    expect(resumoDoAcesso(nada, true)).toEqual([]);
+    expect(resumoDoAcesso(undefined, true)).toEqual([]);
+  });
+
+  it("não chama ninguém de escritório (Regra Zero)", () => {
+    expect(resumoDoAcesso(ACESSO, false).join("\n").toLowerCase())
+      .not.toContain("escritório");
   });
 });

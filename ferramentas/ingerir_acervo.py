@@ -157,9 +157,39 @@ def main() -> int:
         print("  Tire-as do arquivo: enquanto estiverem nele, toda ingestão "
               "vai pulá-las de novo.")
 
-    feito = ingestao.gravar_planilha(ent, raiz, pessoas, origem=args.acervo,
-                                     banco_url=args.banco)
+    try:
+        feito = ingestao.gravar_planilha(ent, raiz, pessoas,
+                                         origem=args.acervo,
+                                         banco_url=args.banco,
+                                         marcador_de=marcador_de)
+    except ingestao.IngestaoRecusada as e:
+        print(f"\nNADA GRAVADO: {e}", file=sys.stderr)
+        return 2
     print(f"\n  gravado em {pasta / ARQUIVO}")
+
+    # O ACESSO. A MESMA regra da web, porque é a mesma função: quem é novo
+    # passa a receber código; e-mail diferente de quem JÁ entra não vale —
+    # fica pedido, inclusive quando quem roda isto somos nós.
+    portao = feito["portao"]
+    print(f"  acesso: {len(portao.novos)} pessoa(s) nova(s) já recebem "
+          f"código de acesso")
+    if portao.sem_email:
+        print(f"  acesso: {portao.sem_email} nova(s) sem e-mail que sirva — "
+              f"estão na base e não têm como entrar")
+    if portao.divergentes:
+        print(f"  acesso: {portao.divergentes} com dois e-mails diferentes "
+              f"na planilha — nenhum foi escolhido")
+    if portao.trocas:
+        print(f"  acesso: {len(portao.trocas)} TROCA(S) DE E-MAIL pedida(s), "
+              f"que NÃO valem ainda.\n"
+              f"          python3 ferramentas/trocas_de_email.py "
+              f"--entidade {ent.apelido} listar")
+    if portao.recusadas:
+        print(f"  acesso: {portao.recusadas} troca(s) já recusada(s) "
+              f"continuam na planilha")
+    if portao.fora_da_planilha:
+        print(f"  acesso: {portao.fora_da_planilha} pessoa(s) estão no "
+              f"acesso e fora desta planilha — CONTINUAM entrando")
     if args.banco:
         print(f"  banco: {feito['projetadas']} pessoa(s) projetada(s) em "
               f"{ent.apelido}")

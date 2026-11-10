@@ -375,17 +375,56 @@ planilha que ele baixa.
 |---|---|
 | criar a entidade | é o contrato: quem é cliente, e que carreiras contratou |
 | `gestores.csv` — quem é gestor | alguém tem de nomear o primeiro, e gestor não nomeia gestor |
-| **`filiados.csv` — quem pode ENTRAR no portal** | **decisão pendente (T26)** |
+| aprovar troca de e-mail de quem já entra | é a trava de T26 — ver abaixo |
 
-**A planilha enviada pela web alimenta a BASE, e não o PORTÃO.** O código de
-acesso continua indo para o e-mail que está em `filiados.csv`, posto por nós.
-Ligar uma coisa na outra — a planilha do gestor passar a definir quem entra
-e para qual e-mail vai o código — é possível, e muda o que uma sessão de
-gestor consegue fazer: hoje ela vê a base, exporta, lê a fila e apaga; com o
-rol, ela passaria a poder trocar o e-mail de qualquer filiado e ENTRAR NO
-LUGAR DELE. A regra da casa é "o e-mail do portão vem do sindicato" — e o
-gestor é o sindicato. Mas uma conta de gestor comprometida viraria todas as
-contas. É decisão de política, não de código.
+**A planilha passou a ligar o acesso (T26, decidido e fechado em 10/11).**
+A decisão foi ligar, com trava: quem é novo entra direto, e a troca de
+e-mail de quem já entra só vale depois de conferida por quem opera o
+servidor. Medido por HTTP, olhando para ONDE o código foi (o arquivo do
+remetente), e não para o rol:
+
+- pessoa nova na planilha confirmada recebe código no e-mail da planilha; a
+  prévia não abre porta;
+- quem já entrava continua recebendo no e-mail de antes — filiado **e
+  gestor**, cujo CPF não está em `filiados.csv` e pareceria novo a uma
+  conferência que olhasse um arquivo só;
+- tirar a pessoa da planilha e recolocá-la com outro e-mail não contorna;
+- aprovada pela ferramenta, a troca vale; recusada, não vale e não volta;
+- quem pediu apagamento não volta ao rol, e o apagamento leva a troca pedida;
+- sindicato sem `filiados.csv`: o gestor entra, envia, e o rol nasce.
+
+Catorze mutantes, um por trava; todos derrubam teste. O ensaio de navegador
+cobre o caminho inteiro: alguém que só existe na planilha do gestor passa
+pelo portão num navegador limpo, e o disco confirma que o e-mail de quem já
+entrava não mudou — com a trava removida, o ensaio falha no disco **com a
+tela ainda dizendo "não vale"**, que é o caso para o qual a conferência no
+disco existe.
+
+**Dois achados no caminho, medidos e corrigidos.**
+
+1. O rol tinha um escritor só (o apagamento). Com a planilha viraram dois,
+   ambos reescrevendo o arquivo inteiro. Os três escritores agora seguram
+   uma trava de arquivo.
+
+2. **Um apagamento no meio de um envio de planilha era desfeito.** Em
+   sequência forçada, por HTTP: a prévia confere quem pediu para sair
+   (ninguém); a pessoa é apagada a pedido, e a rota responde
+   `vestigios: []`; a planilha conferida é gravada. Resultado medido: a
+   pessoa de volta no `acervo.jsonl`, em `pessoa` e `pessoa_afirmacao` (5
+   linhas) e — depois de T26 — no rol. O portão não entregava código, pelo
+   tombstone; o dado voltava. O defeito do acervo e do banco é anterior a
+   T26; T26 o estendeu ao rol, e foi assim que apareceu.
+
+   Correção: `ingestao.gravar_planilha` confere os apagados **de novo, na
+   hora de gravar**, e segura a mesma trava que `apagamento.apagar`. São
+   duas coisas, e cada uma tem o seu mutante: conferir de novo encolhe a
+   janela, a trava a fecha.
+
+O que fica aberto está em `CHECKPOINTS.md`: T27 (quem ainda não entrou
+recebe o primeiro e-mail que a planilha trouxer) e T28 (os outros dois
+caminhos que gravam dado de pessoa — os documentos do sindicato e o
+cadastro do próprio filiado — têm o mesmo desenho de conferir antes e
+gravar depois; **lido no código, não medido**).
 
 ### Uma observação para o dia em que houver planilha real (soma ao item 9)
 

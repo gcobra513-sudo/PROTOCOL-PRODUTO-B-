@@ -44,6 +44,7 @@ import {
   primeiroAcionavel,
   resumoDaFilaDeLeitura,
   resumoDaPlanilha,
+  resumoDoAcesso,
   resumoDasMudancas,
   resumoDoApagamento,
   rotuloDoDispositivo,
@@ -941,6 +942,21 @@ function EnviarBase({
                 {linha}
               </p>
             ))}
+            {/* QUEM CONSEGUE ENTRAR, separado do que entrou na base: são
+                duas coisas, e a segunda tem uma regra que a primeira não
+                tem — a planilha não troca o e-mail de quem já entra. */}
+            {resumoDoAcesso(previa.acesso, previa.gravado).length ? (
+              <div className="space-y-2 border-t border-borda pt-2">
+                <p className="text-sm font-medium text-tinta">
+                  Quem consegue entrar no portal
+                </p>
+                {resumoDoAcesso(previa.acesso, previa.gravado).map((linha) => (
+                  <p key={linha} className="text-sm text-tinta/80">
+                    {linha}
+                  </p>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         <div className="flex flex-wrap gap-3">

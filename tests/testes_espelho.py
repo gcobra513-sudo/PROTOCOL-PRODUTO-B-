@@ -2998,6 +2998,448 @@ def teste_documentos_sem_base_sao_recusados_dizendo_o_que_fazer():
     print("  ok     documentos antes da planilha: recusa dizendo a ordem")
 
 
+# ------------------------------------------- a planilha liga o acesso (T26)
+
+E_PLAN = _cpf_sintetico(8103)
+INVASOR = "invasor@exemplo.invalid"
+
+
+def _destino_do_codigo(cliente, raiz, entidade: str, cpf: str) -> str | None:
+    """Para ONDE foi o código deste pedido — ou `None` se não saiu.
+
+    Lê o que o remetente escreveu, e não o rol: o que a trava protege é o
+    destino do código, e um teste que olhasse só o arquivo do rol passaria
+    mesmo com o portão lendo de outro lugar.
+    """
+    log = raiz / "codigos_enviados.log"
+    antes = log.read_text().splitlines() if log.exists() else []
+    r = cliente.post("/api/acesso/codigo",
+                     json={"entidade": entidade, "cpf": cpf})
+    checa(r.status_code == 202, f"pedido de código deu {r.status_code}")
+    depois = log.read_text().splitlines() if log.exists() else []
+    novas = depois[len(antes):]
+    if not novas:
+        return None
+    return novas[-1].split("\t")[2]
+
+
+def _confirmar_planilha(cliente, entidade: str, corpo: bytes) -> dict:
+    previa = _enviar_planilha(cliente, entidade, corpo).json()
+    r = _enviar_planilha(cliente, entidade, corpo,
+                         confirmar=previa["sha256"])
+    checa(r.status_code == 200 and r.json().get("gravado") is True,
+          f"a planilha não foi gravada: {r.status_code} {r.text[:200]}")
+    return r.json()
+
+
+def teste_quem_e_novo_na_planilha_ja_consegue_entrar():
+    """T26. A planilha do gestor alimentava a BASE e não o PORTÃO: cada
+    lista nova dependia de nós para alguém conseguir entrar.
+
+    A PRÉVIA NÃO ABRE PORTA: quem só foi conferido ainda não entra. E quem
+    veio sem e-mail entra na base, mas não tem para onde o código ir — isso
+    é contado, não escondido.
+    """
+    secao("a planilha liga o acesso")
+    entidade = "demo-liga-1"
+    cliente, ent, raiz = _servidor(entidade)
+    corpo = _planilha([
+        (C_PLAN, "NOVA (CADASTRO DE EXEMPLO)", "nova@exemplo.invalid"),
+        (D_PLAN, "SEM EMAIL (CADASTRO DE EXEMPLO)", ""),
+    ])
+    checa(_destino_do_codigo(cliente, raiz, entidade, C_PLAN) is None,
+          "quem não está no acesso recebeu código antes de qualquer envio")
+
+    previa = _enviar_planilha(cliente, entidade, corpo).json()
+    acesso_ = previa.get("acesso") or {}
+    checa((acesso_.get("novos"), acesso_.get("sem_email")) == (1, 1),
+          f"a prévia não diz o que muda no acesso: {previa.get('acesso')}")
+    checa(_destino_do_codigo(cliente, raiz, entidade, C_PLAN) is None,
+          "A PRÉVIA ABRIU O PORTÃO: quem só foi conferido já recebe código")
+
+    feito = _confirmar_planilha(cliente, entidade, corpo)
+    checa((feito.get("acesso") or {}).get("novos") == 1,
+          f"a confirmação não diz quem passou a entrar: {feito.get('acesso')}")
+    checa(_destino_do_codigo(cliente, raiz, entidade, C_PLAN)
+          == "nova@exemplo.invalid",
+          "quem é novo na planilha confirmada continua sem conseguir entrar")
+    checa(_destino_do_codigo(cliente, raiz, entidade, D_PLAN) is None,
+          "quem veio sem e-mail recebeu código de algum lugar")
+    checa(C_PLAN not in str(feito) and "nova@" not in str(feito),
+          "a resposta devolve CPF ou e-mail em claro")
+    # De novo a MESMA planilha: ninguém é novo duas vezes.
+    feito = _confirmar_planilha(cliente, entidade, corpo)
+    checa((feito["acesso"]["novos"], feito["acesso"]["trocas_aguardando"])
+          == (0, 0), f"reenviar a mesma planilha mexeu no acesso: {feito}")
+    print("  ok     novo na planilha confirmada recebe código; prévia não abre")
+
+
+def teste_a_planilha_nao_troca_o_email_de_quem_ja_entra():
+    """A TRAVA, e a razão de ela existir.
+
+    O portão só é portão porque o e-mail não é escolhido por quem entra. Se
+    a planilha do gestor trocasse o e-mail de quem já está no acesso, uma
+    sessão de gestor comprometida virava TODAS as contas: troca o e-mail,
+    pede o código, entra no lugar da pessoa.
+
+    Então quem JÁ tem destino no portão não muda de destino pela planilha:
+    a troca fica pedida e espera quem opera o servidor. Vale para o filiado
+    e vale para o CPF de um GESTOR — que não está em `filiados.csv`, e por
+    isso pareceria "novo" a uma conferência que só olhasse um arquivo.
+    """
+    from servidor import rol, trocas
+
+    entidade = "demo-liga-2"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    corpo = _planilha([
+        (A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR),
+        (B, "GESTOR (CADASTRO DE EXEMPLO)", INVASOR),
+    ])
+    feito = _confirmar_planilha(cliente, entidade, corpo)
+    checa((feito["acesso"]["novos"], feito["acesso"]["trocas_aguardando"])
+          == (0, 2), f"a troca não ficou esperando: {feito['acesso']}")
+    checa(_destino_do_codigo(cliente, raiz, entidade, A)
+          == "fulana@exemplo.org",
+          "A PLANILHA TROCOU O E-MAIL DE QUEM JÁ ENTRAVA: o código foi "
+          "para o endereço que o gestor escreveu")
+    checa(_destino_do_codigo(cliente, raiz, entidade, B)
+          == "gestor@exemplo.org",
+          "a planilha redirecionou o código de um GESTOR")
+    checa(rol.carregar(pasta).email_de(B) is None,
+          "o CPF do gestor entrou em filiados.csv pela planilha")
+    pendentes = trocas.estado(pasta).pendentes
+    checa(sorted(pendentes) == sorted([A, B])
+          and pendentes[A]["para"] == INVASOR
+          and pendentes[A]["de"] == "fulana@exemplo.org",
+          f"a troca pedida não ficou registrada: {pendentes}")
+    # Caixa diferente não é troca: o Excel muda maiúscula à vontade.
+    feito = _confirmar_planilha(cliente, entidade, _planilha(
+        [(A, "FULANA (CADASTRO DE EXEMPLO)", "Fulana@Exemplo.ORG")]))
+    checa(feito["acesso"]["trocas_aguardando"] == 0
+          and A not in trocas.estado(pasta).pendentes,
+          "a planilha voltou a concordar com o acesso e a troca continua "
+          f"pedida (ou maiúscula virou troca): {feito['acesso']}")
+    print("  ok     quem já entra não muda de e-mail pela planilha — nem gestor")
+
+
+def teste_sumir_da_planilha_e_voltar_nao_contorna_a_trava():
+    """Se a planilha TIRASSE do acesso quem não está nela, a trava teria
+    uma porta dos fundos: uma planilha sem a pessoa, outra com a pessoa e
+    o e-mail novo, e ela volta como "nova"."""
+    entidade = "demo-liga-3"
+    cliente, ent, raiz = _servidor(entidade)
+    feito = _confirmar_planilha(cliente, entidade, _planilha(
+        [(C_PLAN, "OUTRA (CADASTRO DE EXEMPLO)", "outra@exemplo.invalid")]))
+    checa(feito["acesso"].get("fora_da_planilha") == 1,
+          f"a planilha não diz quem está no acesso e fora dela: {feito}")
+    checa(_destino_do_codigo(cliente, raiz, entidade, A)
+          == "fulana@exemplo.org",
+          "quem saiu da planilha perdeu o acesso")
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR)]))
+    checa(_destino_do_codigo(cliente, raiz, entidade, A)
+          == "fulana@exemplo.org",
+          "TIRAR E RECOLOCAR CONTORNOU A TRAVA")
+    print("  ok     sair da planilha não tira do acesso, e voltar não é ser novo")
+
+
+def teste_troca_aprovada_vale_e_recusada_nao_volta():
+    """Quem decide a troca é quem opera o servidor, pela ferramenta — não
+    existe rota para isso, de propósito: uma rota de aprovar seria mais uma
+    sessão capaz de trocar e-mail.
+
+    A RECUSADA NÃO VOLTA: a planilha do sindicato vai continuar trazendo o
+    e-mail recusado, e sem memória disso cada envio recriaria o pedido.
+    """
+    import subprocess
+
+    from servidor import trocas
+
+    entidade = "demo-liga-4"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    from servidor import rol
+    rol.acrescentar(pasta, [(C_PLAN, "antigo@exemplo.invalid")])
+    corpo = _planilha([
+        (A, "FULANA (CADASTRO DE EXEMPLO)", "fulana.nova@exemplo.invalid"),
+        (C_PLAN, "OUTRA (CADASTRO DE EXEMPLO)", INVASOR),
+    ])
+    _confirmar_planilha(cliente, entidade, corpo)
+
+    def ferramenta(*args: str):
+        return subprocess.run(
+            [sys.executable, str(RAIZ / "ferramentas" / "trocas_de_email.py"),
+             "--raiz", str(raiz), "--entidade", entidade, *args],
+            capture_output=True, text=True)
+
+    r = ferramenta("listar")
+    checa(r.returncode == 0 and "fulana.nova@exemplo.invalid" in r.stdout
+          and "fulana@exemplo.org" in r.stdout and INVASOR in r.stdout,
+          f"listar não mostra de onde para onde: {r.stdout} {r.stderr}")
+    r = ferramenta("aprovar", A)
+    checa(r.returncode == 0, f"aprovar falhou: {r.stdout} {r.stderr}")
+    r = ferramenta("recusar", C_PLAN)
+    checa(r.returncode == 0, f"recusar falhou: {r.stdout} {r.stderr}")
+    r = ferramenta("aprovar", D_PLAN)
+    checa(r.returncode != 0,
+          "aprovar uma troca que ninguém pediu saiu com sucesso")
+
+    checa(_destino_do_codigo(cliente, raiz, entidade, A)
+          == "fulana.nova@exemplo.invalid",
+          "a troca APROVADA não passou a valer")
+    checa(_destino_do_codigo(cliente, raiz, entidade, C_PLAN)
+          == "antigo@exemplo.invalid",
+          "a troca RECUSADA passou a valer")
+    checa(not trocas.estado(pasta).pendentes,
+          f"sobrou troca pendente: {trocas.estado(pasta).pendentes}")
+
+    feito = _confirmar_planilha(cliente, entidade, corpo)
+    checa((feito["acesso"]["trocas_aguardando"],
+           feito["acesso"].get("trocas_recusadas")) == (0, 1),
+          f"a mesma planilha recriou a troca recusada: {feito['acesso']}")
+    checa(not trocas.estado(pasta).pendentes,
+          "a troca recusada voltou para a fila")
+    print("  ok     aprovada vale; recusada não vale e não volta com a planilha")
+
+
+def teste_divergencia_e_email_torto_nao_entram_no_acesso():
+    """Divergência não se resolve sozinha: a mesma pessoa NOVA com dois
+    e-mails não ganha nenhum dos dois — escolher seria decidir para onde vai
+    a credencial dela.
+
+    E e-mail que carrega separador não entra no rol: o rol é um CSV, e um
+    endereço com vírgula dentro é uma linha a mais esperando acontecer.
+    """
+    from servidor import rol
+
+    entidade = "demo-liga-5"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    feito = _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "DUAS VEZES (CADASTRO DE EXEMPLO)", "um@exemplo.invalid"),
+        (C_PLAN, "DUAS VEZES (CADASTRO DE EXEMPLO)", "dois@exemplo.invalid"),
+        (D_PLAN, "TORTO (CADASTRO DE EXEMPLO)", "a@exemplo.invalid,b"),
+        (E_PLAN, "FORMULA (CADASTRO DE EXEMPLO)", "=a@exemplo.invalid"),
+    ]))
+    checa((feito["acesso"]["novos"], feito["acesso"].get("divergentes"),
+           feito["acesso"]["sem_email"]) == (0, 1, 2),
+          f"divergência ou e-mail torto entrou no acesso: {feito['acesso']}")
+    for cpf in (C_PLAN, D_PLAN, E_PLAN):
+        checa(_destino_do_codigo(cliente, raiz, entidade, cpf) is None,
+              f"{cpf[:3]}… recebeu código")
+    antes = (pasta / rol.ARQUIVO).read_bytes()
+    for torto in ("a@exemplo.invalid,b", "a@exemplo.invalid\n" + A + ",x@y.zz",
+                  "=a@exemplo.invalid", "a b@exemplo.invalid", "sem-arroba"):
+        try:
+            rol.acrescentar(pasta, [(C_PLAN, torto)])
+            checa(False, f"rol.acrescentar aceitou {torto!r}")
+        except ValueError:
+            pass
+    checa((pasta / rol.ARQUIVO).read_bytes() == antes,
+          "uma recusa de rol.acrescentar mexeu no arquivo")
+    print("  ok     dois e-mails não escolhem; e-mail com separador não entra")
+
+
+def teste_quem_pediu_para_sair_nao_volta_ao_acesso_pela_planilha():
+    """O apagamento tira a pessoa do rol. Se a planilha a recolocasse como
+    "nova", o código voltaria a sair para quem pediu para sair — e para o
+    e-mail que o gestor escrevesse."""
+    from servidor import rol
+
+    entidade = "demo-liga-6"
+    cliente, ent, raiz = _servidor(entidade)
+    _apagar(cliente, entidade,
+            {"cpf": C_PLAN, "motivo": "pedido do titular", "pedido_por": "g"},
+            _token(cliente, B, entidade))
+    feito = _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "SAIU (CADASTRO DE EXEMPLO)", "saiu@exemplo.invalid"),
+        (D_PLAN, "FICA (CADASTRO DE EXEMPLO)", "fica@exemplo.invalid"),
+    ]))
+    checa(feito["acesso"]["novos"] == 1,
+          f"quem pediu para sair foi contado como novo: {feito['acesso']}")
+    checa(C_PLAN not in (ent.pasta(raiz) / rol.ARQUIVO).read_text(),
+          "QUEM PEDIU PARA SAIR VOLTOU AO ROL PELA PLANILHA")
+    print("  ok     quem pediu para sair não volta ao acesso")
+
+
+def teste_apagar_leva_tambem_a_troca_pedida():
+    """A troca pedida guarda CPF e dois e-mails: é dado pessoal num arquivo
+    novo, e arquivo novo é onde o apagamento esquece de olhar."""
+    from servidor import trocas
+
+    entidade = "demo-liga-7"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR)]))
+    checa(A in trocas.estado(pasta).pendentes, "o cenário não montou")
+    r = _apagar(cliente, entidade,
+                {"cpf": A, "motivo": "pedido do titular", "pedido_por": "g"},
+                _token(cliente, B, entidade))
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    checa(r.json().get("vestigios") == [],
+          f"sobrou vestígio: {r.json().get('vestigios')}")
+    arquivo = pasta / trocas.ARQUIVO
+    checa(not arquivo.exists() or A not in arquivo.read_text(),
+          "O CPF APAGADO FICOU NA FILA DE TROCAS")
+    print("  ok     o apagamento leva a troca pedida")
+
+
+def teste_sindicato_sem_rol_comeca_pela_planilha():
+    """Sem `filiados.csv` ninguém recebia código — NEM O GESTOR. O sindicato
+    novo precisava que nós puséssemos um arquivo vazio antes de ele poder
+    mandar a lista que cria esse arquivo.
+
+    O que a regra protege é o portão não abrir para qualquer CPF. O gestor
+    não é qualquer CPF: ele está em `gestores.csv`, que também vem da
+    entidade.
+    """
+    from servidor import rol
+
+    entidade = "demo-liga-8"
+    cliente, ent, raiz = _servidor(entidade)
+    (ent.pasta(raiz) / rol.ARQUIVO).unlink()
+    checa(_destino_do_codigo(cliente, raiz, entidade, A) is None,
+          "SEM ROL SAIU CÓDIGO para quem não é gestor")
+    checa(_destino_do_codigo(cliente, raiz, entidade, B)
+          == "gestor@exemplo.org",
+          "sem rol de filiados o gestor não entra para enviar a lista")
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(C_PLAN, "PRIMEIRA (CADASTRO DE EXEMPLO)", "p@exemplo.invalid")]))
+    checa(_destino_do_codigo(cliente, raiz, entidade, C_PLAN)
+          == "p@exemplo.invalid",
+          "a primeira planilha não criou o acesso")
+    print("  ok     sindicato sem rol: o gestor entra e a planilha cria o acesso")
+
+
+def _no_banco(entidade: str, cpf: str) -> dict[str, int]:
+    from servidor import banco
+
+    achou: dict[str, int] = {}
+    with banco.sessao(URL, entidade) as cur:
+        for tabela in banco._TABELAS_DO_APAGAMENTO:
+            cur.execute(f"SELECT count(*) FROM {tabela} WHERE cpf = %s",
+                        (cpf,))
+            n = cur.fetchone()[0]
+            if n:
+                achou[tabela] = n
+    return achou
+
+
+def teste_apagamento_no_meio_da_planilha_nao_ressuscita():
+    """MEDIDO em 10/11/2026, em sequência forçada: a planilha é filtrada
+    (ninguém pediu para sair), a pessoa é apagada a pedido — "vestígios: []"
+    —, e a planilha já filtrada é gravada. A pessoa voltava ao acervo, a
+    duas tabelas do banco e, depois de T26, ao ROL.
+
+    O filtro de quem pediu para sair valia para o instante em que foi
+    feito, e a gravação acontece depois. Agora quem grava confere de novo,
+    na hora de gravar e com o apagamento parado.
+    """
+    from servidor import ingestao, rol
+
+    entidade = "demo-liga-9"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    do_gestor = {"Authorization": f"Bearer {_token(cliente, B, entidade)}"}
+    corpo = _planilha([
+        (C_PLAN, "SAI NO MEIO (CADASTRO DE EXEMPLO)", "meio@exemplo.invalid"),
+        (D_PLAN, "FICA (CADASTRO DE EXEMPLO)", "fica@exemplo.invalid"),
+    ])
+    previa = _enviar_planilha(cliente, entidade, corpo,
+                              cabecalho=do_gestor).json()
+    checa(previa["apagados_a_pedido"] == 0, "o cenário não montou")
+
+    original = ingestao.gravar_planilha
+    apagou: list = []
+
+    def com_apagamento_no_meio(*args, **kwargs):
+        r = _apagar(cliente, entidade,
+                    {"cpf": C_PLAN, "motivo": "pedido do titular",
+                     "pedido_por": "g"}, do_gestor["Authorization"][7:])
+        apagou.append((r.status_code, r.json().get("vestigios")))
+        return original(*args, **kwargs)
+
+    ingestao.gravar_planilha = com_apagamento_no_meio
+    try:
+        r = _enviar_planilha(cliente, entidade, corpo,
+                             confirmar=previa["sha256"], cabecalho=do_gestor)
+    finally:
+        ingestao.gravar_planilha = original
+    checa(apagou == [(200, [])], f"o apagamento do meio não rodou: {apagou}")
+    checa(r.status_code == 200 and r.json().get("gravado") is True,
+          f"{r.status_code} {r.text[:200]}")
+    checa(C_PLAN not in (pasta / "acervo.jsonl").read_text(),
+          "QUEM PEDIU PARA SAIR NO MEIO DO ENVIO VOLTOU AO ACERVO")
+    checa(C_PLAN not in (pasta / rol.ARQUIVO).read_text(),
+          "QUEM PEDIU PARA SAIR NO MEIO DO ENVIO VOLTOU AO ROL")
+    checa(_no_banco(entidade, C_PLAN) == {},
+          f"QUEM PEDIU PARA SAIR NO MEIO DO ENVIO VOLTOU AO BANCO: "
+          f"{_no_banco(entidade, C_PLAN)}")
+    checa(D_PLAN in (pasta / rol.ARQUIVO).read_text()
+          and r.json()["apagados_a_pedido"] == 1,
+          f"o resto da planilha não foi gravado, ou a resposta não conta "
+          f"quem saiu no meio: {r.json()}")
+    print("  ok     apagamento entre a conferência e a gravação: não volta")
+
+
+def teste_a_planilha_e_o_apagamento_seguram_a_mesma_trava():
+    """Conferir de novo na hora de gravar encolhe a janela; o que a FECHA é
+    os dois não rodarem ao mesmo tempo. O que se mede: no instante em que a
+    planilha escreve o acervo, e no instante em que o apagamento grava o
+    tombstone, a mesma trava está tomada."""
+    import fcntl
+    import os
+
+    from servidor import banco, deposito
+
+    entidade = "demo-liga-10"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+
+    def tomada() -> bool:
+        fd = os.open(pasta / deposito.TRAVA_DO_APAGAMENTO,
+                     os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            return False
+        finally:
+            os.close(fd)
+
+    visto: dict[str, bool] = {}
+    anexar, marcar = deposito.anexar_com_fsync, banco.marcar_tombstone
+
+    def anexar_espiado(caminho, linha):
+        if caminho.name == "acervo.jsonl":
+            visto["planilha"] = tomada()
+        return anexar(caminho, linha)
+
+    def marcar_espiado(*args, **kwargs):
+        visto["apagamento"] = tomada()
+        return marcar(*args, **kwargs)
+
+    deposito.anexar_com_fsync = anexar_espiado
+    banco.marcar_tombstone = marcar_espiado
+    try:
+        _confirmar_planilha(cliente, entidade, _planilha(
+            [(C_PLAN, "ALGUEM (CADASTRO DE EXEMPLO)", "a@exemplo.invalid")]))
+        _apagar(cliente, entidade,
+                {"cpf": C_PLAN, "motivo": "pedido do titular",
+                 "pedido_por": "g"}, _token(cliente, B, entidade))
+    finally:
+        deposito.anexar_com_fsync = anexar
+        banco.marcar_tombstone = marcar
+    checa(visto == {"planilha": True, "apagamento": True},
+          f"a planilha e o apagamento podem rodar ao mesmo tempo: {visto}")
+    checa(not tomada(), "a trava ficou presa")
+    print("  ok     planilha e apagamento não rodam ao mesmo tempo")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -3086,6 +3528,16 @@ TESTES = [
     teste_a_leitura_de_dado_nominal_fica_registrada,
     teste_o_registro_de_leitura_nao_guarda_cpf_em_claro,
     teste_a_auditoria_tambem_respeita_a_politica,
+    teste_quem_e_novo_na_planilha_ja_consegue_entrar,
+    teste_a_planilha_nao_troca_o_email_de_quem_ja_entra,
+    teste_sumir_da_planilha_e_voltar_nao_contorna_a_trava,
+    teste_troca_aprovada_vale_e_recusada_nao_volta,
+    teste_divergencia_e_email_torto_nao_entram_no_acesso,
+    teste_quem_pediu_para_sair_nao_volta_ao_acesso_pela_planilha,
+    teste_apagar_leva_tambem_a_troca_pedida,
+    teste_sindicato_sem_rol_comeca_pela_planilha,
+    teste_apagamento_no_meio_da_planilha_nao_ressuscita,
+    teste_a_planilha_e_o_apagamento_seguram_a_mesma_trava,
 ]
 
 

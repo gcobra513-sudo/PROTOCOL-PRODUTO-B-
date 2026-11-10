@@ -14,6 +14,7 @@
  * A segunda é a que vale a reunião.
  */
 import type {
+  AcessoPelaPlanilha,
   FilaDeLeitura,
   Gargalo,
   Mudancas,
@@ -387,6 +388,67 @@ export function resumoDaPlanilha(p: PreviaDaPlanilha): string[] {
         `${p.apagados_a_pedido === 1 ? "pediu" : "pediram"} apagamento e NÃO ` +
         "será gravada. Tire do arquivo: enquanto estiver nele, todo envio vai " +
         "pular de novo.",
+    );
+  }
+  return linhas;
+}
+
+/** O que a planilha muda em quem consegue ENTRAR no portal.
+ *
+ *  A FRASE DA TROCA É A QUE IMPORTA. A planilha não troca o e-mail de quem
+ *  já entra: fica pedido, e o código continua indo para o endereço de
+ *  antes. Se isto dissesse "3 e-mails atualizados", o gestor avisaria os
+ *  filiados e eles esperariam um código que não chega.
+ *
+ *  `gravado` muda o tempo do verbo: na prévia nada aconteceu ainda.
+ */
+export function resumoDoAcesso(
+  a: AcessoPelaPlanilha | undefined,
+  gravado: boolean,
+): string[] {
+  if (!a) return [];
+  const linhas: string[] = [];
+  if (a.novos > 0) {
+    linhas.push(
+      gravado
+        ? `${pessoas(a.novos)} ${a.novos === 1 ? "nova já pode" : "novas já podem"} entrar no portal: ` +
+            "o código de acesso vai para o e-mail desta planilha."
+        : `${pessoas(a.novos)} ${a.novos === 1 ? "nova vai poder" : "novas vão poder"} entrar no portal ` +
+            "com o e-mail desta planilha.",
+    );
+  }
+  if (a.trocas_aguardando > 0) {
+    linhas.push(
+      `${pessoas(a.trocas_aguardando)} que já ${a.trocas_aguardando === 1 ? "entra" : "entram"} no portal ` +
+        `${a.trocas_aguardando === 1 ? "veio" : "vieram"} com e-mail diferente. A troca NÃO vale ` +
+        "por esta planilha: é conferida por quem opera o serviço, e até lá o " +
+        "código continua indo para o e-mail de antes.",
+    );
+  }
+  if (a.trocas_recusadas > 0) {
+    linhas.push(
+      `${pessoas(a.trocas_recusadas)} ${a.trocas_recusadas === 1 ? "tem" : "têm"} troca de e-mail já recusada ` +
+        "e a planilha continua pedindo. Corrija o arquivo, ou fale com quem " +
+        "opera o serviço.",
+    );
+  }
+  if (a.sem_email > 0) {
+    linhas.push(
+      `${pessoas(a.sem_email)} ${a.sem_email === 1 ? "nova não tem" : "novas não têm"} e-mail que sirva: ` +
+        `${a.sem_email === 1 ? "entra" : "entram"} na base, mas não ${a.sem_email === 1 ? "consegue" : "conseguem"} entrar no portal.`,
+    );
+  }
+  if (a.divergentes > 0) {
+    linhas.push(
+      `${pessoas(a.divergentes)} ${a.divergentes === 1 ? "aparece" : "aparecem"} com dois e-mails ` +
+        "diferentes na planilha. Nenhum foi escolhido: deixe um só.",
+    );
+  }
+  if (a.fora_da_planilha > 0) {
+    linhas.push(
+      `${pessoas(a.fora_da_planilha)} ${a.fora_da_planilha === 1 ? "entra" : "entram"} no portal e não ` +
+        `${a.fora_da_planilha === 1 ? "está" : "estão"} nesta planilha. ${a.fora_da_planilha === 1 ? "Continua" : "Continuam"} entrando: ` +
+        "a planilha não tira ninguém do acesso.",
     );
   }
   return linhas;

@@ -66,6 +66,13 @@ NOME_FILIADO = "FULANA DE TAL (CADASTRO DE EXEMPLO)"
 #: Quem entra pela PLANILHA do sindicato, e nunca passou pelo portal.
 CPF_DA_PLANILHA = "390.533.447-05"
 NOME_DA_PLANILHA = "BELTRANO DE TAL (CADASTRO DE EXEMPLO)"
+#: Quem JÁ entra no portal e aparece na planilha com OUTRO e-mail. É a
+#: trava de T26: a troca fica pedida, e o código continua indo para o de
+#: antes.
+CPF_DA_TROCA = "862.883.667-57"
+NOME_DA_TROCA = "SICRANA DE TAL (CADASTRO DE EXEMPLO)"
+EMAIL_DE_ANTES = "sicrana@exemplo.invalid"
+EMAIL_DA_PLANILHA = "outro-endereco@exemplo.invalid"
 SEGREDO_DO_ENSAIO = "segredo-do-ensaio-de-navegador"
 
 #: UMA ENTIDADE NOVA POR EXECUÇÃO, e isto foi um defeito que o próprio
@@ -124,7 +131,8 @@ def _semear(raiz: pathlib.Path) -> None:
     pasta.mkdir(parents=True, exist_ok=True)
     for nome, linhas in (
         ("filiados.csv", [(CPF_FILIADO, "filiada@exemplo.invalid"),
-                          (CPF_GESTOR, "gestor@exemplo.invalid")]),
+                          (CPF_GESTOR, "gestor@exemplo.invalid"),
+                          (CPF_DA_TROCA, EMAIL_DE_ANTES)]),
         ("gestores.csv", [(CPF_GESTOR, "gestor@exemplo.invalid")]),
     ):
         with open(pasta / nome, "w", newline="", encoding="utf-8") as fh:
@@ -221,6 +229,8 @@ def _planilha_xlsx(caminho: pathlib.Path) -> None:
     folha.append(["CPF", "Nome Completo", "E-mail", "Cargo"])
     folha.append([int("".join(c for c in CPF_DA_PLANILHA if c.isdigit())),
                   NOME_DA_PLANILHA, "beltrano@exemplo.invalid",
+                  "Auditor Fiscal da Receita Federal"])
+    folha.append([CPF_DA_TROCA, NOME_DA_TROCA, EMAIL_DA_PLANILHA,
                   "Auditor Fiscal da Receita Federal"])
     livro.save(caminho)
 
@@ -342,7 +352,8 @@ def main() -> int:
             },
             "gestor": {"cpf": CPF_GESTOR},
             "planilha": {"caminho": str(raiz / "pdfs" / "base-do-sindicato.xlsx"),
-                         "nome": NOME_DA_PLANILHA},
+                         "nome": NOME_DA_PLANILHA,
+                         "cpf": CPF_DA_PLANILHA},
             "fazerPainel": bool(banco_url),
         }
         # UMA CHAMADA POR FASE, e a ORDEM é o que importa: o cadastro
@@ -611,6 +622,7 @@ def _conferir_a_planilha(raiz: pathlib.Path, enviada, lista) -> list[str]:
     registro = json.loads(acervo_.read_text(encoding="utf-8").splitlines()[-1])
     if not registro.get("enviado_por"):
         problemas.append("o acervo não registra quem enviou a planilha")
+    problemas += _conferir_o_acesso(ent.pasta(raiz), enviada)
     digitos = validacao.so_digitos(CPF_DA_PLANILHA)
     baixada = (lista or {}).get("planilha") or ""
     if f"{digitos};{NOME_DA_PLANILHA};" not in baixada:
@@ -618,6 +630,43 @@ def _conferir_a_planilha(raiz: pathlib.Path, enviada, lista) -> list[str]:
             "quem entrou pela planilha .xlsx não está na base que o gestor "
             "baixou — ou o CPF guardado como número chegou torto"
         )
+    return problemas
+
+
+def _conferir_o_acesso(pasta: pathlib.Path, enviada: dict) -> list[str]:
+    """T26, conferido dos dois lados: na TELA e no DISCO.
+
+    Na tela: quem veio só pela planilha ENTROU pelo portão, num navegador
+    limpo; e o gestor leu que a troca de e-mail não vale por ali.
+
+    No disco: o rol ganhou a pessoa nova, o e-mail de quem já entrava NÃO
+    mudou, e a troca está na fila de quem opera. A tela dizer "não vale" com
+    o rol já trocado seria o pior resultado possível — e só o disco mostra.
+    """
+    from servidor import rol, trocas, validacao
+
+    problemas: list[str] = []
+    if not enviada.get("novaEntrou"):
+        problemas.append("quem veio só pela planilha do gestor NÃO conseguiu "
+                         "entrar no portal")
+    tela = (enviada.get("acesso") or "").lower()
+    if "já pode entrar" not in tela:
+        problemas.append("o painel não disse que a pessoa nova já pode entrar")
+    if "não vale" not in tela or "e-mail de antes" not in tela:
+        problemas.append("o painel não disse que a troca de e-mail NÃO vale "
+                         "pela planilha")
+    lista = rol.carregar(pasta)
+    nova = validacao.so_digitos(CPF_DA_PLANILHA)
+    antiga = validacao.so_digitos(CPF_DA_TROCA)
+    if lista.email_de(nova) != "beltrano@exemplo.invalid":
+        problemas.append("a pessoa nova da planilha não entrou no rol")
+    if lista.email_de(antiga) != EMAIL_DE_ANTES:
+        problemas.append("A PLANILHA TROCOU O E-MAIL DE QUEM JÁ ENTRAVA: o "
+                         f"rol diz {lista.email_de(antiga)!r}")
+    pedido = trocas.estado(pasta).pendentes.get(antiga)
+    if not pedido or pedido.get("para") != EMAIL_DA_PLANILHA:
+        problemas.append("a troca de e-mail pedida não ficou na fila de "
+                         "quem opera")
     return problemas
 
 

@@ -519,14 +519,24 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         try:
             lista = rol.carregar(ent.pasta(cfg.raiz))
         except rol.RolAusente:
-            # Fail-closed e em voz alta: sem rol ninguém entra, e o operador
-            # tem que ver isso no log, não descobrir pelo filiado reclamando.
+            # Fail-closed e em voz alta: sem rol nenhum FILIADO entra, e o
+            # operador tem que ver isso no log, não descobrir pelo filiado
+            # reclamando.
+            #
+            # O GESTOR ENTRA, e isso mudou de propósito. Antes este ramo
+            # devolvia 202 para todos, e o sindicato novo não tinha como
+            # enviar a planilha que CRIA o rol sem que nós puséssemos um
+            # arquivo vazio antes. O que a regra protege é o portão não
+            # abrir para qualquer CPF — e um rol vazio continua não abrindo
+            # para ninguém além de quem está em `gestores.csv`, que também
+            # vem da entidade.
             log.error(
-                "ROL AUSENTE em %s: nenhum código será entregue até a "
-                "entidade enviar filiados.csv",
+                "ROL AUSENTE em %s: nenhum filiado recebe código até a "
+                "entidade enviar a lista",
                 ent.apelido,
             )
-            return JSONResponse(resposta, status_code=202)
+            lista = rol.Rol(caminho=ent.pasta(cfg.raiz) / rol.ARQUIVO,
+                            por_cpf={}, recusados=())
         except ValueError as e:
             log.error("ROL INVÁLIDO em %s: %s", ent.apelido, e)
             return JSONResponse(resposta, status_code=202)
@@ -1514,6 +1524,17 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 "gravado: tente de novo.",
             ) from None
 
+        try:
+            plano = ingestao.plano_do_portao(ent.pasta(cfg.raiz), ficam)
+        except ingestao.IngestaoRecusada as e:
+            log.error("PLANILHA recusada ent=%s: %s", ent.apelido, e)
+            raise _problema(
+                409,
+                "o cadastro de acesso desta entidade não pôde ser lido, e "
+                "sem ele não dá para saber quem já entra no portal. Nada "
+                "foi gravado: avise quem administra o cadastro.",
+            ) from None
+
         retrato = completude.retratar(ficam)
         resposta = {
             "sha256": soma,
@@ -1529,17 +1550,41 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             # para o sindicato corrigir a FONTE — enquanto ela estiver na
             # planilha dele, toda ingestão vai pulá-la de novo.
             "apagados_a_pedido": apagadas,
+            # O QUE MUDA EM QUEM CONSEGUE ENTRAR. Só contagens: quem é novo
+            # entra, e troca de e-mail de quem já entra NÃO vale por aqui —
+            # fica pedida, esperando quem opera o servidor.
+            "acesso": plano.para_json(),
             "gravado": False,
         }
         if not _conferir_confirmacao(confirmar, soma):
             return resposta
-        feito = ingestao.gravar_planilha(
-            ent, cfg.raiz, ficam, origem=nome, banco_url=cfg.banco_url,
-            quem=quem)
-        log.info("planilha ingerida ent=%s pessoas=%d", ent.apelido,
-                 retrato.total)
-        return {**resposta, "gravado": True,
-                "projetadas": feito["projetadas"]}
+        try:
+            feito = ingestao.gravar_planilha(
+                ent, cfg.raiz, ficam, origem=nome, banco_url=cfg.banco_url,
+                marcador_de=portao.marcar_cpf, quem=quem)
+        except ingestao.IngestaoRecusada as e:
+            log.error("PLANILHA recusada ent=%s: %s", ent.apelido, e)
+            raise _problema(
+                409,
+                "o cadastro de acesso desta entidade mudou enquanto a "
+                "planilha era conferida. Nada foi gravado: envie de novo.",
+            ) from None
+        feito_no_portao = feito["portao"]
+        log.info("planilha ingerida ent=%s pessoas=%d novos_no_acesso=%d",
+                 ent.apelido, retrato.total, len(feito_no_portao.novos))
+        if feito_no_portao.trocas:
+            # EM VOZ ALTA: é por esta linha que quem opera fica sabendo que
+            # há troca esperando. Sem ela, o pedido existiria só num arquivo.
+            log.warning(
+                "TROCA DE E-MAIL pedida ent=%s quantas=%d — conferir com "
+                "ferramentas/trocas_de_email.py",
+                ent.apelido, len(feito_no_portao.trocas))
+        return {**resposta, "acesso": feito_no_portao.para_json(),
+                # Quem pediu para sair ENTRE a conferência e a gravação
+                # também não entrou, e a conta tem de dizer isso.
+                "apagados_a_pedido": apagadas + feito["apagadas"],
+                "pessoas": feito["retrato"].total,
+                "gravado": True, "projetadas": feito["projetadas"]}
 
     def _nome_de_envio(arquivo: UploadFile) -> str:
         """O nome que o gestor deu, SÓ COMO RÓTULO. Nunca vira caminho: é
@@ -1566,6 +1611,11 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         O miolo é `servidor/ingestao.py`, o MESMO da ferramenta de linha de
         comando: as travas dela — quem pediu para sair não volta, falha
         fechada sem os tombstones — valem aqui sem terem sido reescritas.
+
+        A PLANILHA CONFIRMADA TAMBÉM LIGA O ACESSO: quem é novo passa a
+        receber código. O que ela NÃO faz é trocar o e-mail de quem já
+        entra — com isso, esta sessão valeria todas as contas do sindicato.
+        A troca fica pedida (`servidor/trocas.py`), e esta rota só conta.
         """
         ent = _gestor_de(apelido, pedido)
         sessao = _sessao_de(pedido)

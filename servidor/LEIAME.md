@@ -125,8 +125,54 @@ e `ferramentas/ingerir_documentos.py`: as ferramentas continuam existindo,
 para volumes que não cabem num envio pela web (o teto é o do pacote, 60 MB)
 e para quem opera.
 
-**A planilha alimenta a base, não o portão.** Quem pode entrar no portal
-continua em `filiados.csv`, posto à mão — ver T26 em `CHECKPOINTS.md`.
+### A planilha liga o acesso — com uma trava
+
+A planilha confirmada também decide **quem consegue entrar no portal**
+(`filiados.csv`), e a regra tem dois lados:
+
+| quem | o que a planilha faz |
+|---|---|
+| **novo no acesso**, com e-mail que sirva | entra na hora: o código vai para o e-mail da planilha |
+| **já entra**, e a planilha traz outro e-mail | **nada muda.** A troca fica *pedida* em `trocas_de_email.jsonl`, e o código continua indo para o e-mail de antes |
+| já entra, e não está na planilha | continua entrando. A planilha **não tira** ninguém |
+| novo, sem e-mail que sirva | entra na base, não no acesso |
+| novo, com dois e-mails diferentes na planilha | nenhum é escolhido |
+| pediu apagamento | não volta, nem à base nem ao acesso |
+
+**Por que a trava.** O portão só é portão porque o e-mail não é escolhido
+por quem entra. Se a planilha trocasse o e-mail de quem já entra, uma conta
+de gestor comprometida virava todas as contas do sindicato: troca o e-mail,
+pede o código, entra no lugar da pessoa. "Já entra" olha os **dois** róis —
+o CPF de um gestor não vira "novo" por não estar em `filiados.csv`. E a
+planilha não tira ninguém porque tirar e recolocar seria a porta dos fundos
+da mesma troca.
+
+**Quem decide a troca é quem opera o servidor**, depois de conferir por fora:
+
+```bash
+python3 ferramentas/trocas_de_email.py --raiz dados_portal --entidade sind-df listar
+```
+
+```bash
+python3 ferramentas/trocas_de_email.py --raiz dados_portal --entidade sind-df aprovar 11144477735
+```
+
+```bash
+python3 ferramentas/trocas_de_email.py --raiz dados_portal --entidade sind-df recusar 11144477735
+```
+
+Não existe rota para aprovar, de propósito — e `tests/testes_repositorio.py`
+falha se aparecer uma. A recusa fica guardada: a mesma planilha, reenviada,
+não recria o pedido. Quando há troca pedida, o servidor escreve no log
+`TROCA DE E-MAIL pedida ent=… quantas=…` — **é por essa linha que se fica
+sabendo**; ninguém é avisado por e-mail.
+
+`ferramentas/ingerir_acervo.py` segue a mesma regra, porque chama a mesma
+função: rodada por nós, ela também só *pede* a troca.
+
+**O que a trava NÃO cobre** (T27 em `CHECKPOINTS.md`): para quem ainda não
+está no acesso, vale o primeiro e-mail que a planilha trouxer. Uma conta de
+gestor comprometida pode pôr o próprio endereço em quem ainda não entrou.
 
 ## Nome por nome, e a planilha da base
 
@@ -248,17 +294,23 @@ print(Cadastro(pathlib.Path('dados_portal')).criar('sind-df', 'Sindicato Tal'))
 O link que a entidade distribui ao filiado é
 `https://portal.exemplo.org/?entidade=sind-df`.
 
-## O rol de filiados é obrigatório
+Para o sindicato começar sozinho falta só dizer quem é gestor —
+`dados_portal/<entidade>/gestores.csv`, mesmo formato do rol abaixo. Com
+isso o gestor entra, envia a planilha pelo painel, e os filiados passam a
+receber código. `filiados.csv` não precisa mais ser posto à mão.
 
-`dados_portal/<entidade>/filiados.csv`:
+## O rol de filiados
+
+`dados_portal/<entidade>/filiados.csv`, criado pela primeira planilha que o
+gestor confirmar (ou posto à mão):
 
 ```csv
 cpf,email
 526.018.159-06,fulano@exemplo.org
 ```
 
-**Sem esse arquivo a entidade não emite código nenhum**, e o servidor grita no
-log. O motivo está em `servidor/rol.py`: o código de acesso vai para o e-mail
+**Sem esse arquivo nenhum filiado recebe código**, e o servidor grita no
+log. (O gestor recebe: é ele quem envia a lista que cria o arquivo.) O motivo está em `servidor/rol.py`: o código de acesso vai para o e-mail
 que a entidade tem em cadastro, não para um e-mail digitado na tela. Se a
 pessoa escolhesse o endereço, qualquer um reivindicaria o CPF de qualquer
 outro. Um portão que abre para todos é pior que um fechado, porque parece que
@@ -272,7 +324,9 @@ dados_portal/
   acesso.sqlite3                     códigos e sessões, só em HMAC
   codigos_enviados.log               apenas quando não há SMTP configurado
   <entidade>/
-    filiados.csv                     o rol, entregue pela entidade
+    filiados.csv                     o rol: quem entra, e para onde vai o código
+    gestores.csv                     quem abre o painel — posto por quem opera
+    trocas_de_email.jsonl            trocas de e-mail pedidas pela planilha
     recebidos.jsonl                  diário append-only: a verdade
     entrega/
       manifesto.csv                  derivado do diário, 1 linha por CPF
