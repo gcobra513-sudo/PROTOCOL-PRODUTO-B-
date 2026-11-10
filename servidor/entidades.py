@@ -4,8 +4,8 @@ As entidades (sindicatos) atendidas pelo portal, e o isolamento entre elas.
 POR QUE ISTO É UM MÓDULO E NÃO UM `if`: cada entidade tem a sua pasta de
 entrega, e um pedido de uma entidade nunca pode escrever na pasta de outra.
 Isso não é conforto de arquitetura — é o requisito central. Os documentos de um
-filiado do sindicato A não podem aparecer na entrega que o escritório do
-sindicato B abre.
+filiado do sindicato A não podem aparecer na entrega que o sindicato B
+abre.
 
 Duas regras seguram isso, e as duas são verificadas:
 
@@ -55,7 +55,6 @@ class Entidade:
     apelido: str
     nome: str
     ativa: bool
-    escritorio: str
     criada_em: str
     #: As categorias que esta entidade contratou — os slugs dos catálogos de
     #: `config/categorias/`.
@@ -108,7 +107,6 @@ def _normalizar(bruto: dict) -> dict[str, Entidade]:
             apelido=apelido,
             nome=str(dados["nome"]).strip(),
             ativa=bool(dados.get("ativa", True)),
-            escritorio=str(dados.get("escritorio", "")).strip(),
             criada_em=str(dados.get("criada_em", "")).strip(),
             categorias=tuple(str(s) for s in categorias),
         )
@@ -157,7 +155,6 @@ class Cadastro:
         self,
         apelido: str,
         nome: str,
-        escritorio: str = "",
         categorias: tuple[str, ...] = (),
     ) -> Entidade:
         self._carregar_se_mudou()
@@ -171,11 +168,23 @@ class Cadastro:
         # ficava de fora: cadastrar o segundo sindicato apagava em silêncio a
         # declaração do primeiro, e o primeiro parava de receber veredicto
         # sem que ninguém tivesse mexido nele.
+        #
+        # E ISTO AGORA TEM TESTE, não só este comentário:
+        # `teste_criar_persiste_TODO_campo_da_entidade` lê os campos por
+        # `dataclasses.fields` e exige que cada um sobreviva a um segundo
+        # `criar`. Comentário não é teste, e foi um comentário exatamente
+        # aqui que não impediu o defeito de acontecer.
+        #
+        # CHAVE QUE ESTE DICIONÁRIO NÃO TRAZ SAI DO ARQUIVO. Foi assim que
+        # `escritorio` saiu: campo morto, que ninguém lia, carregando a
+        # hipótese do Produto A dentro da estrutura do B. A Regra Zero diz
+        # que escritório é contrato, não arquitetura — e um `entidades.json`
+        # antigo com a chave simplesmente a perde na próxima reescrita, sem
+        # perder nada que alguém lesse.
         bruto = {
             a: {
                 "nome": e.nome,
                 "ativa": e.ativa,
-                "escritorio": e.escritorio,
                 "criada_em": e.criada_em,
                 "categorias": list(e.categorias),
             }
@@ -184,7 +193,6 @@ class Cadastro:
         bruto[chave] = {
             "nome": nome.strip(),
             "ativa": True,
-            "escritorio": escritorio.strip(),
             "criada_em": dt.date.today().isoformat(),
             "categorias": [str(c) for c in categorias],
         }

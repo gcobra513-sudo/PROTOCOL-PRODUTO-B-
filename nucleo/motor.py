@@ -17,7 +17,7 @@ software, e por isso ele é a primeira coisa testada.
 
 TRÊS VEREDICTOS, E A ASSIMETRIA É DELIBERADA:
 
-    PODE      desce para o escritório preparar
+    PODE      vai para homologação de advogado, e só depois para a pessoa
     NAO_PODE  resposta: sabe-se que não cabe. Custa pouco se errado
     FALTA     lacuna: NÃO é "provavelmente pode". Custa caro se errado
 
@@ -492,7 +492,7 @@ def _avaliar_ajuizar(
 def avaliar(fatos: Fatos, catalogo: ent.Catalogo) -> list[Oportunidade]:
     """Tudo o que esta pessoa pode — ou não — fazer, nas duas trilhas.
 
-    Devolve SEMPRE a lista inteira, inclusive os "não pode": o escritório
+    Devolve SEMPRE a lista inteira, inclusive os "não pode": o SINDICATO
     precisa saber por que alguém ficou de fora tanto quanto precisa saber
     quem entrou. Lista só com os "pode" esconde o trabalho de corrigir
     cadastro, que é metade do produto.

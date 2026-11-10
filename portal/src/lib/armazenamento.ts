@@ -9,8 +9,10 @@
  * LIMITES, ditos de frente:
  *
  * - é `localStorage`: fica NESTE navegador, neste dispositivo. Não sincroniza
- *   e não chega ao escritório. Quando houver servidor, o rascunho passa a ir
- *   para lá e isto vira só um cache;
+ *   e não sai do aparelho. O servidor já existe, e o rascunho continua NÃO
+ *   indo para ele de propósito: só o envio final sai, e até lá a pessoa está
+ *   corrigindo o que escreveu — mandar rascunho a cada tecla guardaria
+ *   versões que ninguém pediu de um cadastro que ainda não existe;
  * - pode falhar. Aba privada, armazenamento bloqueado, cota cheia — qualquer
  *   acesso pode lançar. Então TODA leitura e escrita vai em try/catch, e o
  *   formulário tem de funcionar sem nada salvo;

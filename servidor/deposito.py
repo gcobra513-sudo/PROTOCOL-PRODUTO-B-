@@ -16,8 +16,8 @@ DUAS DECISÕES QUE VALEM A EXPLICAÇÃO:
 **O manifesto é derivado, não acumulado.** O diário recebe uma linha por envio
 e nunca é reescrito; o manifesto é refeito a partir dele, com o último envio de
 cada CPF. Assim um reenvio corrige o cadastro sem deixar duas linhas do mesmo
-filiado na planilha que o escritório abre — e sem perder o que foi enviado
-antes, que fica no diário e no histórico. É o mesmo desenho do diário de
+filiado na planilha que o GESTOR DO SINDICATO abre — e sem perder o que foi
+enviado antes, que fica no diário e no histórico. É o mesmo desenho do diário de
 protocolo que já existe no projeto, pelo mesmo motivo.
 
 **A ordem é diário → arquivos → manifesto, e isso é de propósito.** Uma queda

@@ -125,12 +125,59 @@ def t_a_pasta_antiga_continua_ignorada():
           "dados/ deixou de estar ignorada")
 
 
+def t_escritorio_nao_e_arquitetura():
+    """A REGRA ZERO, conferida por programa.
+
+    `CLAUDE.md` diz: "Se um escritório existir na relação, ele foi contratado
+    pelo sindicato, e **isso é contrato, não arquitetura**."
+
+    A casa já guardava os TEXTOS — três testes conferem que nenhum aviso,
+    pendência ou tela fala de escritório ao filiado. O que não tinha guarda
+    era a ESTRUTURA: `entidades.Entidade` tinha um campo `escritorio`, e
+    campo é arquitetura. Ele não era lido por ninguém, o que é o pior caso:
+    o produto carregava a hipótese do Produto A sem receber nada por ela, e
+    cada entidade criada gravava a chave no `entidades.json`.
+
+    A conferência é sobre IDENTIFICADOR, não sobre a palavra: `escritorio`
+    sem acento é o jeito de a palavra virar código. A palavra com acento
+    continua podendo aparecer em comentário — inclusive para explicar esta
+    regra, que é o que `nucleo/pendencia.py` faz.
+    """
+    import re
+
+    alvo = re.compile(r"\bescritorio\b")
+    achados = []
+    for pasta in ("nucleo", "servidor", "ferramentas", "portal/src"):
+        for caminho in sorted((RAIZ / pasta).rglob("*")):
+            if caminho.suffix not in (".py", ".ts", ".tsx"):
+                continue
+            if ".test." in caminho.name:
+                continue
+            for n, linha in enumerate(
+                caminho.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                # Comentário é texto, não estrutura. A regra fala de
+                # arquitetura, e um comentário que EXPLICA a regra tem de
+                # poder nomeá-la.
+                nua = linha.strip()
+                if nua.startswith(("#", "//", "*", "/*")):
+                    continue
+                if alvo.search(linha):
+                    achados.append(
+                        f"{caminho.relative_to(RAIZ)}:{n}: {nua[:70]}")
+    checa(not achados,
+          "escritório voltou a ser arquitetura, e a Regra Zero diz que ele é "
+          "contrato:\n  " + "\n  ".join(achados))
+
+
 TESTES = [
     ("a raiz de dados padrão está ignorada", t_a_raiz_padrao_esta_ignorada),
     ("todo arquivo que a aplicação escreve está ignorado",
      t_cada_arquivo_que_a_aplicacao_escreve_esta_ignorado),
     ("nada sensível já entrou no índice", t_nada_sensivel_ja_entrou_no_indice),
     ("a pasta antiga continua ignorada", t_a_pasta_antiga_continua_ignorada),
+    ("escritório não é arquitetura (Regra Zero)",
+     t_escritorio_nao_e_arquitetura),
 ]
 
 

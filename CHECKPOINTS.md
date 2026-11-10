@@ -24,6 +24,7 @@
 | 9 | Banco ligado: diário é a autoridade, banco é a projeção | **pronto** | `dfca8a6` |
 | 10 | **Migração para região brasileira** | **decidido, a contratar** | — |
 | 17 | Auditoria de segurança independente: 13 achados, todos fechados | **pronto** | `a338473` |
+| 18 | A Regra Zero conferida por programa: escritório deixa de ser arquitetura | **pronto** | — |
 | 16 | O agendador, e o silêncio que ele podia criar | **pronto** | `deb55ce` |
 | 15 | O aviso de movimentação: a promessa do formulário, cumprida | **pronto** | `e1bc2ab` |
 | 14 | O portal reconhece quem já está na base | **pronto** | `5c3aef4` |
@@ -111,7 +112,7 @@ responde.
 | **T7** | Os motivos do motor são escritos na TERCEIRA pessoa ("esta pessoa consta do rol"), porque o mesmo texto serve o painel do sindicato. Na tela do próprio filiado isso lê como dossiê sobre outra pessoa. Trocar por "você" com substituição cega gera concordância errada — "esta pessoa é filiada" concorda com *pessoa*, e viraria "você é filiada" para um homem | decidir se o motor passa a emitir dois registros, um por público |
 | **T8** | `ja_executou` vem da RESPOSTA DA PRÓPRIA PESSOA, não de base de execuções — essa base não existe. O motor conta com a resposta e deixa nota dizendo que foi declarada. Enquanto for assim, "não executei" errado só é pego pelo advogado na homologação | o sindicato fornecer a base de execuções já ajuizadas |
 | **T16** | **O aviso de privacidade que o filiado lê descreve o PRODUTO A.** `portal/src/componentes/Privacidade.tsx` diz, em texto que vai para a tela: "montar a petição e apresentá-la em juízo", "a execução do **contrato** com o escritório", "quando o envio ao escritório for ligado", "o prazo em que o escritório é obrigado a guardar documentos de clientes". O B não protocola nada e quem fala com o filiado é o sindicato. São 4 trechos em JSX, medidos. **Não reescrevi**: aviso de privacidade é texto jurídico, e a base legal declarada ("execução do contrato com o escritório") é uma afirmação sobre com quem o filiado contratou — não é decisão de código | o jurídico diz qual é a base legal e quem é o controlador nesta relação |
-| **T17** | `entidades.Entidade` tem um campo chamado `escritorio`, e a Regra Zero diz que se um escritório existe na relação "isso é contrato, não arquitetura". Medido: 25 ocorrências de "escritório" em 12 arquivos de código, das quais 4 são o campo. Renomear atravessa `entidades`, `app`, `panorama` e os testes | decidir se o campo vira `contratante` ou sai |
+| **T18** | **O B usa a palavra `manifesto`, que o `CLAUDE.md` lista como vocabulário do A.** Medido: 91 ocorrências em 10+ arquivos, incluindo o nome de um arquivo que o gestor ABRE (`manifesto.csv`) e uma coluna de contrato (`colunas_manifesto`). Ou a lista do `CLAUDE.md` está errada sobre esta palavra — ela pode ter querido dizer o manifesto de LOTE do A, que é outra coisa —, ou o B precisa renomear um artefato central. Não decidi sozinho porque renomear muda um nome que já está em uso | dizer qual das duas |
 | **T6** | Só duas categorias existem em `config/categorias/`, e uma delas está lá sem entrada nenhuma, só para ser reconhecida como outra carreira. Nenhuma ação de nenhuma outra carreira foi pesquisada | o jurídico diz quais categorias e quais ações, por contrato |
 
 ---

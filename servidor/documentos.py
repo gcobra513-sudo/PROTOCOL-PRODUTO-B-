@@ -130,7 +130,7 @@ def fatos_para_o_motor(
       `ja_executou`      está na base de execuções já ajuizadas;
       `tem_acao_propria` idem.
 
-    Passar `None` nesses é o estado honesto antes de o escritório fornecer as
+    Passar `None` nesses é o estado honesto antes de o SINDICATO fornecer as
     bases — e o motor devolve FALTA, que é o certo.
     """
     cadastro = cadastro or {}

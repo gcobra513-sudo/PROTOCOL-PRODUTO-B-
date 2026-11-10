@@ -9,7 +9,7 @@ Quem levar este arquivo não sai com uma lista de CPFs nem com um código
 utilizável.
 
 Isso NÃO é para esconder o CPF do servidor: a entrega guarda o CPF em claro,
-porque ela é o cadastro e tem que ser legível pelo escritório. É para que a
+porque ela é o cadastro e tem que ser legível por quem confere. É para que a
 tabela de autenticação, que é a que um atacante quer, não seja também um
 despejo de dados pessoais.
 

@@ -506,6 +506,50 @@ def teste_categoria_invalida_no_cadastro_e_erro():
         print("  ok     slug de categoria inválido é recusado")
 
 
+def teste_criar_persiste_TODO_campo_da_entidade():
+    """A guarda que era só um comentário.
+
+    `Cadastro.criar` REESCREVE O ARQUIVO INTEIRO a partir da memória, e por
+    isso todo campo de `Entidade` tem de aparecer no dicionário que ele
+    monta. O comentário dentro da função diz isso — e diz também o que
+    aconteceu quando não era verdade: `categorias` ficava de fora, cadastrar
+    o segundo sindicato apagava em silêncio a declaração do primeiro, e o
+    primeiro parava de receber veredicto sem ninguém ter mexido nele.
+
+    Comentário não é teste. Esta conferência lê os campos de `Entidade` por
+    `dataclasses.fields` e exige que cada um sobreviva a um segundo
+    `criar` — então acrescentar campo e esquecer de persistir quebra aqui, e
+    não num sindicato seis meses depois.
+    """
+    import dataclasses
+    import tempfile
+
+    from servidor import entidades
+
+    raiz = Path(tempfile.mkdtemp(prefix="campos-"))
+    cadastro = entidades.Cadastro(raiz)
+    primeira = cadastro.criar(
+        "demo-campos-a", "Primeiro Sindicato",
+        categorias=("auditor-fiscal-receita-federal",))
+
+    # O segundo `criar` é o que reescreve o arquivo com a primeira dentro.
+    cadastro.criar("demo-campos-b", "Segundo Sindicato",
+                   categorias=("analista-tributario-receita-federal",))
+
+    # Lido de disco por um Cadastro NOVO: é o que a próxima subida do
+    # servidor faz, e é ali que a perda aparecia.
+    relida = entidades.Cadastro(raiz).resolver("demo-campos-a")
+    perdidos = [
+        campo.name for campo in dataclasses.fields(entidades.Entidade)
+        if getattr(relida, campo.name) != getattr(primeira, campo.name)
+    ]
+    checa(not perdidos,
+          f"estes campos não sobreviveram ao segundo `criar`, e o arquivo é "
+          f"reescrito inteiro: {perdidos}")
+    print(f"  ok     os {len(dataclasses.fields(entidades.Entidade))} campos "
+          f"da entidade sobrevivem a outro `criar`")
+
+
 TESTES = [
     teste_o_catalogo_global_nao_existe_mais,
     teste_cada_arquivo_declara_a_sua_categoria_e_os_cargos,
@@ -526,6 +570,7 @@ TESTES = [
     teste_entidade_sem_categoria_nao_recebe_todas,
     teste_categoria_declarada_que_nao_existe_e_erro,
     teste_criar_outra_entidade_nao_apaga_as_categorias_da_primeira,
+    teste_criar_persiste_TODO_campo_da_entidade,
     teste_categoria_invalida_no_cadastro_e_erro,
 ]
 

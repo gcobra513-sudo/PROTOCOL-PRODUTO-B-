@@ -4,7 +4,7 @@ A conferência do lado do servidor.
 POR QUE EXISTE, SE O PORTAL JÁ CONFERE: o portal confere para a pessoa não
 errar; o servidor confere porque o navegador não é fonte de verdade. Qualquer
 pessoa monta um POST à mão. Se a única validação fosse a do navegador, a
-entrega que o escritório abre seria o que o cliente quisesse mandar.
+entrega que o sindicato abre seria o que quem monta o POST quisesse mandar.
 
 As duas conferências são de propósito independentes — e a de cá é a que vale.
 
@@ -290,9 +290,12 @@ def conferir_linha(linha: object) -> list[str]:
 
 def normalizar_linha(linha: dict) -> dict[str, str]:
     """A linha como vai para o diário: as colunas do contrato mais os campos
-    do portal, aparadas. O manifesto do Produto A é escrito com
-    `extrasaction="ignore"` sobre `COLUNAS`, então os campos do portal viajam
-    no diário sem aparecer na planilha que o escritório abre."""
+    do portal, aparadas.
+
+    O manifesto é escrito com `extrasaction="ignore"` sobre `COLUNAS`
+    (`deposito.reconstruir_manifesto`), então os campos do portal viajam no
+    diário sem aparecer na planilha que o GESTOR DO SINDICATO abre. O diário
+    guarda tudo; o manifesto é a vista para gente."""
     saida: dict[str, str] = {}
     for coluna in ACEITAS:
         valor = str(linha.get(coluna, "") or "").strip()
@@ -357,7 +360,7 @@ def texto_extraivel(corpo: bytes) -> tuple[bool, int]:
 
     POR QUE NO SERVIDOR TAMBÉM, se o portal já confere: porque
     `ferramentas/conferir_entrega.py` REPROVA documento sem camada de texto,
-    e a reprovação acontece no escritório, dias depois, longe da pessoa que
+    e a reprovação acontece na conferência, dias depois, longe da pessoa que
     tem o documento na mão. Se o servidor aceita o que o motor recusa, o
     portal entrega recibo para um cadastro que já nasceu reprovado.
 
