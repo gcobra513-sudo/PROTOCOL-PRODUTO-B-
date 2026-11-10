@@ -26,8 +26,9 @@ O QUE ELE FAZ:
 5. dirige o Chromium: entra pelo portão lendo o código NA TELA, preenche as
    etapas, anexa os PDFs, envia e lê o protocolo na tela;
 6. CONFERE O DISCO do lado de fora do navegador — a entrega, o diário e o
-   manifesto — e, quando há banco, apaga o filiado pelo painel e mede que
-   não sobrou nada.
+   manifesto — e, quando há banco: o gestor ABRE a sentença de scanner na
+   fila de leitura, registra o que leu, e a fila esvazia; depois apaga o
+   filiado pelo painel e mede que não sobrou nada — nem as leituras.
 
 Sai 0 se tudo isso aconteceu, 1 se não, e diz o que falhou.
 
@@ -334,6 +335,13 @@ def main() -> int:
                 )
 
         if banco_url and not falhas:
+            print("  dirigindo o Chromium — o gestor lê a fila…")
+            da_fila = _dirigir(cfg, "conferencia", falhas)
+            if not falhas:
+                falhas += _conferir_a_leitura(raiz, banco_url,
+                                              da_fila.get("conferencia"))
+
+        if banco_url and not falhas:
             print("  dirigindo o Chromium — o gestor…")
             do_painel = _dirigir(cfg, "painel", falhas)
             falhas += _conferir_o_apagamento(raiz, banco_url,
@@ -490,6 +498,40 @@ def _conferir_o_disco(raiz: pathlib.Path, protocolo: str) -> list[str]:
         problemas.append("o manifesto não foi gerado")
     elif digitos not in manifesto.read_text(encoding="utf-8"):
         problemas.append("o manifesto não tem a linha deste CPF")
+    return problemas
+
+
+def _conferir_a_leitura(raiz: pathlib.Path, url: str, na_tela) -> list[str]:
+    """O que o gestor registrou NA TELA contra o arquivo de leituras e o
+    banco. A fila tinha a foto e a sentença de scanner; depois de ele ler as
+    duas, o arquivo tem os dois registros COM AUTOR e a fila está vazia."""
+    from servidor import banco, conferencia, entidades
+
+    if not na_tela or not na_tela.get("abriu"):
+        return ["o gestor não conseguiu abrir o documento da fila"]
+    problemas: list[str] = []
+    ent = entidades.Cadastro(raiz).resolver(APELIDO)
+    registros = conferencia.ler(ent.pasta(raiz))
+    por_tipo = {r.get("tipo"): r for r in registros}
+    if (por_tipo.get("sentenca") or {}).get("fatos") != {
+            "dispositivo": "procedente"}:
+        problemas.append(
+            f"a leitura da sentença não chegou como o gestor registrou: "
+            f"{(por_tipo.get('sentenca') or {}).get('fatos')}"
+        )
+    if (por_tipo.get("contribuicao") or {}).get("fatos") != {
+            "periodo": "2022-01/2022-12"}:
+        problemas.append(
+            f"a leitura do comprovante não chegou como o gestor registrou: "
+            f"{(por_tipo.get('contribuicao') or {}).get('fatos')}"
+        )
+    if not all(r.get("quem") for r in registros) or len(registros) != 2:
+        problemas.append(f"esperava 2 leituras com autor, há {len(registros)}")
+    if banco.aguardando_leitura(url, APELIDO) != (0, 0):
+        problemas.append(
+            f"o gestor leu tudo e a fila não esvaziou: "
+            f"{banco.aguardando_leitura(url, APELIDO)}"
+        )
     return problemas
 
 

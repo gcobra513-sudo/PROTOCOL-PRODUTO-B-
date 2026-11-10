@@ -398,8 +398,15 @@ def depositar(
         if destino.exists():
             # Reenvio. O anterior vai para o histórico — ninguém perde
             # documento por ter corrigido o próprio cadastro.
+            #
+            # O PROTOCOLO VAI NO NOME. Só com o segundo, dois reenvios da
+            # mesma pessoa no mesmo segundo apontavam para a MESMA pasta, e o
+            # `replace` falhava com "diretório não vazio" — DEPOIS de o
+            # diário já ter gravado o envio: a pessoa via erro, o diário
+            # dizia recebido, e os arquivos ficavam na área de montagem.
+            # Achado por um teste que reenviava três vezes seguidas.
             marca = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S")
-            guarda = pasta / HISTORICO / cpf / marca
+            guarda = pasta / HISTORICO / cpf / f"{marca}-{protocolo}"
             guarda.parent.mkdir(parents=True, exist_ok=True)
             destino.replace(guarda)
             substituiu = str(guarda.relative_to(pasta))

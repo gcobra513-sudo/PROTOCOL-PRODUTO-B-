@@ -331,13 +331,44 @@ def reconstruir(url: str, entidade: str, registros,
             # e que só não fazia estrago porque ninguém a lia. O `DO UPDATE`
             # existe para a reprojeção CONSERTAR as linhas antigas.
             sem_texto = set(registro.get("aguardando_leitura") or [])
+            somas_deste_envio = [
+                str(soma) for nome, soma
+                in (registro.get("arquivos") or {}).items()
+                if _tipo_do_arquivo(nome)
+            ]
+            # O REENVIO SUBSTITUI. Os arquivos do envio anterior saem da
+            # entrega (vão para o histórico), e as linhas deles ficavam aqui
+            # para sempre: a fila de leitura contava documento que não está
+            # mais na entrega, e os fatos lidos de uma sentença substituída
+            # continuavam alimentando o motor. Medido em 10/11/2026.
+            #
+            # SÓ O QUE VEIO DO CADASTRO. O que o sindicato entregou sobre a
+            # mesma pessoa não é dela para substituir.
+            #
+            # Os achados saem ANTES dos documentos, e só os de documento que
+            # está saindo — um mesmo arquivo reenviado igual mantém os dele,
+            # inclusive a leitura que uma pessoa já fez.
+            cur.execute(
+                "DELETE FROM achado a WHERE a.cpf = %s AND a.documento IN ("
+                "  SELECT d.sha256 FROM documento d WHERE d.cpf = %s "
+                "  AND d.origem = 'cadastro' AND NOT (d.sha256 = ANY(%s))"
+                ") AND NOT EXISTS ("
+                "  SELECT 1 FROM documento s WHERE s.cpf = a.cpf "
+                "  AND s.sha256 = a.documento AND s.origem = 'sindicato')",
+                (cpf, cpf, somas_deste_envio),
+            )
+            cur.execute(
+                "DELETE FROM documento WHERE cpf = %s AND origem = 'cadastro' "
+                "AND NOT (sha256 = ANY(%s))",
+                (cpf, somas_deste_envio),
+            )
             for nome, soma in (registro.get("arquivos") or {}).items():
                 tipo = _tipo_do_arquivo(nome)
                 if not tipo:
                     continue
                 cur.execute(
                     "INSERT INTO documento (entidade, cpf, tipo, sha256,"
-                    " tem_texto) VALUES (%s,%s,%s,%s,%s) "
+                    " tem_texto, origem) VALUES (%s,%s,%s,%s,%s,'cadastro') "
                     "ON CONFLICT (entidade, cpf, tipo, sha256) "
                     "DO UPDATE SET tem_texto = EXCLUDED.tem_texto",
                     (entidade, cpf, tipo, str(soma), nome not in sem_texto),
@@ -735,10 +766,91 @@ def aguardando_leitura(url: str, entidade: str) -> tuple[int, int]:
     with sessao(url, entidade) as cur:
         cur.execute(
             "SELECT count(*), count(DISTINCT cpf) FROM documento "
-            "WHERE NOT tem_texto"
+            "WHERE NOT tem_texto AND leitura_humana = ''"
         )
         documentos, pessoas = cur.fetchone()
     return int(documentos), int(pessoas)
+
+
+def nem_pessoa_leu(url: str, entidade: str) -> int:
+    """Quantos documentos uma pessoa abriu e NÃO conseguiu ler. É a lista de
+    a quem o sindicato tem de pedir de novo."""
+    with sessao(url, entidade) as cur:
+        cur.execute("SELECT count(*) FROM documento "
+                    "WHERE leitura_humana = 'ilegivel'")
+        return int(cur.fetchone()[0])
+
+
+#: Teto da lista devolvida ao painel. A fila pode ser maior; a contagem do
+#: painel diz o total, e ninguém confere mais que isto numa sentada.
+TETO_DA_FILA = 200
+
+
+def fila_de_leitura(url: str, entidade: str, situacao: str = "") -> list[dict]:
+    """Os documentos que a máquina não leu, com o NOME de quem é.
+
+    `situacao` é o valor de `leitura_humana`: `''` para o que ainda espera,
+    `'ilegivel'` para o que nem uma pessoa conseguiu. Do mais antigo para o
+    mais novo: quem mandou primeiro espera há mais tempo.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT d.cpf, coalesce(p.nome, '') AS nome, d.tipo, d.sha256,"
+            " d.recebido_em "
+            "FROM documento d LEFT JOIN pessoa p "
+            "  ON p.entidade = d.entidade AND p.cpf = d.cpf "
+            "WHERE NOT d.tem_texto AND d.leitura_humana = %s "
+            "ORDER BY d.recebido_em, d.cpf, d.tipo LIMIT %s",
+            (situacao, TETO_DA_FILA),
+        )
+        colunas = [d.name for d in cur.description]
+        return [dict(zip(colunas, linha)) for linha in cur.fetchall()]
+
+
+def projetar_leituras(url: str, entidade: str, registros) -> int:
+    """Projeta as leituras humanas no banco. Devolve quantas valeram.
+
+    IDEMPOTENTE, e serve aos dois caminhos: a rota passa a leitura que
+    acabou de gravar, e a RECUPERAÇÃO passa o arquivo inteiro. A última
+    leitura de cada documento vence — o gestor pode corrigir a própria
+    leitura, e a história fica no arquivo.
+
+    LEITURA DE DOCUMENTO QUE NÃO EXISTE MAIS É PULADA: a pessoa pode ter
+    reenviado depois, e o fato lido de um documento substituído não é fato
+    sobre o documento de agora.
+    """
+    from . import conferencia
+
+    valeram = 0
+    with sessao(url, entidade) as cur:
+        for registro in registros or ():
+            cpf = _digitos(str(registro.get("cpf", "")))
+            soma = str(registro.get("documento", ""))
+            resultado = registro.get("resultado")
+            if not cpf or not soma or resultado not in conferencia.RESULTADOS:
+                continue
+            cur.execute(
+                "UPDATE documento SET leitura_humana = %s "
+                "WHERE cpf = %s AND sha256 = %s",
+                (resultado, cpf, soma),
+            )
+            if not cur.rowcount:
+                continue
+            cur.execute(
+                "DELETE FROM achado WHERE cpf = %s AND documento = %s "
+                "AND metodo = 'pessoa'", (cpf, soma),
+            )
+            for a in conferencia.achados_de(registro):
+                cur.execute(
+                    "INSERT INTO achado (entidade, cpf, documento, tipo,"
+                    " valor, confianca, trecho, posicao, metodo, conferido) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,true) "
+                    "ON CONFLICT DO NOTHING",
+                    (entidade, cpf, soma, a.tipo, a.valor, a.confianca,
+                     a.trecho, a.posicao, a.metodo),
+                )
+            valeram += 1
+    return valeram
 
 
 def processos_para_acompanhar(url: str, entidade: str) -> list[str]:

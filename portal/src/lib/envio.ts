@@ -525,7 +525,115 @@ export interface Mudancas {
 export interface FilaDeLeitura {
   documentos: number;
   pessoas: number;
+  /** O que alguém abriu e NÃO conseguiu ler: a quem pedir de novo. */
+  ilegiveis: number;
   sem_banco: boolean;
+}
+
+/** Um documento na fila de leitura do gestor. NOME, nunca CPF: o `id` é o
+ *  que identifica o documento, e ele não traz o CPF em claro. */
+export interface DocumentoNaFila {
+  id: string;
+  nome: string;
+  tipo: string;
+  rotulo: string;
+  recebido_em: string;
+}
+
+export interface Conferencia {
+  pendentes: DocumentoNaFila[];
+  ilegiveis: DocumentoNaFila[];
+  dispositivos: string[];
+}
+
+export interface LeituraHumana {
+  resultado: "lido" | "ilegivel";
+  fatos: Record<string, string>;
+  observacao: string;
+}
+
+function conferenciaEm(apelido: string, resto = ""): string {
+  return `${BASE}/api/entidade/${encodeURIComponent(apelido)}/conferencia${resto}`;
+}
+
+/** A fila de leitura, para o gestor da própria entidade. */
+export async function verConferencia(
+  apelido: string,
+  token: string,
+): Promise<Conferencia> {
+  const r = await fetch(conferenciaEm(apelido), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      corpo?.detail?.erro ?? "não foi possível abrir a fila de leitura",
+      r.status,
+    );
+  }
+  return {
+    pendentes: corpo.pendentes ?? [],
+    ilegiveis: corpo.ilegiveis ?? [],
+    dispositivos: corpo.dispositivos ?? [],
+  };
+}
+
+/** Os bytes do documento, para o gestor LER.
+ *
+ *  Vem como `Blob` e não como link: a sessão vai no cabeçalho
+ *  `Authorization`, e um link comum não a levaria — pôr o token na URL o
+ *  deixaria no histórico do navegador e em qualquer log de proxy. */
+export async function abrirDocumento(
+  apelido: string,
+  token: string,
+  id: string,
+): Promise<Blob> {
+  const r = await fetch(conferenciaEm(apelido, `/${id}/arquivo`), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) {
+    const corpo = await r.json().catch(() => ({}));
+    throw new ErroDoServidor(
+      corpo?.detail?.erro ?? "não foi possível abrir o documento",
+      r.status,
+    );
+  }
+  return new Blob([await r.arrayBuffer()], { type: "application/pdf" });
+}
+
+/** O gestor registra o que leu — ou que não deu para ler.
+ *
+ *  O que vai aqui vira FATO no servidor. A recusa dele volta com a lista de
+ *  problemas, e é ela que sobe: "a data está no futuro" diz ao gestor o que
+ *  corrigir; "leitura não registrada" não diz nada. */
+export async function registrarLeitura(
+  apelido: string,
+  token: string,
+  id: string,
+  leitura: LeituraHumana,
+): Promise<void> {
+  const r = await fetch(conferenciaEm(apelido, `/${id}`), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      resultado: leitura.resultado,
+      fatos: leitura.fatos,
+      observacao: leitura.observacao,
+    }),
+  });
+  if (!r.ok) {
+    const corpo = await r.json().catch(() => ({}));
+    const problemas: string[] = corpo?.detail?.problemas ?? [];
+    throw new ErroDoServidor(
+      problemas.length
+        ? problemas.join("; ")
+        : (corpo?.detail?.erro ?? "não foi possível registrar a leitura"),
+      r.status,
+    );
+  }
 }
 
 export interface Panorama {
@@ -586,8 +694,9 @@ export async function verPanorama(
       catalogo: "", total: 0, sem_banco: true, grupos: [],
     },
     // Mesma regra: sem a chave, "não dá para saber", nunca "fila vazia".
-    aguardando_leitura: corpo.aguardando_leitura ?? {
-      documentos: 0, pessoas: 0, sem_banco: true,
+    aguardando_leitura: {
+      documentos: 0, pessoas: 0, ilegiveis: 0, sem_banco: true,
+      ...(corpo.aguardando_leitura ?? {}),
     },
   };
 }

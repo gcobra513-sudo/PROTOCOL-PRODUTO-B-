@@ -184,6 +184,66 @@ async function faseCadastro(navegador, gritos, resultado) {
   }
 }
 
+/** O gestor LÊ o que a máquina não leu, e registra. A fila tem saída.
+ *
+ *  A foto e a sentença de scanner do cadastro estão na fila. O gestor abre
+ *  a sentença — e o que se confere é que o NAVEGADOR conseguiu buscar o
+ *  arquivo, com a sessão no cabeçalho: é a costura que nenhum teste de
+ *  servidor exercita. Depois registra as duas leituras.
+ */
+async function faseConferencia(navegador, gritos, resultado) {
+  const { contexto, p: g } = await abrirAba(navegador, gritos, "conferencia");
+  try {
+    await g.goto(`${cfg.web}/?entidade=${cfg.entidade}&tela=painel`,
+                 { waitUntil: "networkidle" });
+    await entrar(g, cfg.gestor.cpf, "Seu CPF",
+                 "Código que chegou no seu e-mail");
+    await g.getByRole("heading", { name: "Documentos para ler" })
+      .waitFor({ timeout: 20000 });
+    marco("o gestor vê a fila de leitura");
+
+    const cartao = (rotulo) => g
+      .locator("div")
+      .filter({ hasText: rotulo })
+      .filter({ has: g.getByRole("button", { name: "Abrir o documento" }) })
+      .last();
+
+    // ABRIR. O arquivo vem por `fetch` com Authorization — CORS, sessão e
+    // tipo do conteúdo, de uma vez.
+    const sentenca = cartao("Sentença, se você tiver");
+    const [resposta] = await Promise.all([
+      g.waitForResponse((r) => r.url().includes("/arquivo"), { timeout: 20000 }),
+      sentenca.getByRole("button", { name: "Abrir o documento" }).click(),
+    ]);
+    const tipo = resposta.headers()["content-type"] || "";
+    if (resposta.status() !== 200 || !tipo.startsWith("application/pdf")) {
+      throw new Error(`o documento não abriu: ${resposta.status()} ${tipo}`);
+    }
+    resultado.conferencia = { abriu: true, registradas: 0 };
+    marco("o gestor abriu a sentença de scanner");
+    for (const aba of contexto.pages()) {
+      if (aba !== g) await aba.close().catch(() => {});
+    }
+
+    await sentenca.getByRole("radio", { name: /^Procedente$/ }).check();
+    await sentenca.getByRole("button", { name: "Registrar o que li" }).click();
+    await g.getByText("Sentença, se você tiver").waitFor({ state: "detached", timeout: 20000 });
+    resultado.conferencia.registradas += 1;
+    marco("leitura da sentença registrada: procedente");
+
+    const foto = cartao("Comprovantes de contribuição ao sindicato");
+    await foto.getByLabel("O comprovante cobre de").fill("2022-01");
+    await foto.getByLabel("até").fill("2022-12");
+    await foto.getByRole("button", { name: "Registrar o que li" }).click();
+    await g.getByRole("heading", { name: "Documentos para ler" })
+      .waitFor({ state: "detached", timeout: 20000 });
+    resultado.conferencia.registradas += 1;
+    marco("leitura do comprovante fotografado registrada — a fila esvaziou");
+  } finally {
+    await contexto.close();
+  }
+}
+
 /** O gestor apaga um filiado a pedido, pelo painel. */
 async function fasePainel(navegador, gritos, resultado) {
   const { contexto: contextoDoGestor, p: g } =
@@ -242,6 +302,8 @@ async function main() {
     // tudo vazio — foi o primeiro defeito que este ensaio pegou, e era meu.
     if (cfg.fase === "cadastro") {
       await faseCadastro(navegador, gritos, resultado);
+    } else if (cfg.fase === "conferencia") {
+      await faseConferencia(navegador, gritos, resultado);
     } else if (cfg.fase === "painel") {
       await fasePainel(navegador, gritos, resultado);
     } else {

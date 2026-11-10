@@ -1228,6 +1228,43 @@ def teste_o_marcador_de_cpf_nao_precisa_de_banco():
     print("  ok     o marcador sai do segredo, sem tocar o disco")
 
 
+def teste_apagar_leva_as_leituras_humanas_da_pessoa():
+    """Um lugar NOVO com dado pessoal, criado em 10/11/2026: o arquivo de
+    leituras humanas guarda o CPF do filiado e o que a sentença dele diz.
+
+    A varredura de bytes de `vestigios` já o acharia — foi para isso que ela
+    virou rede. Este teste fixa as duas outras coisas: que `apagar` o LIMPA
+    (achar sem limpar deixaria o apagamento sem convergir, que foi o defeito
+    do rol), e que a linha do VIZINHO fica.
+    """
+    from servidor import apagamento, conferencia
+
+    ent, raiz = _entidade_em_disco("demo-leit")
+    pasta = ent.pasta(raiz)
+    for cpf in (A, B):
+        conferencia.registrar(
+            pasta, entidade="demo-leit", cpf=cpf, documento="a" * 64,
+            tipo="sentenca", resultado="lido",
+            fatos={"dispositivo": "procedente"}, observacao="",
+            quem="marcador-do-gestor")
+
+    portao = _portao_de_teste(raiz)
+    antes = apagamento.vestigios(URL, ent, raiz, A, portao=portao)
+    checa(any("leitura" in v for v in antes),
+          f"vestigios não nomeia o arquivo de leituras: {antes}")
+
+    saida = apagamento.apagar(URL, ent, raiz, A, motivo="pedido",
+                              pedido_por="g", portao=portao)
+    checa(saida["vestigios"] == [],
+          f"sobrou coisa depois de apagar: {saida['vestigios']}")
+    checa(saida.get("leituras") == 1,
+          f"o resultado não diz quantas leituras saíram: {saida}")
+    restam = conferencia.ler(pasta)
+    checa([r["cpf"] for r in restam] == [B],
+          f"devia sobrar só a leitura do vizinho: {restam}")
+    print("  ok     as leituras da pessoa saem, a do vizinho fica")
+
+
 TESTES = [
     teste_o_tombstone_guarda_o_pedido_e_nunca_o_cpf,
     teste_o_tombstone_nao_atravessa_entidade,
@@ -1254,6 +1291,7 @@ TESTES = [
     teste_remover_do_rol_preserva_o_byte_de_quem_fica,
     teste_a_ferramenta_usa_o_portao_DE_VERDADE,
     teste_o_marcador_de_cpf_nao_precisa_de_banco,
+    teste_apagar_leva_as_leituras_humanas_da_pessoa,
     teste_vestigios_olha_o_retrato,
     teste_apagar_revoga_a_sessao_e_esquece_o_marcador,
     teste_remover_do_rol_le_por_nome_de_coluna,

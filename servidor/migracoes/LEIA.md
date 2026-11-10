@@ -18,6 +18,7 @@ psql "$PROTOCOL_DATABASE_URL" -f servidor/migracoes/<arquivo>.sql
 | arquivo | aplicada em São Paulo? |
 |---|---|
 | `2026-11-03-oportunidade-origem-do-catalogo.sql` | **não — PENDENTE** |
+| `2026-11-10-documento-origem-e-leitura-humana.sql` | **não — PENDENTE** |
 
 A coluna da direita é para ser mantida à mão, e ela é a única coisa aqui que
 não é verificável por teste: a suíte roda com `recriar=True`, que derruba e
@@ -33,3 +34,12 @@ verde não quer dizer que o banco de produção foi migrado.**
 Sem isso, um banco antigo mostra no painel TODO documento como "aguardando
 leitura". Não há SQL que resolva: o valor certo de cada linha só sai do
 diário e dos próprios arquivos.
+| 10/11/2026 | `documento.origem` nasce `'cadastro'` em toda linha antiga, e para documento que veio do sindicato isso está errado. Rodar `ingerir_documentos.py` de novo regrava `'sindicato'`. **Antes de qualquer reenvio de filiado**: o reenvio substitui o que é `'cadastro'` | **não — PENDENTE** |
+
+## Recuperar a projeção inteira, na ordem
+
+1. `banco.reconstruir` com o diário (`recebidos.jsonl`) de cada entidade;
+2. `ingerir_acervo.py` e `ingerir_documentos.py` sobre o que o sindicato
+   entregou;
+3. `banco.projetar_leituras` com `leituras.jsonl` — POR ÚLTIMO, porque a
+   leitura humana é sobre um documento, e o documento tem de já estar lá.

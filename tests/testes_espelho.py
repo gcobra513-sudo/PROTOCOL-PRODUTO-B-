@@ -2242,7 +2242,8 @@ def teste_o_painel_conta_o_que_aguarda_leitura():
         headers={"Authorization": f"Bearer {_token(cliente, B, entidade)}"},
     ).json()
     fila = painel.get("aguardando_leitura")
-    checa(fila == {"documentos": 2, "pessoas": 1, "sem_banco": False},
+    checa(fila == {"documentos": 2, "pessoas": 1, "ilegiveis": 0,
+                   "sem_banco": False},
           f"o painel não conta o que aguarda leitura: {fila}")
     print("  ok     o painel conta documentos e pessoas aguardando leitura")
 
@@ -2293,6 +2294,316 @@ def teste_documento_do_sindicato_entra_na_fila_so_se_for_imagem():
           f"a fila devia ter só o documento de scanner: "
           f"{banco.aguardando_leitura(URL, entidade)}")
     print("  ok     do sindicato: o lido fica fora da fila, o de scanner entra")
+
+
+# ------------------------------------ a fila de leitura humana tem SAÍDA
+
+def _gestor(cliente, entidade: str) -> dict:
+    return {"Authorization": f"Bearer {_token(cliente, B, entidade)}"}
+
+
+def _fila(cliente, entidade: str) -> dict:
+    return cliente.get(f"/api/entidade/{entidade}/conferencia",
+                       headers=_gestor(cliente, entidade)).json()
+
+
+def _registrar(cliente, entidade: str, doc_id: str, corpo: dict):
+    return cliente.post(f"/api/entidade/{entidade}/conferencia/{doc_id}",
+                        json=corpo, headers=_gestor(cliente, entidade))
+
+
+#: Os bytes da sentença de scanner, gerados UMA vez. O reportlab carimba
+#: data e identificador em cada PDF, então duas chamadas de `_so_imagem()`
+#: dão arquivos diferentes — e a comparação "o que foi servido é o que foi
+#: mandado" precisa do mesmo arquivo nas duas pontas.
+_SENTENCA_DE_SCANNER: list[bytes] = []
+
+
+def _sentenca_de_scanner() -> bytes:
+    if not _SENTENCA_DE_SCANNER:
+        _SENTENCA_DE_SCANNER.append(_so_imagem())
+    return _SENTENCA_DE_SCANNER[0]
+
+
+def _titulo_escaneado(cliente, entidade: str):
+    """Sentença e certidão de SCANNER: a máquina não lê nenhuma das duas."""
+    return _enviar(cliente, A, entidade, {
+        "contribuicao-1.pdf": _pdf(CONTRIB),
+        "sentenca.pdf": _sentenca_de_scanner(),
+        "certidao_transito.pdf": _pdf_de_scanner_2(),
+    })
+
+
+def _pdf_de_scanner_2() -> bytes:
+    """Outro PDF só-imagem, com BYTES DIFERENTES do primeiro: dois
+    documentos iguais teriam o mesmo sha256, e aí o teste não distinguiria
+    a sentença da certidão."""
+    import io
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    c.rect(60, 300, 200, 420, fill=1)
+    c.save()
+    return buffer.getvalue()
+
+
+def teste_a_fila_de_leitura_tem_saida():
+    """T24. Scanner e foto passaram a ENTRAR, e a fila ficou com entrada e
+    contador e SEM SAÍDA: quem mandava foto da sentença ficava em "falta a
+    leitura da sentença já entregue" para sempre.
+
+    Decisão de 10/11/2026: QUEM LÊ É O SINDICATO, pelo painel dele.
+
+    O caminho inteiro: o gestor vê a fila, ABRE o documento, registra o que
+    leu — e o que ele registrou vira fato, com autor, e muda a resposta do
+    filiado nas três superfícies.
+    """
+    import json as _json
+
+    from servidor import banco
+
+    secao("a fila de leitura tem saída")
+    entidade = "demo-conf"
+    cliente, ent, raiz = _servidor(entidade)
+    r = _titulo_escaneado(cliente, entidade)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+
+    antes = _faltas_do_filiado(cliente, A, entidade)
+    checa("a leitura da sentença já entregue"
+          in antes[("executar", "GIFA-2006")][1],
+          f"a premissa do teste falhou: {antes}")
+
+    fila = _fila(cliente, entidade)
+    pendentes = {d["tipo"]: d for d in fila.get("pendentes", [])}
+    checa(set(pendentes) == {"sentenca", "certidao_transito"},
+          f"a fila devia ter a sentença e a certidão: {fila}")
+    checa(all(d.get("nome") for d in pendentes.values()),
+          f"o gestor precisa do NOME para saber de quem é: {fila}")
+    checa(A not in _json.dumps(fila),
+          "a fila devolveu CPF em claro")
+    if set(pendentes) != {"sentenca", "certidao_transito"}:
+        return
+
+    # O GESTOR ABRE O DOCUMENTO. Sem isto ele registraria sem ler.
+    arq = cliente.get(
+        f"/api/entidade/{entidade}/conferencia/"
+        f"{pendentes['sentenca']['id']}/arquivo",
+        headers=_gestor(cliente, entidade))
+    checa(arq.status_code == 200
+          and arq.headers["content-type"].startswith("application/pdf"),
+          f"o documento não abriu: {arq.status_code} "
+          f"{arq.headers.get('content-type')}")
+    checa(arq.content == _sentenca_de_scanner(),
+          "o arquivo servido não é o que a pessoa mandou")
+    checa("no-store" in arq.headers.get("cache-control", ""),
+          "o documento de um filiado ficaria em cache no navegador do "
+          "gestor")
+
+    r1 = _registrar(cliente, entidade, pendentes["sentenca"]["id"],
+                    {"resultado": "lido",
+                     "fatos": {"dispositivo": "procedente"}})
+    r2 = _registrar(cliente, entidade, pendentes["certidao_transito"]["id"],
+                    {"resultado": "lido",
+                     "fatos": {"transito_em_julgado": "2019-08-22"}})
+    checa(r1.status_code == 200 and r2.status_code == 200,
+          f"{r1.status_code} {r1.text[:160]} | {r2.status_code} "
+          f"{r2.text[:160]}")
+
+    depois_fila = _fila(cliente, entidade)
+    checa(depois_fila.get("pendentes") == [],
+          f"o que foi lido não saiu da fila: {depois_fila}")
+
+    # E A RESPOSTA DO FILIADO MUDA: a leitura humana virou fato.
+    depois = _faltas_do_filiado(cliente, A, entidade)
+    checa("a leitura da sentença já entregue"
+          not in depois[("executar", "GIFA-2006")][1],
+          f"o gestor leu e a resposta do filiado não mudou: {depois}")
+
+    # COM AUTOR, na autoridade e na projeção.
+    from servidor import conferencia
+
+    registros = conferencia.ler(ent.pasta(raiz))
+    checa(len(registros) == 2 and all(x.get("quem") for x in registros),
+          f"a leitura não ficou no arquivo de leituras, com autor: "
+          f"{registros}")
+    checa(B not in _json.dumps(registros),
+          "o arquivo de leituras guarda o CPF do gestor em claro")
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute("SELECT tipo, valor, metodo, conferido FROM achado "
+                    "WHERE cpf = %s AND metodo = 'pessoa' ORDER BY tipo",
+                    (A,))
+        linhas = cur.fetchall()
+    checa(linhas == [("dispositivo", "procedente", "pessoa", True),
+                     ("transito_em_julgado", "2019-08-22", "pessoa", True)],
+          f"os fatos lidos por gente não estão no banco como tais: {linhas}")
+    print("  ok     o gestor abre, lê, registra — e a resposta do filiado muda")
+
+
+def teste_so_o_gestor_da_entidade_confere():
+    """Abrir o documento de um filiado é a leitura mais sensível do produto.
+    Filiado não abre o do vizinho; quem não tem sessão não abre nada."""
+    entidade = "demo-conf-2"
+    cliente, ent, raiz = _servidor(entidade)
+    _titulo_escaneado(cliente, entidade)
+    doc = _fila(cliente, entidade)["pendentes"][0]["id"]
+    base = f"/api/entidade/{entidade}/conferencia"
+
+    do_filiado = {"Authorization": f"Bearer {_token(cliente, A, entidade)}"}
+    for metodo, caminho in (("get", base), ("get", f"{base}/{doc}/arquivo"),
+                            ("post", f"{base}/{doc}")):
+        sem = getattr(cliente, metodo)(caminho)
+        checa(sem.status_code == 401,
+              f"{metodo} {caminho} sem sessão deu {sem.status_code}")
+        com = getattr(cliente, metodo)(caminho, headers=do_filiado)
+        checa(com.status_code == 403,
+              f"{metodo} {caminho} com sessão de FILIADO deu "
+              f"{com.status_code}")
+    print("  ok     sem sessão 401, filiado 403, nas três rotas")
+
+
+def teste_leitura_invalida_nao_vira_fato():
+    """O que o gestor digita vira FATO que alimenta o motor. Valor que não
+    existe não entra — e nada é gravado pela metade."""
+    from servidor import conferencia
+
+    entidade = "demo-conf-3"
+    cliente, ent, raiz = _servidor(entidade)
+    _titulo_escaneado(cliente, entidade)
+    por_tipo = {d["tipo"]: d["id"] for d in _fila(cliente, entidade)["pendentes"]}
+
+    casos = [
+        (por_tipo["sentenca"], {"resultado": "lido",
+                                "fatos": {"dispositivo": "talvez"}}),
+        (por_tipo["sentenca"], {"resultado": "lido", "fatos": {}}),
+        (por_tipo["certidao_transito"],
+         {"resultado": "lido", "fatos": {"transito_em_julgado": "2999-01-01"}}),
+        (por_tipo["certidao_transito"],
+         {"resultado": "lido", "fatos": {"transito_em_julgado": "31/02/2019"}}),
+        (por_tipo["sentenca"], {"resultado": "aprovado", "fatos": {}}),
+    ]
+    for doc, corpo in casos:
+        r = _registrar(cliente, entidade, doc, corpo)
+        checa(r.status_code == 422,
+              f"leitura inválida foi aceita ({corpo}): {r.status_code}")
+    r = _registrar(cliente, entidade, "0" * 64 + "." + "0" * 16,
+                   {"resultado": "lido", "fatos": {"dispositivo": "procedente"}})
+    checa(r.status_code == 404, f"documento que não existe deu {r.status_code}")
+    checa(conferencia.ler(ent.pasta(raiz)) == [],
+          "uma leitura recusada deixou registro")
+    checa(len(_fila(cliente, entidade)["pendentes"]) == 2,
+          "uma leitura recusada tirou documento da fila")
+    print("  ok     valor inexistente, data impossível e documento alheio: nada entra")
+
+
+def teste_o_que_nem_uma_pessoa_le_sai_da_fila_e_e_contado():
+    """A outra saída. Foto tremida, página cortada: o gestor abre e NÃO DÁ.
+    Sem esta saída o documento ficaria na fila para sempre; com ela, o
+    sindicato sabe a quem pedir de novo."""
+    entidade = "demo-conf-4"
+    cliente, ent, raiz = _servidor(entidade)
+    _titulo_escaneado(cliente, entidade)
+    por_tipo = {d["tipo"]: d["id"] for d in _fila(cliente, entidade)["pendentes"]}
+
+    r = _registrar(cliente, entidade, por_tipo["sentenca"],
+                   {"resultado": "ilegivel", "fatos": {},
+                    "observacao": "foto cortada na metade"})
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    fila = _fila(cliente, entidade)
+    checa([d["tipo"] for d in fila["pendentes"]] == ["certidao_transito"],
+          f"o ilegível não saiu da fila: {fila}")
+    checa(len(fila.get("ilegiveis", [])) == 1
+          and fila["ilegiveis"][0].get("nome"),
+          f"o sindicato não fica sabendo a quem pedir de novo: {fila}")
+    painel = cliente.get(f"/api/entidade/{entidade}/panorama",
+                         headers=_gestor(cliente, entidade)).json()
+    checa(painel["aguardando_leitura"] == {
+              "documentos": 1, "pessoas": 1, "ilegiveis": 1,
+              "sem_banco": False},
+          f"o painel não conta o ilegível: {painel['aguardando_leitura']}")
+    print("  ok     o ilegível sai da fila e aparece para pedir de novo")
+
+
+def teste_reenvio_tira_o_documento_antigo_da_fila_e_do_motor():
+    """Achado medindo a fila: a pessoa manda a sentença fotografada, depois
+    REENVIA a original. A linha da antiga ficava em `documento` — a fila
+    contava um documento que não está mais na entrega — e os fatos lidos
+    dela ficavam em `achado`, alimentando o motor com sentença substituída.
+
+    Só o que veio do CADASTRO é substituído pelo reenvio. O que o SINDICATO
+    entregou sobre a mesma pessoa não é dela para substituir.
+    """
+    from servidor import banco
+
+    entidade = "demo-conf-5"
+    cliente, ent, raiz = _servidor(entidade)
+    _enviar(cliente, A, entidade, {"contribuicao-1.pdf": _pdf(CONTRIB),
+                                   "sentenca.pdf": _so_imagem()})
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute(
+            "INSERT INTO documento (entidade, cpf, tipo, sha256, tem_texto,"
+            " origem) VALUES (%s,%s,'sentenca','do-sindicato',true,'sindicato')",
+            (entidade, A))
+    checa(banco.aguardando_leitura(URL, entidade)[0] == 1,
+          "a premissa falhou: a sentença de scanner devia estar na fila")
+
+    ruim = [l.replace("PROCEDENTE", "IMPROCEDENTE") for l in SENTENCA]
+    _enviar(cliente, A, entidade, {"contribuicao-1.pdf": _pdf(CONTRIB),
+                                   "sentenca.pdf": _pdf(ruim)})
+    checa(banco.aguardando_leitura(URL, entidade)[0] == 0,
+          f"a sentença substituída continua na fila: "
+          f"{banco.aguardando_leitura(URL, entidade)}")
+
+    _enviar(cliente, A, entidade, {"contribuicao-1.pdf": _pdf(CONTRIB),
+                                   "sentenca.pdf": _pdf(SENTENCA)})
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute("SELECT DISTINCT valor FROM achado "
+                    "WHERE cpf = %s AND tipo = 'dispositivo'", (A,))
+        dispositivos = [v for (v,) in cur.fetchall()]
+        cur.execute("SELECT count(*) FROM documento WHERE cpf = %s "
+                    "AND origem = 'sindicato'", (A,))
+        do_sindicato = cur.fetchone()[0]
+    checa(dispositivos == ["procedente"],
+          f"o motor continua vendo a sentença substituída: {dispositivos}")
+    checa(do_sindicato == 1,
+          "o reenvio do filiado apagou documento entregue pelo SINDICATO")
+    print("  ok     reenvio substitui o que é do cadastro, e só isso")
+
+
+def teste_a_recuperacao_refaz_as_leituras_humanas():
+    """A leitura humana NÃO é derivável de nada: se morasse só no banco,
+    perder a projeção seria perder o trabalho do gestor. Mora num arquivo
+    append-only, e daqui se refaz."""
+    from servidor import banco, conferencia
+
+    entidade = "demo-conf-6"
+    cliente, ent, raiz = _servidor(entidade)
+    _titulo_escaneado(cliente, entidade)
+    por_tipo = {d["tipo"]: d["id"] for d in _fila(cliente, entidade)["pendentes"]}
+    _registrar(cliente, entidade, por_tipo["sentenca"],
+               {"resultado": "lido", "fatos": {"dispositivo": "procedente"}})
+
+    def estado():
+        with banco.sessao(URL, entidade) as cur:
+            cur.execute("SELECT tipo, leitura_humana FROM documento "
+                        "WHERE cpf = %s ORDER BY tipo", (A,))
+            docs = cur.fetchall()
+            cur.execute("SELECT tipo, valor FROM achado WHERE cpf = %s "
+                        "AND metodo = 'pessoa'", (A,))
+            return docs, cur.fetchall()
+
+    antes = estado()
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute("DELETE FROM achado WHERE cpf = %s", (A,))
+        cur.execute("UPDATE documento SET leitura_humana = '' "
+                    "WHERE cpf = %s", (A,))
+    checa(estado() != antes, "a projeção não foi apagada: o teste não mede")
+    banco.projetar_leituras(URL, entidade, conferencia.ler(ent.pasta(raiz)))
+    checa(estado() == antes,
+          f"a recuperação não refez as leituras: {estado()} contra {antes}")
+    print("  ok     a leitura humana se refaz a partir do arquivo dela")
 
 
 TESTES = [
@@ -2358,6 +2669,12 @@ TESTES = [
     teste_pdf_que_nao_abre_continua_recusado,
     teste_o_painel_conta_o_que_aguarda_leitura,
     teste_documento_do_sindicato_entra_na_fila_so_se_for_imagem,
+    teste_a_fila_de_leitura_tem_saida,
+    teste_so_o_gestor_da_entidade_confere,
+    teste_leitura_invalida_nao_vira_fato,
+    teste_o_que_nem_uma_pessoa_le_sai_da_fila_e_e_contado,
+    teste_reenvio_tira_o_documento_antigo_da_fila_e_do_motor,
+    teste_a_recuperacao_refaz_as_leituras_humanas,
     teste_falha_ao_conferir_apagamento_nao_entrega_codigo,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,

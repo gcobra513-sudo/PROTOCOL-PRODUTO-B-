@@ -209,7 +209,17 @@ export function resumoDaFilaDeLeitura(f: FilaDeLeitura): {
         "por uma pessoa.",
     };
   }
-  if (f.documentos <= 0) return { mostra: false, frase: "" };
+  // O QUE NEM UMA PESSOA LEU. Sai da fila, e não pode sumir junto: é a
+  // lista de a quem o sindicato tem de pedir o documento de novo.
+  const semLeitura =
+    f.ilegiveis > 0
+      ? ` ${f.ilegiveis === 1 ? "1 documento" : `${f.ilegiveis} documentos`} ` +
+        "não deu para ler nem por uma pessoa: é preciso pedir de novo a quem " +
+        "mandou."
+      : "";
+  if (f.documentos <= 0) {
+    return { mostra: f.ilegiveis > 0, frase: semLeitura.trim() };
+  }
   const docs =
     f.documentos === 1
       ? "1 documento chegou"
@@ -220,6 +230,74 @@ export function resumoDaFilaDeLeitura(f: FilaDeLeitura): {
     frase:
       `${docs} como imagem (foto ou scanner), de ${pessoas(f.pessoas)}, e ` +
       `${espera} leitura por uma pessoa: a máquina não consegue ler. Até ` +
-      "lá, a resposta sobre essas pessoas fica incompleta.",
+      "lá, a resposta sobre essas pessoas fica incompleta." +
+      semLeitura,
   };
+}
+
+// ------------------------------------------------ o formulário de leitura
+
+/** O que se pede ao gestor, por tipo de documento.
+ *
+ *  SÓ O QUE O MOTOR USA. Pedir que ele transcreva a sentença inteira é pedir
+ *  um trabalho que ninguém faz e que ninguém usaria. Tipo que não
+ *  conhecemos não ganha campo inventado: só se registra que foi lido.
+ *
+ *  A regra de verdade mora no servidor (`conferencia.validar`); isto existe
+ *  para a tela não deixar o gestor descobrir a regra levando um erro. */
+export function camposDaLeitura(tipo: string): string[] {
+  if (tipo === "sentenca") return ["dispositivo", "numero_processo"];
+  if (tipo === "certidao_transito") return ["transito_em_julgado"];
+  if (tipo === "contribuicao") return ["periodo_inicio", "periodo_fim"];
+  return [];
+}
+
+/** O que falta para poder registrar. Lista vazia = pode. Cada item é a
+ *  frase que o gestor lê. */
+export function faltaNaLeitura(
+  tipo: string,
+  valores: Record<string, string>,
+): string[] {
+  const v = (campo: string) => (valores[campo] ?? "").trim();
+  if (tipo === "sentenca") {
+    return v("dispositivo") ? [] : ["o que a sentença decidiu"];
+  }
+  if (tipo === "certidao_transito") {
+    return v("transito_em_julgado") ? [] : ["a data do trânsito em julgado"];
+  }
+  if (tipo === "contribuicao") {
+    if (!v("periodo_inicio") || !v("periodo_fim")) {
+      return ["o período que o comprovante cobre"];
+    }
+    return v("periodo_fim") < v("periodo_inicio")
+      ? ["o período termina antes de começar"]
+      : [];
+  }
+  return [];
+}
+
+/** Os fatos que vão para o servidor: só os campos DO TIPO, e nunca vazio.
+ *  Campo vazio mandado é pior que campo ausente — parece que alguém leu e
+ *  não havia nada. */
+export function fatosDaLeitura(
+  tipo: string,
+  valores: Record<string, string>,
+): Record<string, string> {
+  const saida: Record<string, string> = {};
+  for (const campo of camposDaLeitura(tipo)) {
+    const valor = (valores[campo] ?? "").trim();
+    if (valor) saida[campo] = valor;
+  }
+  return saida;
+}
+
+const DISPOSITIVOS: Record<string, string> = {
+  procedente: "Procedente",
+  parcialmente_procedente: "Parcialmente procedente",
+  improcedente: "Improcedente",
+  extinto: "Extinto, sem decidir o pedido",
+};
+
+export function rotuloDoDispositivo(valor: string): string {
+  return DISPOSITIVOS[valor] ?? valor;
 }

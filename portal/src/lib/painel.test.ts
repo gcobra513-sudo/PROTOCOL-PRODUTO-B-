@@ -19,6 +19,10 @@ import {
   frasesDaMudanca,
   resumoDasMudancas,
   resumoDaFilaDeLeitura,
+  camposDaLeitura,
+  faltaNaLeitura,
+  fatosDaLeitura,
+  rotuloDoDispositivo,
 } from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
@@ -213,14 +217,14 @@ describe("o que mudou de veredicto", () => {
 
 describe("a fila de leitura humana", () => {
   it("com documentos esperando, aparece e diz quantos e de quantas pessoas", () => {
-    const r = resumoDaFilaDeLeitura({ documentos: 7, pessoas: 3, sem_banco: false });
+    const r = resumoDaFilaDeLeitura({ documentos: 7, pessoas: 3, ilegiveis: 0, sem_banco: false });
     expect(r.mostra).toBe(true);
     expect(r.frase).toContain("7 documentos");
     expect(r.frase).toContain("3 pessoas");
   });
 
   it("singular certo, porque 1 documento de 1 pessoa é o caso do primeiro dia", () => {
-    const r = resumoDaFilaDeLeitura({ documentos: 1, pessoas: 1, sem_banco: false });
+    const r = resumoDaFilaDeLeitura({ documentos: 1, pessoas: 1, ilegiveis: 0, sem_banco: false });
     expect(r.frase).toContain("1 documento ");
     expect(r.frase).toContain("1 pessoa");
     expect(r.frase).not.toContain("1 documentos");
@@ -230,7 +234,7 @@ describe("a fila de leitura humana", () => {
     // Não existe tela para REGISTRAR a leitura feita por uma pessoa. Uma
     // frase como "clique para ler" ou "em análise" prometeria um fluxo que
     // não há — a fila tem entrada e contador, e ainda não tem saída.
-    const f = resumoDaFilaDeLeitura({ documentos: 2, pessoas: 1, sem_banco: false })
+    const f = resumoDaFilaDeLeitura({ documentos: 2, pessoas: 1, ilegiveis: 0, sem_banco: false })
       .frase.toLowerCase();
     expect(f).not.toContain("em análise");
     expect(f).not.toContain("clique");
@@ -239,13 +243,68 @@ describe("a fila de leitura humana", () => {
 
   it("fila vazia não ocupa a tela", () => {
     expect(
-      resumoDaFilaDeLeitura({ documentos: 0, pessoas: 0, sem_banco: false }).mostra,
+      resumoDaFilaDeLeitura({ documentos: 0, pessoas: 0, ilegiveis: 0, sem_banco: false }).mostra,
     ).toBe(false);
   });
 
   it("sem banco, diz que não sabe — zero afirmaria que não há nada esperando", () => {
-    const r = resumoDaFilaDeLeitura({ documentos: 0, pessoas: 0, sem_banco: true });
+    const r = resumoDaFilaDeLeitura({ documentos: 0, pessoas: 0, ilegiveis: 0, sem_banco: true });
     expect(r.mostra).toBe(true);
     expect(r.frase.toLowerCase()).toContain("não dá para saber");
+  });
+});
+
+describe("o formulário de leitura, por tipo de documento", () => {
+  it("pede só o que o motor usa, e muda com o tipo", () => {
+    expect(camposDaLeitura("sentenca")).toEqual(["dispositivo", "numero_processo"]);
+    expect(camposDaLeitura("certidao_transito")).toEqual(["transito_em_julgado"]);
+    expect(camposDaLeitura("contribuicao")).toEqual(["periodo_inicio", "periodo_fim"]);
+    // Tipo que não conhecemos: não inventa campo — só registra que foi lido.
+    expect(camposDaLeitura("ficha_financeira")).toEqual([]);
+  });
+
+  it("não deixa registrar sentença sem dizer o que ela decidiu", () => {
+    expect(faltaNaLeitura("sentenca", {})).toContain("o que a sentença decidiu");
+    expect(faltaNaLeitura("sentenca", { dispositivo: "procedente" })).toEqual([]);
+    // o número do processo é opcional: nem toda página fotografada o traz
+    expect(faltaNaLeitura("sentenca", { dispositivo: "improcedente",
+                                        numero_processo: "" })).toEqual([]);
+  });
+
+  it("certidão exige a data, e comprovante exige período na ordem certa", () => {
+    expect(faltaNaLeitura("certidao_transito", {})).toHaveLength(1);
+    expect(faltaNaLeitura("certidao_transito",
+                          { transito_em_julgado: "2019-08-22" })).toEqual([]);
+    expect(faltaNaLeitura("contribuicao", { periodo_inicio: "2010-01" })).toHaveLength(1);
+    expect(faltaNaLeitura("contribuicao",
+                          { periodo_inicio: "2012-01", periodo_fim: "2010-01" }),
+    ).toContain("o período termina antes de começar");
+    expect(faltaNaLeitura("contribuicao",
+                          { periodo_inicio: "2010-01", periodo_fim: "2012-12" }),
+    ).toEqual([]);
+  });
+
+  it("só manda os campos do tipo, e nunca campo vazio", () => {
+    // Campo vazio mandado vira "" no servidor, e um fato vazio é pior que
+    // fato nenhum: parece que alguém leu e não havia nada.
+    expect(fatosDaLeitura("sentenca", { dispositivo: "procedente",
+                                        numero_processo: "  ",
+                                        transito_em_julgado: "2019-01-01" }),
+    ).toEqual({ dispositivo: "procedente" });
+  });
+
+  it("o dispositivo aparece em português de gente", () => {
+    expect(rotuloDoDispositivo("parcialmente_procedente")).toBe(
+      "Parcialmente procedente",
+    );
+    expect(rotuloDoDispositivo("extinto")).toContain("Extinto");
+  });
+
+  it("a fila diz quando há documento que nem uma pessoa conseguiu ler", () => {
+    const r = resumoDaFilaDeLeitura({ documentos: 0, pessoas: 0, ilegiveis: 2,
+                                      sem_banco: false });
+    expect(r.mostra).toBe(true);
+    expect(r.frase).toContain("2 documentos");
+    expect(r.frase.toLowerCase()).toContain("pedir de novo");
   });
 });

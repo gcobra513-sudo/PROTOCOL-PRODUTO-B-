@@ -199,10 +199,14 @@ def main() -> int:
                 _abre, tem_texto, _n = validacao.examinar_pdf(d.corpo)
                 with banco.sessao(args.banco, ent.apelido) as cur:
                     cur.execute(
+                        # `origem = 'sindicato'`: é o que impede o reenvio
+                        # de um filiado de apagar o que o sindicato entregou.
                         "INSERT INTO documento (entidade, cpf, tipo, sha256,"
-                        " tem_texto) VALUES (%s,%s,%s,%s,%s) "
+                        " tem_texto, origem) "
+                        "VALUES (%s,%s,%s,%s,%s,'sindicato') "
                         "ON CONFLICT (entidade, cpf, tipo, sha256) "
-                        "DO UPDATE SET tem_texto = EXCLUDED.tem_texto",
+                        "DO UPDATE SET tem_texto = EXCLUDED.tem_texto,"
+                        " origem = 'sindicato'",
                         (ent.apelido, cpf, d.tipo, soma, tem_texto),
                     )
                 banco.guardar_achados(args.banco, ent.apelido, cpf, soma,
