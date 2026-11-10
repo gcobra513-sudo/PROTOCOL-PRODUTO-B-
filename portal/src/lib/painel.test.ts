@@ -16,6 +16,8 @@ import {
   presosNoTribunal,
   primeiroAcionavel,
   resumoDoApagamento,
+  frasesDaMudanca,
+  resumoDasMudancas,
 } from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
@@ -149,5 +151,61 @@ describe("o resumo de um apagamento a pedido", () => {
     // E quando havia e-mail, NÃO há nota: um aviso que aparece sempre não
     // é aviso, é moldura.
     expect(resumoDoApagamento(SAIDA).nota).toBeUndefined();
+  });
+});
+
+describe("o que mudou de veredicto", () => {
+  const GRUPO: api.MudancaDeVeredicto = {
+    referencia: "GIFA-2006",
+    trilha: "executar",
+    de: "FALTA",
+    para: "PODE",
+    pessoas: 12,
+    exemplos: ["FULANA DE TAL (EXEMPLO)", "BELTRANO DE TAL (EXEMPLO)"],
+  };
+  const MUDOU: api.Mudancas = {
+    catalogo: "auditor-fiscal-receita-federal@2",
+    total: 12,
+    sem_banco: false,
+    grupos: [GRUPO],
+  };
+
+  it("destravar lê como destravar, e travar como travar", () => {
+    // A MESMA TELA MOSTRA OS DOIS SENTIDOS, e confundi-los é o pior erro
+    // possível aqui: dizer "agora pode" a quem deixou de poder faria o
+    // sindicato ligar para a pessoa com a notícia errada.
+    expect(frasesDaMudanca(GRUPO).toLowerCase()).toContain("passou a poder");
+    const travou = { ...GRUPO, de: "PODE", para: "FALTA" };
+    expect(frasesDaMudanca(travou).toLowerCase()).toContain("deixou de poder");
+    expect(frasesDaMudanca(travou).toLowerCase()).not.toContain(
+      "passou a poder",
+    );
+  });
+
+  it("diz quantas pessoas, com plural certo", () => {
+    expect(frasesDaMudanca(GRUPO)).toContain("12 pessoas");
+    expect(frasesDaMudanca({ ...GRUPO, pessoas: 1 })).toContain("1 pessoa");
+  });
+
+  it("sem banco, NÃO diz que nada mudou", () => {
+    // A diferença entre "nada mudou" e "não dá para saber". Um painel que
+    // tranquiliza sem base é pior que um painel que não diz nada.
+    const r = resumoDasMudancas({ ...MUDOU, total: 0, sem_banco: true,
+                                  grupos: [] });
+    expect(r.mostra).toBe(true);
+    expect(r.frase.toLowerCase()).not.toContain("nada mudou");
+    expect(r.frase.toLowerCase()).toContain("não");
+  });
+
+  it("com banco e nada mudou, não ocupa a tela", () => {
+    const r = resumoDasMudancas({ ...MUDOU, total: 0, grupos: [] });
+    expect(r.mostra).toBe(false);
+  });
+
+  it("com mudança, aparece e diz de qual catálogo", () => {
+    const r = resumoDasMudancas(MUDOU);
+    expect(r.mostra).toBe(true);
+    expect(r.frase).toContain("12");
+    expect(r.catalogo).toContain("auditor-fiscal-receita-federal@2");
   });
 });

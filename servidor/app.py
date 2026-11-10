@@ -1188,14 +1188,15 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         # A BASE INTEIRA quando há banco: a planilha do sindicato mais os
         # cadastros. `cadastros()` continua existindo e continua sendo só o
         # cadastro — é ele que o teste de concordância compara com o diário.
-        visao = panorama.montar(
+        registros = (
             banco.base(cfg.banco_url, ent.apelido) if cfg.tem_banco
-            else deposito.ler_diario(ent.pasta(cfg.raiz)),
-            catalogo,
+            else deposito.ler_diario(ent.pasta(cfg.raiz))
         )
+        visao = panorama.montar(registros, catalogo)
         return {
             "entidade": ent.apelido,
             "nome": ent.nome,
+            "mudancas": _o_que_mudou(ent, catalogo, registros),
             "manchete": visao.manchete(),
             "pessoas": visao.pessoas,
             "cadastrados": visao.cadastrados,
@@ -1232,6 +1233,68 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 "entregues. Nenhum documento foi lido para montar este "
                 "panorama, e nada aqui é parecer."
             ),
+        }
+
+    #: Quantos nomes acompanham cada grupo de mudança. Mais que isto vira
+    #: parede de texto no painel; menos não dá para o gestor reconhecer de
+    #: quem se trata.
+    NOMES_POR_MUDANCA = 10
+
+    def _o_que_mudou(ent: entidades.Entidade, catalogo, base) -> dict:
+        """O que mudou de veredicto no catálogo de AGORA, agrupado e com nome.
+
+        SEM BANCO, DIZ QUE NÃO SABE. Devolver `total: 0` afirmaria que nada
+        mudou — e é exatamente esse o relatório tranquilizador que faz
+        ninguém perceber. A dúvida não vira resposta.
+
+        O NOME VEM DA BASE QUE JÁ ESTÁ EM MÃOS, não de uma consulta nova:
+        quem monta o panorama já leu a base inteira. E nome, não CPF:
+        "3 pessoas mudaram de FALTA para PODE" não é acionável, porque o
+        gestor liga para gente — e o CPF em claro numa resposta de API é um
+        segundo lugar com dado pessoal.
+        """
+        vazio = {"catalogo": catalogo.assinatura, "total": 0,
+                 "sem_banco": not cfg.tem_banco, "grupos": []}
+        if not cfg.tem_banco or not catalogo.assinatura:
+            return vazio
+        try:
+            mudou = banco.mudancas(cfg.banco_url, ent.apelido,
+                                   assinatura=catalogo.assinatura)
+        except Exception:  # noqa: BLE001
+            log.exception("não deu para apurar as mudanças ent=%s",
+                          ent.apelido)
+            # Falha de apuração também não vira zero: `sem_banco` é a forma
+            # de dizer "não dá para saber", e é o que a tela mostra.
+            return {**vazio, "sem_banco": True}
+
+        nomes = {}
+        for envio in base:
+            linha = envio.get("linha") or {}
+            digitos = conta.so_digitos(linha.get("cpf") or "")
+            if digitos:
+                nomes[digitos] = str(linha.get("nome_completo") or "")
+
+        grupos: dict[tuple[str, str, str, str], list[str]] = {}
+        for m in mudou:
+            chave = (m["referencia"], m["trilha"], m["de"], m["para"])
+            grupos.setdefault(chave, []).append(
+                nomes.get(m["cpf"]) or "(sem nome na base)")
+        return {
+            "catalogo": catalogo.assinatura,
+            "total": len(mudou),
+            "sem_banco": False,
+            "grupos": [
+                {
+                    "referencia": referencia,
+                    "trilha": trilha,
+                    "de": de,
+                    "para": para,
+                    "pessoas": len(quem),
+                    "exemplos": sorted(quem)[:NOMES_POR_MUDANCA],
+                }
+                for (referencia, trilha, de, para), quem
+                in sorted(grupos.items())
+            ],
         }
 
     def _apagados_na_planilha(ent: entidades.Entidade, pessoas) -> int:

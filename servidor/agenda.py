@@ -37,7 +37,13 @@ from .banco import sessao
 log = logging.getLogger("protocol.agenda")
 
 #: Na ordem em que rodam.
-TAREFAS = ("coletar", "avisar")
+#:
+#: `reavaliar` é a ÚLTIMA de propósito: nada hoje depende dela, e pô-la
+#: entre `coletar` e `avisar` sugeriria uma dependência que não existe — as
+#: duas são sobre movimentação de processo, ela é sobre o veredicto do
+#: motor. No dia em que uma movimentação coletada alimentar o veredicto, ou
+#: em que o veredicto alimentar um aviso, esta ordem tem de ser revista.
+TAREFAS = ("coletar", "avisar", "reavaliar")
 
 #: A partir de quanto tempo sem uma execução BOA o trabalho conta como
 #: atrasado. Os trabalhos são diários: menos que 24h daria alarme falso a
@@ -275,6 +281,12 @@ def tarefas_padrao(cfg):
         "coletar": _rodar("coletar_movimentacao.py", []),
         "avisar": _rodar("avisar_movimentacao.py",
                          ["--portal", cfg.portal] if cfg.portal else []),
+        # A REAVALIAÇÃO É O PONTO DO VEREDICTO GUARDADO. Uma reavaliação que
+        # só roda quando alguém se lembra é uma reavaliação que não
+        # acontece, e o produto depende de ela acontecer no dia em que o
+        # tribunal julgar — justamente o dia em que ninguém está olhando o
+        # catálogo.
+        "reavaliar": _rodar("reavaliar_oportunidades.py", []),
     }
 
 

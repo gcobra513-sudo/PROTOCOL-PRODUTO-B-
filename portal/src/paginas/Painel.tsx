@@ -31,10 +31,12 @@ import { useEffect, useState } from "react";
 import { Aviso, Botao, Campo, Cartao } from "../componentes/ui";
 import * as api from "../lib/envio";
 import {
+  frasesDaMudanca,
   fracao,
   pessoas,
   presosNoTribunal,
   primeiroAcionavel,
+  resumoDasMudancas,
   resumoDoApagamento,
 } from "../lib/painel";
 import { conferirCpf, formatarCpf } from "../lib/validacao";
@@ -395,6 +397,51 @@ function ApagarAPedido({
   );
 }
 
+
+/** O que mudou de veredicto desde o catálogo anterior.
+ *
+ * É A NOTÍCIA, e vem ANTES do "o que resolver primeiro" quando existe: que
+ * doze pessoas passaram a poder ajuizar é mais acionável que a lista de
+ * gargalos, e o gargalo continua lá embaixo.
+ *
+ * NADA FOI AVISADO A NINGUÉM, e a tela diz isso em voz alta. Quem fala com
+ * o filiado é o sindicato, e a decisão de avisar é dele — com advogado, não
+ * com agendador. Uma tela que mostrasse a mudança sem dizer isso deixaria o
+ * gestor supondo que o filiado já sabe.
+ */
+function MudouDeVeredicto({ p }: { p: api.Panorama }) {
+  const r = resumoDasMudancas(p.mudancas);
+  if (!r.mostra) return null;
+  const semBanco = p.mudancas.sem_banco;
+  return (
+    <Cartao titulo="O que mudou desde a última avaliação">
+      <Aviso tom={semBanco ? "alerta" : "bom"}>{r.frase}</Aviso>
+      {p.mudancas.grupos.map((g) => (
+        <div key={`${g.referencia}-${g.de}-${g.para}-${g.trilha}`}>
+          <p className="text-[15px] font-medium text-tinta">
+            {frasesDaMudanca(g)}
+          </p>
+          {g.exemplos.length ? (
+            <p className="mt-1 text-sm text-tinta/70">
+              {g.exemplos.join(" · ")}
+              {g.pessoas > g.exemplos.length
+                ? ` … e ${pessoas(g.pessoas - g.exemplos.length)}`
+                : ""}
+            </p>
+          ) : null}
+        </div>
+      ))}
+      {r.catalogo ? (
+        <p className="text-sm text-tinta/60">
+          Catálogo de agora: <code>{r.catalogo}</code>. É ele que a resposta
+          guardada cita — por isso dá para dizer o que mudou, e não só como
+          está hoje.
+        </p>
+      ) : null}
+    </Cartao>
+  );
+}
+
 export function Painel({ entidade }: { entidade: string }) {
   const [token, setToken] = useState("");
   const [dados, setDados] = useState<api.PainelDoGestor | null>(null);
@@ -456,6 +503,7 @@ export function Painel({ entidade }: { entidade: string }) {
 
   return (
     <div className="space-y-6">
+      {panorama ? <MudouDeVeredicto p={panorama} /> : null}
       {panorama ? <OQueResolverPrimeiro p={panorama} /> : null}
       {erroPanorama ? (
         <Aviso tom="alerta">

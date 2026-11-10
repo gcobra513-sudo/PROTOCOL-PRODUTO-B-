@@ -979,3 +979,143 @@ def apagar_pessoa(url: str, entidade: str, cpf: str) -> dict[str, int]:
             if cur.rowcount:
                 saiu["recebimento"] = cur.rowcount
     return saiu
+
+
+class CatalogoIncoerente(Exception):
+    """O catálogo mudou de conteúdo sem mudar de versão.
+
+    Não é erro de banco nem de rede: é a declaração de origem mentindo. Quem
+    chama não deve tentar de novo — alguém tem de subir a `versao` do arquivo.
+    """
+
+
+def registrar_oportunidades(url: str, entidade: str, cpf: str, oportunidades,
+                            *, assinatura: str, digest: str) -> int:
+    """Guarda o veredicto do motor, com a prova de qual catálogo o produziu.
+
+    APPEND-ONLY POR ASSINATURA: a chave primária inclui
+    `catalogo_assinatura`, então reavaliar sob catálogo novo INSERE em vez de
+    sobrescrever. É isso que faz a transição existir — e tem de ser assim
+    porque o veredicto antigo NÃO é recalculável: o catálogo que o produziu
+    pode já ter sido editado em disco.
+
+    IDEMPOTENTE SOB A MESMA ASSINATURA: a reavaliação roda por agendador, e
+    um agendador que duplica a cada rodada enche a tabela de linhas iguais.
+    Sob a mesma assinatura, o fato novo da pessoa atualiza a linha — e a
+    história das afirmações dela já é append-only em `pessoa_afirmacao`.
+
+    RECUSA QUANDO A ORIGEM MENTE, e esta é a trava que importa. Se já existe
+    linha com esta assinatura e OUTRO digest, alguém editou o catálogo sem
+    subir a `versao`: a linha que sairia daqui citaria uma origem que não
+    produziu este veredicto. Prova falsa é pior que prova nenhuma, porque
+    ninguém desconfia dela. Levanta `CatalogoIncoerente` e NADA é gravado —
+    a exceção sai antes do commit, então a transação inteira volta.
+    """
+    if not assinatura:
+        raise ValueError(
+            "guardar veredicto sem assinatura de catálogo é guardar um "
+            "resultado sem dizer de onde saiu"
+        )
+    digitos = _digitos(cpf)
+    gravadas = 0
+    with sessao(url, entidade) as cur:
+        # A CONFERÊNCIA É DA ENTIDADE INTEIRA, não só deste CPF: a mentira
+        # da declaração não é sobre uma pessoa, é sobre o arquivo.
+        cur.execute(
+            "SELECT DISTINCT catalogo_digest FROM oportunidade "
+            "WHERE catalogo_assinatura = %s AND catalogo_digest <> %s",
+            (assinatura, digest),
+        )
+        divergentes = [linha[0] for linha in cur.fetchall()]
+        if divergentes:
+            raise CatalogoIncoerente(
+                f"o catálogo {assinatura!r} já produziu veredicto com outro "
+                f"conteúdo (impressão {divergentes[0][:12]}, agora "
+                f"{digest[:12]}). Alguém editou o arquivo sem subir a "
+                f"`versao` — suba a versão do arquivo e reavalie, para que o "
+                f"veredicto guardado diga de qual catálogo ele saiu."
+            )
+
+        for o in oportunidades:
+            cur.execute(
+                "INSERT INTO oportunidade (entidade, cpf, trilha, referencia,"
+                " veredicto, motivos, falta, catalogo_assinatura,"
+                " catalogo_digest) "
+                "VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s) "
+                "ON CONFLICT (entidade, cpf, trilha, referencia,"
+                " catalogo_assinatura) DO UPDATE SET "
+                " veredicto = EXCLUDED.veredicto,"
+                " motivos = EXCLUDED.motivos,"
+                " falta = EXCLUDED.falta,"
+                " catalogo_digest = EXCLUDED.catalogo_digest,"
+                " avaliado_em = now()",
+                (entidade, digitos, o.trilha, o.referencia, o.veredicto,
+                 json.dumps(list(o.motivos), ensure_ascii=False),
+                 json.dumps([{"quem": f.quem, "o_que": f.o_que}
+                             for f in o.falta], ensure_ascii=False),
+                 assinatura, digest),
+            )
+            gravadas += 1
+    return gravadas
+
+
+def oportunidades_de(url: str, entidade: str, cpf: str) -> list[dict]:
+    """Os veredictos guardados desta pessoa, do catálogo mais antigo ao mais
+    novo. Lista vazia é resposta: ou nunca foi avaliada, ou é de outra
+    entidade — e a política do banco não distingue as duas de propósito."""
+    digitos = _digitos(cpf)
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT trilha, referencia, veredicto, motivos, falta,"
+            " catalogo_assinatura, catalogo_digest, avaliado_em "
+            "FROM oportunidade WHERE cpf = %s "
+            "ORDER BY avaliado_em, catalogo_assinatura, trilha, referencia",
+            (digitos,),
+        )
+        colunas = [d.name for d in cur.description]
+        return [dict(zip(colunas, linha)) for linha in cur.fetchall()]
+
+
+def mudancas(url: str, entidade: str, *, assinatura: str = "") -> list[dict]:
+    """As oportunidades que MUDARAM de veredicto de um catálogo para o outro.
+
+    É a pergunta que o sindicato faz quando um tema é julgado: "o que mudou?"
+    E é a razão de a tabela ser append-only — a resposta NÃO é derivável do
+    catálogo de hoje, porque o de ontem pode já ter sido editado em disco.
+
+    VEREDICTO IGUAL SOB CATÁLOGO NOVO NÃO É TRANSIÇÃO. Sem esta regra, subir
+    a versão faria o painel anunciar a base inteira como "mudou", e um
+    painel que grita tudo não aponta nada.
+
+    A PRIMEIRA AVALIAÇÃO DE ALGUÉM TAMBÉM NÃO É TRANSIÇÃO: não havia antes.
+    Contá-la como mudança diria ao sindicato que a situação de um filiado
+    novo mudou, quando ela apenas passou a ser conhecida.
+
+    `assinatura` recorta pelo catálogo de agora. Sem ela, a história inteira.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            """
+            WITH ordenado AS (
+                SELECT cpf, trilha, referencia, veredicto,
+                       catalogo_assinatura, avaliado_em,
+                       LAG(veredicto) OVER j AS de,
+                       LAG(catalogo_assinatura) OVER j AS assinatura_anterior
+                FROM oportunidade
+                WINDOW j AS (
+                    PARTITION BY cpf, trilha, referencia
+                    ORDER BY avaliado_em, catalogo_assinatura
+                )
+            )
+            SELECT cpf, trilha, referencia, de, veredicto AS para,
+                   assinatura_anterior, catalogo_assinatura AS assinatura,
+                   avaliado_em
+            FROM ordenado
+            WHERE de IS NOT NULL AND de <> veredicto
+              AND (%s = '' OR catalogo_assinatura = %s)
+            ORDER BY avaliado_em, cpf, trilha, referencia
+            """,
+            (assinatura, assinatura),
+        )
+        colunas = [d.name for d in cur.description]
+        return [dict(zip(colunas, linha)) for linha in cur.fetchall()]
