@@ -18,6 +18,7 @@ import {
   resumoDoApagamento,
   frasesDaMudanca,
   resumoDasMudancas,
+  resumoDaFilaDeLeitura,
 } from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
@@ -207,5 +208,44 @@ describe("o que mudou de veredicto", () => {
     expect(r.mostra).toBe(true);
     expect(r.frase).toContain("12");
     expect(r.catalogo).toContain("auditor-fiscal-receita-federal@2");
+  });
+});
+
+describe("a fila de leitura humana", () => {
+  it("com documentos esperando, aparece e diz quantos e de quantas pessoas", () => {
+    const r = resumoDaFilaDeLeitura({ documentos: 7, pessoas: 3, sem_banco: false });
+    expect(r.mostra).toBe(true);
+    expect(r.frase).toContain("7 documentos");
+    expect(r.frase).toContain("3 pessoas");
+  });
+
+  it("singular certo, porque 1 documento de 1 pessoa é o caso do primeiro dia", () => {
+    const r = resumoDaFilaDeLeitura({ documentos: 1, pessoas: 1, sem_banco: false });
+    expect(r.frase).toContain("1 documento ");
+    expect(r.frase).toContain("1 pessoa");
+    expect(r.frase).not.toContain("1 documentos");
+  });
+
+  it("NÃO promete o que o produto ainda não faz", () => {
+    // Não existe tela para REGISTRAR a leitura feita por uma pessoa. Uma
+    // frase como "clique para ler" ou "em análise" prometeria um fluxo que
+    // não há — a fila tem entrada e contador, e ainda não tem saída.
+    const f = resumoDaFilaDeLeitura({ documentos: 2, pessoas: 1, sem_banco: false })
+      .frase.toLowerCase();
+    expect(f).not.toContain("em análise");
+    expect(f).not.toContain("clique");
+    expect(f).toContain("incompleta");
+  });
+
+  it("fila vazia não ocupa a tela", () => {
+    expect(
+      resumoDaFilaDeLeitura({ documentos: 0, pessoas: 0, sem_banco: false }).mostra,
+    ).toBe(false);
+  });
+
+  it("sem banco, diz que não sabe — zero afirmaria que não há nada esperando", () => {
+    const r = resumoDaFilaDeLeitura({ documentos: 0, pessoas: 0, sem_banco: true });
+    expect(r.mostra).toBe(true);
+    expect(r.frase.toLowerCase()).toContain("não dá para saber");
   });
 });

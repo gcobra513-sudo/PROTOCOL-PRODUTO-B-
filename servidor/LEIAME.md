@@ -109,6 +109,27 @@ impede. O que sobra: nenhum e-mail sai (o portão consulta o tombstone), e
 `--conferir` **detecta** a linha reposta. No dia em que existir rota de
 ingestão de rol, ela consulta o tombstone como as outras duas.
 
+## Scanner e foto: entram, e ficam aguardando leitura
+
+Documento que **abre mas a máquina não lê** — página de scanner, foto de
+celular — é ACEITO. O cadastro não cai. Três coisas acontecem:
+
+- o **diário** registra quais arquivos daquele envio aguardam leitura
+  (`aguardando_leitura`), e o banco projeta isso em `documento.tem_texto`;
+- o **filiado** é avisado na hora e no recibo de que aquele documento vai
+  ser lido por uma pessoa, e por isso demora mais;
+- o **painel** do sindicato mostra quantos documentos esperam, e de quantas
+  pessoas.
+
+A foto (JPG, PNG) vira PDF **no navegador**, sem sair do aparelho. O servidor
+continua recebendo só PDF.
+
+O que continua recusado: arquivo que **não abre** — corrompido ou com senha.
+Esse ninguém lê, e guardá-lo criaria uma fila que não anda.
+
+**O que ainda não existe:** a tela para uma pessoa REGISTRAR o que leu. A
+fila tem entrada e contador, e não tem saída.
+
 ## O veredicto guardado, e a prova de por que mudou
 
 A tabela `oportunidade` guarda o que o motor respondeu para cada pessoa, com

@@ -17,9 +17,10 @@ O QUE ELE FAZ:
 
 1. semeia uma entidade de demonstração num diretório temporário, com rol de
    filiados e de gestores, todos CADASTROS DECLARADAMENTE FICTÍCIOS;
-2. gera cinco PDFs com camada de texto (três contribuições, sentença,
-   certidão), porque o portal lê o PDF no navegador e um PDF sem texto
-   reprova por motivo diferente do que se quer medir;
+2. gera cinco documentos dos três jeitos que chegam na vida real: PDF com
+   camada de texto, PDF de SCANNER e FOTO (JPG). Os dois últimos eram
+   recusados; hoje entram e ficam aguardando leitura humana, e a foto é
+   embrulhada num PDF pelo próprio navegador;
 3. compila o portal apontando para um servidor em MODO ENSAIO;
 4. sobe o servidor e um servidor estático para o portal compilado;
 5. dirige o Chromium: entra pelo portão lendo o código NA TELA, preenche as
@@ -128,11 +129,55 @@ def _semear(raiz: pathlib.Path) -> None:
             w.writerows(linhas)
 
 
+def _pdf_de_scanner() -> bytes:
+    """Um PDF sem camada de texto: o que sai de um scanner."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    import io
+
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    c.rect(80, 500, 420, 240, fill=1)
+    c.save()
+    return buffer.getvalue()
+
+
+def _foto(caminho: pathlib.Path) -> None:
+    """Uma FOTO de verdade, em JPEG, como a que sai de um celular.
+
+    Pillow vem com o reportlab, que este ensaio já exige. A imagem é um
+    "papel" branco com linhas escuras — fictícia, e sem dado de ninguém.
+    """
+    from PIL import Image, ImageDraw
+
+    imagem = Image.new("RGB", (1600, 1200), "white")
+    desenho = ImageDraw.Draw(imagem)
+    desenho.text((80, 60), "COMPROVANTE DE EXEMPLO (FOTO FICTICIA)",
+                 fill="black")
+    for y in range(160, 1100, 60):
+        desenho.line((80, y, 1500, y), fill=(60, 60, 60), width=3)
+    imagem.save(caminho, "JPEG", quality=88)
+
+
 def _pdfs(pasta: pathlib.Path) -> list[tuple[str, list[str]]]:
-    """Cinco PDFs com camada de texto. Devolve [(rótulo na tela, caminhos)]."""
+    """Cinco documentos, dos TRÊS jeitos que chegam na vida real.
+
+        2 comprovantes   PDF com camada de texto — a máquina lê
+        1 comprovante    FOTO (JPG) — o navegador embrulha num PDF
+        a sentença       PDF de SCANNER — entra, e fica aguardando leitura
+        a certidão       PDF com camada de texto
+
+    A foto e o scanner estão aqui porque eram RECUSADOS: o cadastro inteiro
+    caía com 422. A decisão de 10/11/2026 foi aceitar e marcar, e este é o
+    único lugar que prova a foto de ponta a ponta — o canvas que a converte
+    só existe em navegador.
+
+    Devolve [(rótulo na tela, caminhos)].
+    """
     pasta.mkdir(parents=True, exist_ok=True)
     contribuicoes = []
-    for ano in (2022, 2023, 2024):
+    for ano in (2022, 2023):
         caminho = pasta / f"contribuicao-{ano}.pdf"
         caminho.write_bytes(_pdf([
             "COMPROVANTE DE CONTRIBUICAO SINDICAL (DOCUMENTO DE EXEMPLO)",
@@ -142,13 +187,12 @@ def _pdfs(pasta: pathlib.Path) -> list[tuple[str, list[str]]]:
             "Este documento e ficticio e serve apenas ao ensaio automatizado.",
         ]))
         contribuicoes.append(str(caminho))
+    foto = pasta / "comprovante-fotografado.jpg"
+    _foto(foto)
+    contribuicoes.append(str(foto))
 
-    sentenca = pasta / "sentenca.pdf"
-    sentenca.write_bytes(_pdf([
-        "SENTENCA (DOCUMENTO DE EXEMPLO, SEM VALOR JURIDICO)",
-        f"Autor: {NOME_FILIADO} - CPF {CPF_FILIADO}",
-        "Julgo procedente o pedido. Documento ficticio de ensaio.",
-    ]))
+    sentenca = pasta / "sentenca-escaneada.pdf"
+    sentenca.write_bytes(_pdf_de_scanner())
     certidao = pasta / "certidao.pdf"
     certidao.write_bytes(_pdf([
         "CERTIDAO DE TRANSITO EM JULGADO (DOCUMENTO DE EXEMPLO)",
@@ -212,7 +256,8 @@ def main() -> int:
     try:
         _semear(raiz)
         documentos = _pdfs(raiz / "pdfs")
-        print(f"  {sum(len(d[1]) for d in documentos)} PDFs com camada de texto")
+        print(f"  {sum(len(d[1]) for d in documentos)} documentos: 3 PDFs com "
+              f"texto, 1 de scanner, 1 foto")
 
         print("  compilando o portal…")
         _compilar_portal(api, dist)
@@ -282,6 +327,11 @@ def main() -> int:
         protocolo = dados.get("protocolo", "")
         if protocolo:
             falhas += _conferir_o_disco(raiz, protocolo)
+            if not dados.get("avisouImagem"):
+                falhas.append(
+                    "a tela do recibo não avisou que dois documentos "
+                    "chegaram como imagem e vão ser lidos por uma pessoa"
+                )
 
         if banco_url and not falhas:
             print("  dirigindo o Chromium — o gestor…")
@@ -406,6 +456,34 @@ def _conferir_o_disco(raiz: pathlib.Path, protocolo: str) -> list[str]:
     pdfs = sorted(x.name for x in entrega.glob("*.pdf")) if entrega.is_dir() else []
     if len(pdfs) != 5:
         problemas.append(f"anexei 5 PDFs e chegaram {len(pdfs)}: {pdfs}")
+
+    # A FOTO E O SCANNER. O navegador mandou uma foto JPG; o que tem de
+    # estar no disco é um PDF, que ABRE, e que o diário marca como
+    # aguardando leitura — junto com a sentença de scanner.
+    esperando = sorted(meus[0].get("aguardando_leitura") or [])
+    if esperando != ["contribuicao-3.pdf", "sentenca.pdf"]:
+        problemas.append(
+            f"o diário devia marcar a foto e o scanner como aguardando "
+            f"leitura, e marcou {esperando}"
+        )
+    da_foto = entrega / "contribuicao-3.pdf"
+    if da_foto.is_file():
+        try:
+            from pypdf import PdfReader
+
+            leitor = PdfReader(str(da_foto))
+            pagina = leitor.pages[0]
+            imagens = pagina.get("/Resources", {}).get("/XObject", {})
+            if len(leitor.pages) != 1 or not imagens:
+                problemas.append(
+                    "a foto chegou, mas o PDF não tem uma página com a imagem"
+                )
+        except Exception as e:  # noqa: BLE001
+            problemas.append(
+                f"a foto virou um PDF que NÃO ABRE no servidor: {e}"
+            )
+    else:
+        problemas.append("a foto não chegou ao disco como contribuicao-3.pdf")
 
     manifesto = ent.entrega(raiz) / deposito.MANIFESTO
     if not manifesto.is_file():

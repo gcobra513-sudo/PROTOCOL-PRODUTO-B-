@@ -324,14 +324,23 @@ def reconstruir(url: str, entidade: str, registros,
 
             # O DOCUMENTO: só o metadado. Os bytes ficam no disco — PDF em
             # coluna faz o banco inchar e não melhora resposta nenhuma.
+            #
+            # `tem_texto` SAI DO DIÁRIO, e é gravado SEMPRE. Esta inserção
+            # não o escrevia: a coluna ficava no padrão `false` para TODO
+            # documento, legível ou não — uma coluna que mentia por omissão
+            # e que só não fazia estrago porque ninguém a lia. O `DO UPDATE`
+            # existe para a reprojeção CONSERTAR as linhas antigas.
+            sem_texto = set(registro.get("aguardando_leitura") or [])
             for nome, soma in (registro.get("arquivos") or {}).items():
                 tipo = _tipo_do_arquivo(nome)
                 if not tipo:
                     continue
                 cur.execute(
-                    "INSERT INTO documento (entidade, cpf, tipo, sha256) "
-                    "VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                    (entidade, cpf, tipo, str(soma)),
+                    "INSERT INTO documento (entidade, cpf, tipo, sha256,"
+                    " tem_texto) VALUES (%s,%s,%s,%s,%s) "
+                    "ON CONFLICT (entidade, cpf, tipo, sha256) "
+                    "DO UPDATE SET tem_texto = EXCLUDED.tem_texto",
+                    (entidade, cpf, tipo, str(soma), nome not in sem_texto),
                 )
 
             # CAMADA 3 — o processo que a pessoa declarou acompanhar.
@@ -715,6 +724,21 @@ def fatos_lidos_da_entidade(url: str, entidade: str) -> dict[str, dict]:
                            posicao=pos, metodo=m))
     return {cpf: mod.fatos_confiaveis(achados)
             for cpf, achados in por_cpf.items()}
+
+
+def aguardando_leitura(url: str, entidade: str) -> tuple[int, int]:
+    """(documentos, pessoas) que esperam leitura HUMANA nesta entidade.
+
+    São os documentos que abrem mas não têm texto que a máquina leia. Uma
+    consulta, contagem pura — não cresce com a base.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT count(*), count(DISTINCT cpf) FROM documento "
+            "WHERE NOT tem_texto"
+        )
+        documentos, pessoas = cur.fetchone()
+    return int(documentos), int(pessoas)
 
 
 def processos_para_acompanhar(url: str, entidade: str) -> list[str]:

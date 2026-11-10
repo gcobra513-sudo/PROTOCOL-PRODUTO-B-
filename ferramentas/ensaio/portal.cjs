@@ -173,6 +173,12 @@ async function faseCadastro(navegador, gritos, resultado) {
     resultado.protocolo = (protocolo.match(/PRT-[A-Z0-9-]+/) || [""])[0];
     if (!resultado.protocolo) throw new Error("não achei o protocolo na tela");
     marco(`protocolo lido na tela: ${resultado.protocolo}`);
+
+    // O RECIBO TEM DE DIZER que parte chegou como imagem. Quem espera uma
+    // resposta sem saber por que ela demora liga para o sindicato.
+    const tela = await p.innerText("body");
+    resultado.avisouImagem = /chegaram como imagem/.test(tela);
+    if (resultado.avisouImagem) marco("o recibo avisou: 2 documentos como imagem");
   } finally {
     await contexto.close();
   }

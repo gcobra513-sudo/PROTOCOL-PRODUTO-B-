@@ -94,6 +94,12 @@ class Recibo:
             "entidade": self.entidade,
             "arquivos": self.arquivos,
             "substituiu": self.substituiu,
+            # A pessoa precisa SABER que parte do que mandou vai ser lida
+            # por gente, e por isso demora mais: aceitar calado a deixaria
+            # esperando uma resposta sem saber por que ela não vem.
+            "aguardando_leitura": list(
+                self.registro.get("aguardando_leitura") or []
+            ),
         }
 
 
@@ -325,8 +331,18 @@ def depositar(
     raiz: pathlib.Path,
     linha: dict[str, str],
     arquivos: dict[str, bytes],
+    aguardando_leitura: tuple[str, ...] = (),
 ) -> Recibo:
-    """Grava um cadastro. A linha e os arquivos já passaram por `validacao`."""
+    """Grava um cadastro. A linha e os arquivos já passaram por `validacao`.
+
+    `aguardando_leitura` são os nomes dos arquivos que abrem mas não têm
+    texto que a máquina leia — scanner, foto. VAI PARA O DIÁRIO, e não só
+    para o banco: o diário é a autoridade e o banco é projeção, então uma
+    marca que só existisse no banco sumiria na primeira recuperação. A chave
+    é gravada SEMPRE, mesmo vazia: lista vazia quer dizer "conferimos, e a
+    máquina lê todos"; chave ausente quer dizer registro anterior a esta
+    regra, de quando documento sem texto nem entrava.
+    """
     cpf = validacao.so_digitos(linha["cpf"])
     if len(cpf) != 11:
         # Não é conferência duplicada por acidente: é o CPF que nomeia a pasta.
@@ -352,6 +368,9 @@ def depositar(
             "entidade": entidade.apelido,
             "linha": linha,
             "arquivos": somas,
+            "aguardando_leitura": sorted(
+                n for n in aguardando_leitura if n in somas
+            ),
         }
         anexar_com_fsync(
             pasta / DIARIO,

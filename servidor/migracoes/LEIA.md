@@ -23,3 +23,13 @@ A coluna da direita é para ser mantida à mão, e ela é a única coisa aqui qu
 não é verificável por teste: a suíte roda com `recriar=True`, que derruba e
 recria, então ela nunca exercita a migração contra um banco antigo. **Suíte
 verde não quer dizer que o banco de produção foi migrado.**
+
+## Reprojeções — quando o que muda é o DADO, não a forma
+
+| data | o quê | feita em São Paulo? |
+|---|---|---|
+| 10/11/2026 | `documento.tem_texto` ficava em `false` para TODO documento. A coluna passou a ser lida (a fila de leitura humana do painel), então as linhas antigas precisam ser regravadas: `banco.reconstruir` com o diário de cada entidade, e `ingerir_documentos.py` de novo sobre os documentos do sindicato. As duas regravam a coluna com o valor medido | **não — PENDENTE** |
+
+Sem isso, um banco antigo mostra no painel TODO documento como "aguardando
+leitura". Não há SQL que resolva: o valor certo de cada linha só sai do
+diário e dos próprios arquivos.

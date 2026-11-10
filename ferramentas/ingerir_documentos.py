@@ -185,13 +185,25 @@ def main() -> int:
         if args.banco:
             from servidor import banco
 
+            from servidor import validacao
+
             for d in docs:
                 soma = hashlib.sha256(d.corpo).hexdigest()
+                # `tem_texto` É MEDIDO, documento por documento. Esta
+                # inserção não o gravava, e a coluna ficava no padrão
+                # `false` — o que passaria a pôr TODO documento do sindicato
+                # na fila de leitura humana do painel. E não dá para
+                # presumir "casou, foi lido": o documento casa também pelo
+                # CPF no NOME do arquivo, e um de scanner casa assim sem
+                # texto nenhum. Esse, sim, espera uma pessoa.
+                _abre, tem_texto, _n = validacao.examinar_pdf(d.corpo)
                 with banco.sessao(args.banco, ent.apelido) as cur:
                     cur.execute(
-                        "INSERT INTO documento (entidade, cpf, tipo, sha256) "
-                        "VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                        (ent.apelido, cpf, d.tipo, soma),
+                        "INSERT INTO documento (entidade, cpf, tipo, sha256,"
+                        " tem_texto) VALUES (%s,%s,%s,%s,%s) "
+                        "ON CONFLICT (entidade, cpf, tipo, sha256) "
+                        "DO UPDATE SET tem_texto = EXCLUDED.tem_texto",
+                        (ent.apelido, cpf, d.tipo, soma, tem_texto),
                     )
                 banco.guardar_achados(args.banco, ent.apelido, cpf, soma,
                                       d.achados)

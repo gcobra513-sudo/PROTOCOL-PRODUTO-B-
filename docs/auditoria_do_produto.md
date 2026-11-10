@@ -216,3 +216,52 @@ E três guardas, cada uma provada com o defeito de volta:
 
 O texto do painel que afirmava "nenhum documento foi lido" passou a dizer a
 verdade nos dois estados.
+
+## O item 3, fechado em 10/11/2026 — "aceita e marca como aguardando leitura"
+
+A mesma medição, depois:
+
+```
+contribuição ESCANEADA (PDF só imagem)   -> 200
+contribuição ok + SENTENÇA escaneada     -> 200
+contribuição em FOTO (jpg), direto à API -> 422  (de propósito — ver abaixo)
+```
+
+O que mudou:
+
+- **são duas perguntas, e eram uma.** `validacao.examinar_pdf` separa "abre?"
+  de "tem texto?". O que não abre (corrompido, com senha) continua recusado:
+  esse ninguém lê. O que abre sem texto ENTRA;
+- **a marca mora no DIÁRIO** (`aguardando_leitura`, por registro), porque o
+  banco é projeção e uma marca só nele sumiria na primeira recuperação;
+- **`documento.tem_texto` passou a dizer a verdade.** A coluna existia e
+  ficava em `false` para TODO documento, legível ou não — só não fazia
+  estrago porque ninguém a lia;
+- **a foto vira PDF no navegador** (`portal/src/lib/foto.ts`), sem sair do
+  aparelho e sem biblioteca. O servidor continua recebendo só PDF, e por
+  isso o JPG mandado direto à API segue recusado: o contrato de nomes de
+  arquivo, que impede nome de cliente de virar caminho, não foi aberto;
+- o filiado é AVISADO, na hora e no recibo, de que aquele documento vai ser
+  lido por uma pessoa e demora mais; o painel do sindicato mostra quantos
+  documentos esperam, e de quantas pessoas.
+
+A prova de ponta a ponta é o ensaio de navegador, que passou a mandar os
+três jeitos — PDF com texto, PDF de scanner e uma foto JPG de verdade — e
+confere no disco que a foto chegou como um PDF que ABRE. Desligando a
+conversão no portal, o ensaio cai.
+
+**Um defeito que esta mudança criaria, pego antes:** `ingerir_documentos.py`
+também gravava `documento` sem `tem_texto`. No dia em que o painel passou a
+contar a fila por essa coluna, todo documento do sindicato apareceria como
+aguardando leitura. E a primeira correção que pensei — "se casou com alguém,
+foi lido" — era falsa: a ferramenta casa também pelo CPF no NOME do arquivo.
+Agora mede, documento por documento.
+
+### O que NÃO foi feito, e é a próxima dívida (T24)
+
+**A fila tem entrada e contador, e não tem saída.** Não existe tela para uma
+pessoa REGISTRAR o que leu num documento de imagem — o dispositivo, o
+trânsito, o período. Enquanto isso não existir, a resposta de quem mandou
+foto fica em `FALTA: a leitura da sentença já entregue`, para sempre. O
+painel diz isso sem prometer fluxo ("a resposta fica incompleta"), e a frase
+tem teste para não dizer "em análise".

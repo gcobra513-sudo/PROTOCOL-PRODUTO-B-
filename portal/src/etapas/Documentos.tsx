@@ -11,15 +11,23 @@
  * documentos para litigar, e exigi-los de quem só quer saber se tem direito
  * derruba a conclusão do cadastro sem melhorar resposta nenhuma.
  *
- * O ARQUIVO É CONFERIDO AQUI, NO APARELHO DA PESSOA, antes de sair. PDF de
- * scanner não tem camada de texto, e sem texto não há o que ler — avisar na
- * hora poupa a pessoa de descobrir semanas depois que o documento dela não
- * serviu para nada.
+ * O ARQUIVO É OLHADO AQUI, NO APARELHO DA PESSOA, antes de sair.
+ *
+ * SCANNER E FOTO ENTRAM. Esta tela recusava os dois — "sem texto não há o
+ * que ler" —, e a base deste produto é de aposentados com papel físico. A
+ * regra mudou em 10/11/2026: o que a máquina não lê é aceito, e a pessoa é
+ * AVISADA de que aquele documento vai ser lido por gente e por isso a
+ * resposta demora mais. Avisar na hora continua sendo o ponto; o que deixou
+ * de existir é a recusa.
+ *
+ * A foto (JPG, PNG) vira PDF aqui mesmo, com `lib/foto.ts`, sem sair do
+ * aparelho: o servidor continua recebendo só PDF.
  */
 import { useState } from "react";
 
 import { Aviso, Cartao } from "../componentes/ui";
 import * as arquivos from "../lib/arquivos";
+import { ehImagemAceita, fotoParaPdf } from "../lib/foto";
 import { ler } from "../lib/leitura";
 import {
   DOCUMENTOS,
@@ -43,6 +51,14 @@ function Anexo({
           {(doc.tamanho / 1024).toFixed(0)} kB
           {doc.cpfEncontrado ? " · seu CPF aparece no documento" : ""}
         </p>
+        {!doc.temTexto ? (
+          // DITO NA HORA, e sem tom de erro: o documento ENTROU. O que muda
+          // para a pessoa é o tempo — e quem espera sem saber por quê liga.
+          <p className="mt-1 text-xs text-tinta/75">
+            Recebemos como imagem. Uma pessoa vai ler este documento, então a
+            resposta sobre ele demora mais.
+          </p>
+        ) : null}
       </div>
       <button
         type="button"
@@ -78,22 +94,37 @@ function Pedido({
     setLendo(true);
     setRecusa("");
     try {
-      for (const arquivo of Array.from(lista)) {
+      for (const original of Array.from(lista)) {
+        // A FOTO VIRA PDF ANTES DE QUALQUER OUTRA COISA, e o que segue
+        // adiante — conferência, guarda, envio — é o PDF. O nome que a
+        // pessoa vê continua sendo o do arquivo que ela escolheu.
+        let arquivo = original;
+        if (ehImagemAceita(original)) {
+          try {
+            arquivo = await fotoParaPdf(original);
+          } catch {
+            setRecusa(
+              "não conseguimos abrir esta imagem. Tente tirar a foto de " +
+                "novo, ou envie o documento em PDF.",
+            );
+            continue;
+          }
+        }
         const r = await ler(arquivo, cpf);
         if (!r.legivel) {
-          // NÃO registra. Documento ilegível que entra vira documento que
-          // ninguém leu, e a pessoa só descobre no fim.
+          // SÓ O QUE NINGUÉM LÊ fica de fora: arquivo que não abre. Scanner
+          // e foto entram, marcados, e uma pessoa lê.
           setRecusa(r.motivoRecusa);
           continue;
         }
         onEnviado({
           chave: arquivos.guardar(arquivo),
           tipo: espec.tipo,
-          nomeOriginal: arquivo.name,
+          nomeOriginal: original.name,
           nomeFinal: "",
           tamanho: arquivo.size,
           sha256: r.sha256,
-          temTexto: true,
+          temTexto: r.temTexto,
           cpfEncontrado: r.cpfEncontrado,
         });
         if (!espec.multiplos) break;
@@ -125,7 +156,7 @@ function Pedido({
         <label className="inline-block cursor-pointer">
           <input
             type="file"
-            accept="application/pdf"
+            accept="application/pdf,image/jpeg,image/png"
             multiple={espec.multiplos}
             className="hidden"
             onChange={(e) => void receber(e.target.files)}
@@ -164,9 +195,11 @@ export function Documentos({
       titulo="Seus documentos"
       explicacao={
         <>
-          Cada arquivo é conferido <strong>aqui, no seu aparelho</strong>,
-          antes de sair. Se um PDF for só imagem — o que sai de scanner —, a
-          gente avisa na hora, porque sem texto não há o que ler.
+          Pode ser <strong>PDF ou foto</strong> — inclusive foto tirada
+          agora, com o celular. Cada arquivo é olhado{" "}
+          <strong>aqui, no seu aparelho</strong>, antes de sair. Documento
+          escaneado ou fotografado é lido por uma pessoa, e por isso a
+          resposta sobre ele demora mais.
         </>
       }
     >
