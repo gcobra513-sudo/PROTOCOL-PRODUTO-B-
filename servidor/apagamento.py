@@ -37,7 +37,7 @@ from __future__ import annotations
 import pathlib
 import shutil
 
-from . import acervo, banco, conferencia, deposito, rol, validacao
+from . import acervo, banco, conferencia, deposito, rol, trocas, validacao
 from .entidades import Entidade
 
 #: Extensões que a varredura de bytes abre. PDF fica de fora de propósito: o
@@ -159,6 +159,13 @@ def vestigios(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     if leituras.is_file() and _procurar(leituras, digitos, ""):
         achados.append(f"leituras: registro de leitura humana ({marca})")
 
+    # AS TROCAS DE E-MAIL PEDIDAS. CPF e dois e-mails, num arquivo que
+    # nasceu depois do apagamento — o tipo de lugar que ele esquece.
+    pedidos = pasta / trocas.ARQUIVO
+    cobertos.add(pedidos)
+    if pedidos.is_file() and _procurar(pedidos, digitos, ""):
+        achados.append(f"trocas: pedido de troca de e-mail ({marca})")
+
     # O ACERVO, pessoas E retrato. O `retrato` é indexado por CPF em três
     # campos, e foi a cegueira que a caça adversarial achou.
     acervo_jsonl = pasta / "acervo.jsonl"
@@ -249,7 +256,20 @@ def _procurar(caminho: pathlib.Path, digitos: str, email: str) -> str:
 
 def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
            motivo: str, pedido_por: str, portao) -> dict:
-    """Apaga esta pessoa de tudo, e CONFERE no fim.
+    """Apaga esta pessoa de tudo, e CONFERE no fim — com a planilha parada.
+
+    A trava é a mesma que `ingestao.gravar_planilha` segura: uma planilha
+    que conferiu os apagados antes e gravasse depois devolveria a pessoa.
+    O porquê está em `deposito.TRAVA_DO_APAGAMENTO`.
+    """
+    with deposito.travada(ent.pasta(raiz), deposito.TRAVA_DO_APAGAMENTO):
+        return _apagar(url, ent, raiz, cpf, motivo=motivo,
+                       pedido_por=pedido_por, portao=portao)
+
+
+def _apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
+            motivo: str, pedido_por: str, portao) -> dict:
+    """O apagamento em si. Quem chama é `apagar`, com a trava tomada.
 
     A ORDEM É O DESENHO, e cada passo está onde está por um motivo:
 
@@ -325,6 +345,7 @@ def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     saiu_do_rol = rol.remover(pasta, digitos)
     saiu_do_acervo = _remover_do_acervo(pasta, digitos)
     sairam_leituras = conferencia.remover_pessoa(pasta, digitos)
+    sairam_trocas = trocas.remover_pessoa(pasta, digitos)
     das_mensagens = _limpar_logs(raiz, digitos, email)
 
     # 5. O banco.
@@ -340,6 +361,7 @@ def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
         "rol": saiu_do_rol,
         "acervo": saiu_do_acervo,
         "leituras": sairam_leituras,
+        "trocas": sairam_trocas,
         "logs": das_mensagens,
         "email_conhecido": bool(email),
         "vestigios": vestigios(url, ent, raiz, digitos, portao=portao,

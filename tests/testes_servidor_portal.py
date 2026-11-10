@@ -1873,5 +1873,97 @@ TESTES.extend([
 ])
 
 
+# ------------------------------------------------ o rol que a planilha escreve
+
+NOVO_NO_ROL = "11144477735"
+
+
+def teste_o_rol_cresce_no_dialeto_que_o_sindicato_mandou():
+    """O rol vem do Excel em português: `;`, CRLF, latin-1, colunas a mais
+    e em qualquer ordem. Acrescentar em UTF-8 com vírgula quebraria o
+    arquivo para quem já estava nele."""
+    pasta = Path(tempfile.mkdtemp(prefix="rol-"))
+    original = ("matricula;cpf;nome;email\r\n"
+                f"7;{CPF_DIGITOS};JOSÉ DA CONCEIÇÃO (CADASTRO DE EXEMPLO);"
+                "jose@exemplo.invalid\r\n").encode("latin-1")
+    (pasta / rol.ARQUIVO).write_bytes(original)
+    checa(rol.acrescentar(pasta, [(NOVO_NO_ROL, "novo@exemplo.invalid")]) == 1,
+          "não acrescentou")
+    bruto = (pasta / rol.ARQUIVO).read_bytes()
+    checa(bruto.startswith(original),
+          "as linhas de quem já estava mudaram de bytes")
+    checa(bruto.endswith(f";{NOVO_NO_ROL};;novo@exemplo.invalid\r\n".encode()),
+          f"a linha nova não está no dialeto do arquivo: {bruto[-60:]!r}")
+    lista = rol.carregar(pasta)
+    checa(lista.email_de(CPF_DIGITOS) == "jose@exemplo.invalid"
+          and lista.email_de(NOVO_NO_ROL) == "novo@exemplo.invalid",
+          f"o rol não lê os dois: {lista.por_cpf}")
+    # A troca muda SÓ a célula do e-mail, e só na linha da pessoa.
+    checa(rol.trocar_email(pasta, CPF_DIGITOS, "ze@exemplo.invalid") == 1, "não trocou")
+    lista = rol.carregar(pasta)
+    checa(lista.email_de(CPF_DIGITOS) == "ze@exemplo.invalid"
+          and lista.email_de(NOVO_NO_ROL) == "novo@exemplo.invalid",
+          f"a troca errou a linha: {lista.por_cpf}")
+    checa("JOSÉ DA CONCEIÇÃO".encode("latin-1")
+          in (pasta / rol.ARQUIVO).read_bytes(),
+          "a troca perdeu o latin-1 das outras colunas")
+    print("  ok     acrescentar e trocar preservam `;`, CRLF, latin-1 e colunas")
+
+
+def teste_quem_escreve_o_rol_segura_a_trava():
+    """A planilha ACRESCENTA ao rol, o apagamento TIRA do rol, e os dois
+    reescrevem o arquivo inteiro. Sem trava, a planilha que leu antes e
+    gravou depois devolve ao arquivo a linha de quem acabou de pedir para
+    sair — e a varredura de vestígios já tinha dito que não sobrou nada.
+
+    O que se mede: no instante em que cada função vai trocar o arquivo, a
+    trava do rol está tomada.
+    """
+    import fcntl
+    import os
+
+    pasta = Path(tempfile.mkdtemp(prefix="rol-"))
+    (pasta / rol.ARQUIVO).write_text(
+        f"cpf,email\n{CPF_DIGITOS},a@exemplo.invalid\n")
+    visto: list[bool] = []
+
+    def tomada() -> bool:
+        fd = os.open(pasta / rol.TRAVA, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            return False
+        finally:
+            os.close(fd)
+
+    original = Path.replace
+
+    def espia(self, destino):
+        visto.append(tomada())
+        return original(self, destino)
+
+    Path.replace = espia
+    try:
+        rol.acrescentar(pasta, [(NOVO_NO_ROL, "n@exemplo.invalid")])
+        rol.trocar_email(pasta, CPF_DIGITOS, "b@exemplo.invalid")
+        rol.remover(pasta, NOVO_NO_ROL)
+    finally:
+        Path.replace = original
+    checa(visto == [True, True, True],
+          f"o rol foi reescrito sem a trava (acrescentar, trocar, remover): "
+          f"{visto}")
+    checa(not tomada(), "a trava ficou presa depois da escrita")
+    print("  ok     acrescentar, trocar e remover escrevem com a trava tomada")
+
+
+TESTES.extend([
+    teste_o_rol_cresce_no_dialeto_que_o_sindicato_mandou,
+    teste_quem_escreve_o_rol_segura_a_trava,
+])
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

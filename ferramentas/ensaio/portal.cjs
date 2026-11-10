@@ -256,6 +256,30 @@ async function faseConferencia(navegador, gritos, resultado) {
     resultado.planilha = { gravou: true };
     marco("o gestor enviou a planilha .xlsx: conferiu, confirmou, e a base cresceu");
 
+    // O QUE A PLANILHA MUDOU EM QUEM ENTRA, como o gestor LEU. A planilha
+    // traz uma pessoa nova e uma que já entrava, com outro e-mail: a tela
+    // tem de dizer que a primeira já pode entrar e que a troca da segunda
+    // NÃO vale. Quem confere o texto é o Python, do lado de fora.
+    await g.getByText("Quem consegue entrar no portal").waitFor({ timeout: 20000 });
+    resultado.planilha.acesso = await g.innerText("body");
+
+    // E A PESSOA NOVA ENTRA DE VERDADE. Outro navegador, sem nada do
+    // gestor: alguém que só existe na planilha pede o código e passa pelo
+    // portão. É isto que "a planilha liga o acesso" quer dizer — o resto é
+    // contagem numa tela.
+    const nova = await abrirAba(navegador, gritos, "nova pela planilha");
+    try {
+      await nova.p.goto(`${cfg.web}/?entidade=${cfg.entidade}`, { waitUntil: "networkidle" });
+      await nova.p.getByRole("button", { name: /^Começar$/ }).click();
+      await entrar(nova.p, cfg.planilha.cpf, "CPF", "Código recebido");
+      await nova.p.getByText(/Acesso confirmado/).waitFor({ timeout: 15000 });
+      resultado.planilha.novaEntrou = true;
+      marco("quem veio só pela planilha entrou pelo portão");
+    } finally {
+      await nova.contexto.close();
+      pagina = g;
+    }
+
     // NOME POR NOME, e a planilha. O gestor vê a pessoa na lista — com o
     // CPF mascarado — e baixa a base. O que se confere do lado de fora é o
     // ARQUIVO que o navegador recebeu: é ele que o sindicato leva embora.

@@ -108,7 +108,34 @@ def novo_protocolo(agora: dt.datetime | None = None) -> str:
     return f"PRT-{agora:%Y%m%d}-{secrets.token_hex(4).upper()}"
 
 
+#: A PLANILHA DO SINDICATO E O APAGAMENTO A PEDIDO NÃO RODAM AO MESMO TEMPO.
+#:
+#: A planilha confere quem pediu para sair e DEPOIS grava; o apagamento
+#: marca o tombstone e DEPOIS remove. Intercalados, a pessoa era apagada —
+#: com a varredura dizendo que não sobrou nada — e voltava logo em seguida,
+#: escrita pela planilha que a tinha conferido um instante antes. Medido em
+#: 10/11/2026: acervo, duas tabelas do banco e o rol.
+#:
+#: É OUTRA trava, e não a do depósito, de propósito: o apagamento chama o
+#: depósito por dentro (para redigir o diário), e `flock` não é reentrante —
+#: a mesma trava, tomada duas vezes no mesmo processo, espera por si mesma
+#: para sempre.
+TRAVA_DO_APAGAMENTO = ".apagamento.trava"
+
+
 @contextlib.contextmanager
+def travada(pasta: pathlib.Path, nome: str):
+    """Segura a trava `nome` da entidade enquanto o bloco roda."""
+    pasta.mkdir(parents=True, exist_ok=True)
+    fd = os.open(pasta / nome, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
 def _travada(pasta: pathlib.Path):
     """Uma gravação por entidade de cada vez.
 
@@ -116,15 +143,7 @@ def _travada(pasta: pathlib.Path):
     um dos dois desaparece da planilha — com os arquivos no disco, o que é o
     pior dos dois mundos.
     """
-    pasta.mkdir(parents=True, exist_ok=True)
-    caminho = pasta / TRAVA
-    fd = os.open(caminho, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
+    return travada(pasta, TRAVA)
 
 
 def anexar_com_fsync(caminho: pathlib.Path, linha: str) -> None:

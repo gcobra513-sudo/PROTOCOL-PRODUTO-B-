@@ -521,6 +521,20 @@ export interface Mudancas {
 }
 
 /** O que a planilha traz, ANTES de valer. `gravado: false` é a prévia. */
+/** O que a planilha muda em QUEM CONSEGUE ENTRAR. Só contagens.
+ *
+ *  A planilha põe gente nova no acesso; ela NÃO troca o e-mail de quem já
+ *  entra — isso fica pedido (`trocas_aguardando`) até quem opera o serviço
+ *  conferir. É a trava que impede uma conta de gestor de virar todas. */
+export interface AcessoPelaPlanilha {
+  novos: number;
+  trocas_aguardando: number;
+  trocas_recusadas: number;
+  sem_email: number;
+  divergentes: number;
+  fora_da_planilha: number;
+}
+
 export interface PreviaDaPlanilha {
   sha256: string;
   arquivo: string;
@@ -533,6 +547,8 @@ export interface PreviaDaPlanilha {
   colunas_ausentes: string[];
   /** QUANTOS pediram apagamento e serão pulados — nunca quem. */
   apagados_a_pedido: number;
+  /** Ausente em servidor anterior a T26. */
+  acesso?: AcessoPelaPlanilha;
   gravado: boolean;
   projetadas?: number;
 }

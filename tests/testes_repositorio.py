@@ -43,6 +43,8 @@ ESCRITOS = {
     "demo-a/filiados.csv": "CPF, nome e e-mail de cada filiado",
     "demo-a/gestores.csv": "CPF e e-mail de quem abre o painel",
     "demo-a/acervo.jsonl": "a planilha inteira do sindicato",
+    "demo-a/leituras.jsonl": "o que a sentença de cada pessoa diz",
+    "demo-a/trocas_de_email.jsonl": "CPF e e-mails de troca pedida",
     "demo-a/entrega/manifesto.csv": "quem entregou o quê",
     "demo-a/entrega/recebidos.jsonl": "o diário de cadastros",
     "demo-a/entrega/00000000000/sentenca.pdf": "a sentença de uma pessoa",
@@ -197,6 +199,40 @@ def t_ha_um_so_lugar_que_monta_os_fatos_de_uma_pessoa():
           f"nenhum): {achados}")
 
 
+def t_so_quem_opera_troca_o_email_de_quem_ja_entra():
+    """Nenhuma ROTA alcança a troca de e-mail de quem já está no portão.
+
+    A trava de T26 é esta: a planilha do gestor põe gente nova no acesso e
+    PEDE a troca de quem já entra; quem faz a troca valer é a ferramenta de
+    quem opera o servidor. Os testes de comportamento provam que a rota da
+    planilha não troca. Este prova que não apareceu OUTRA rota que troque —
+    que é como a trava se perde: alguém acha razoável um botão de "aprovar"
+    no painel, e uma sessão de gestor volta a valer todas as contas.
+
+    Conta as chamadas no código de produção. `trocar_email` tem um chamador
+    (`trocas.aprovar`), e `aprovar` tem um (a ferramenta).
+    """
+    onde: dict[str, list[str]] = {"rol.trocar_email(": [],
+                                  "trocas.aprovar(": []}
+    for pasta in ("nucleo", "servidor", "ferramentas"):
+        for caminho in sorted((RAIZ / pasta).rglob("*.py")):
+            for n, linha in enumerate(
+                caminho.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if linha.strip().startswith("#"):
+                    continue
+                for chamada in onde:
+                    if chamada in linha:
+                        onde[chamada].append(
+                            str(caminho.relative_to(RAIZ)))
+    checa(onde["rol.trocar_email("] == ["servidor/trocas.py"],
+          f"`rol.trocar_email` tem de ter UM chamador, `trocas.aprovar`: "
+          f"{onde['rol.trocar_email(']}")
+    checa(onde["trocas.aprovar("] == ["ferramentas/trocas_de_email.py"],
+          f"`trocas.aprovar` só pode ser chamada pela ferramenta de quem "
+          f"opera, nunca por rota: {onde['trocas.aprovar(']}")
+
+
 TESTES = [
     ("a raiz de dados padrão está ignorada", t_a_raiz_padrao_esta_ignorada),
     ("todo arquivo que a aplicação escreve está ignorado",
@@ -207,6 +243,8 @@ TESTES = [
      t_escritorio_nao_e_arquitetura),
     ("um só lugar monta os fatos de uma pessoa",
      t_ha_um_so_lugar_que_monta_os_fatos_de_uma_pessoa),
+    ("só quem opera troca o e-mail de quem já entra",
+     t_so_quem_opera_troca_o_email_de_quem_ja_entra),
 ]
 
 
