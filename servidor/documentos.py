@@ -29,21 +29,20 @@ título.
 """
 from __future__ import annotations
 
+import dataclasses
 import io
 
-from nucleo import leitura, motor
+from nucleo import leitura, motor, panorama
 
 #: Abaixo disto, o PDF não tem camada de texto que sirva. O mesmo número que
 #: `validacao.texto_extraivel` usa, e pelo mesmo motivo: um PDF de scanner
 #: devolve meia dúzia de caracteres de metadado e nada mais.
 MINIMO_DE_CARACTERES = 120
 
-#: Dispositivos que produzem título executivo, quando há trânsito.
-#: "parcialmente procedente" entra: o que foi deferido é executável, e o
-#: limite do que se pode cobrar é problema do cálculo, não da existência do
-#: título.
-DISPOSITIVOS_COM_TITULO = ("procedente", "parcialmente_procedente")
-DISPOSITIVOS_SEM_TITULO = ("improcedente", "extinto")
+#: A regra do título mora em `nucleo/leitura.py`. Os nomes continuam
+#: alcançáveis daqui para quem já os importava.
+DISPOSITIVOS_COM_TITULO = leitura.DISPOSITIVOS_COM_TITULO
+DISPOSITIVOS_SEM_TITULO = leitura.DISPOSITIVOS_SEM_TITULO
 
 
 def extrair_texto(corpo: bytes) -> tuple[str, int]:
@@ -89,24 +88,8 @@ def ler_pdf(corpo: bytes) -> list[leitura.Achado]:
 
 
 def tem_titulo(fatos_lidos: dict[str, str]) -> bool | None:
-    """Há título executivo? True / False / None, e o None importa.
-
-    Título é DISPOSITIVO FAVORÁVEL **mais** TRÂNSITO EM JULGADO. Um sem o
-    outro não é título:
-
-      - procedente sem trânsito  -> ainda cabe recurso. None
-      - improcedente             -> definitivo e nada a cobrar. False
-      - trânsito sem dispositivo -> não se sabe do quê. None
-    """
-    dispositivo = fatos_lidos.get("dispositivo")
-    transito = fatos_lidos.get("transito_em_julgado")
-
-    if dispositivo in DISPOSITIVOS_SEM_TITULO:
-        # Improcedente é resposta, e não depende do trânsito para sê-lo.
-        return False
-    if dispositivo in DISPOSITIVOS_COM_TITULO and transito:
-        return True
-    return None
+    """Há título executivo? A regra é `leitura.titulo_de`, e é UMA só."""
+    return leitura.titulo_de(fatos_lidos)
 
 
 def fatos_para_o_motor(
@@ -133,22 +116,20 @@ def fatos_para_o_motor(
     Passar `None` nesses é o estado honesto antes de o SINDICATO fornecer as
     bases — e o motor devolve FALTA, que é o certo.
     """
-    cadastro = cadastro or {}
-    return motor.Fatos(
-        cpf=cadastro.get("cpf", ""),
-        # `nome_completo` é o nome do campo NO CONTRATO. Era `nome`, que o
-        # contrato não tem: `Fatos.nome` vinha vazio sempre, calado, e é esse
-        # nome que a tela do filiado mostra.
-        nome=cadastro.get("nome_completo", ""),
-        cargo=cadastro.get("cargo", ""),
-        situacao=cadastro.get("situacao", ""),
-        data_ingresso=cadastro.get("data_ingresso", ""),
-        data_aposentadoria=cadastro.get("data_aposentadoria", ""),
-        filiado_desde=cadastro.get("filiado_desde", ""),
-        filiado_ate=cadastro.get("filiado_ate", ""),
-        tem_titulo=tem_titulo(fatos_lidos),
-        no_rol=no_rol,
-        ja_executou=ja_executou,
-        tem_acao_propria=tem_acao_propria,
-        documentos_entregues=documentos_entregues,
+    # DELEGA AO ÚNICO CONSTRUTOR. Esta função montava `motor.Fatos` por
+    # conta própria, e a cópia em `nucleo/panorama.py` montava de outro
+    # jeito — uma lia os documentos, a outra não, e a mesma pessoa recebia
+    # respostas diferentes conforme quem perguntava. O que continua sendo
+    # DESTA função é o que vem de fora dos documentos e do cadastro: os
+    # argumentos explícitos, quando dados, vencem.
+    fatos = panorama.fatos_do_cadastro(
+        cadastro or {}, tuple(documentos_entregues), fatos_lidos
     )
+    por_fora = {
+        nome: valor for nome, valor in (
+            ("no_rol", no_rol),
+            ("ja_executou", ja_executou),
+            ("tem_acao_propria", tem_acao_propria),
+        ) if valor is not None
+    }
+    return dataclasses.replace(fatos, **por_fora)

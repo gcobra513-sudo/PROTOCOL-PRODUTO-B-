@@ -403,8 +403,12 @@ def teste_recriar_derruba_TODAS_as_tabelas():
 
 # ------------------------------------------- o caminho de produção, por HTTP
 
-def _servidor():
-    """Um servidor em modo ensaio COM banco, e uma entidade de demonstração."""
+def _servidor(apelido: str = "demo-a"):
+    """Um servidor em modo ensaio COM banco, e uma entidade de demonstração.
+
+    `apelido` existe para o teste que precisa da BASE SÓ DELE: o banco não é
+    zerado entre os testes desta suíte, então quem mede um agregado da
+    entidade — o painel — em `demo-a` mede também as pessoas dos outros."""
     import csv
     import tempfile
 
@@ -416,9 +420,9 @@ def _servidor():
 
     raiz = Path(tempfile.mkdtemp(prefix="espelho-"))
     cad = mod.Cadastro(raiz)
-    ent = cad.criar("demo-a", "Sindicato de Demonstração",
+    ent = cad.criar(apelido, "Sindicato de Demonstração",
                     categorias=("auditor-fiscal-receita-federal",))
-    pasta = raiz / "demo-a"
+    pasta = raiz / apelido
     pasta.mkdir(parents=True, exist_ok=True)
     with open(pasta / "filiados.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
@@ -467,12 +471,12 @@ def _cpf_sintetico(n: int) -> str:
     return "".join(map(str, base))
 
 
-def _token(cliente, cpf: str) -> str:
+def _token(cliente, cpf: str, entidade: str = "demo-a") -> str:
     r = cliente.post("/api/acesso/codigo",
-                     json={"entidade": "demo-a", "cpf": cpf})
+                     json={"entidade": entidade, "cpf": cpf})
     codigo = r.json()["codigo_do_ensaio"]
     r = cliente.post("/api/acesso/conferir",
-                     json={"entidade": "demo-a", "cpf": cpf,
+                     json={"entidade": entidade, "cpf": cpf,
                            "codigo": codigo})
     return r.json()["token"]
 
@@ -1937,6 +1941,172 @@ def teste_motivo_e_pedido_por_tem_teto_e_recusa_em_vez_de_cortar():
 
 
 
+# --------------------------- uma pessoa, três superfícies, uma resposta
+
+CERTIDAO = ["PODER JUDICIARIO - JUSTICA FEDERAL", "CERTIDAO", "",
+            "Certifico que a sentenca proferida nos autos do processo n.",
+            "0010391-24.2006.4.01.3400 transitou em julgado em 22/08/2019, "
+            "nada havendo",
+            "a prover.", "", "Documento de exemplo, para demonstracao do "
+            "sistema."]
+
+
+def _cadastrar_com_titulo(cliente, cpf: str, entidade: str):
+    """Contribuição + sentença procedente + certidão de trânsito: os três
+    documentos que, lidos, dizem que HÁ título."""
+    import json as _json
+
+    return cliente.post(
+        "/api/cadastro",
+        data={"token": _token(cliente, cpf, entidade),
+              "linha": _json.dumps(linha(cpf, ja_executou="nao",
+                                         tem_acao_propria="nao"))},
+        files=[("arquivos", ("contribuicao-1.pdf", _pdf(CONTRIB),
+                             "application/pdf")),
+               ("arquivos", ("sentenca.pdf", _pdf(SENTENCA),
+                             "application/pdf")),
+               ("arquivos", ("certidao_transito.pdf", _pdf(CERTIDAO),
+                             "application/pdf"))],
+    )
+
+
+def _faltas_do_filiado(cliente, cpf: str, entidade: str) -> dict:
+    """{(trilha, referência): (veredicto, o que falta)} como o FILIADO vê."""
+    corpo = cliente.get(
+        "/api/minhas-acoes",
+        headers={"Authorization": f"Bearer {_token(cliente, cpf, entidade)}"},
+    ).json()
+    return {
+        (o["trilha"], o["referencia"]):
+            (o["veredicto"], sorted(f["o_que"] for f in o["falta"]))
+        for o in corpo["oportunidades"]
+    }
+
+
+def teste_as_tres_superficies_dizem_o_mesmo_sobre_a_mesma_pessoa():
+    """Achado da auditoria de produto de 10/11/2026, e o defeito era meu.
+
+    TRÊS lugares chamam o motor, e só um lia documento:
+
+        /api/minhas-acoes         documentos.fatos_para_o_motor   LÊ
+        /panorama (o painel)      panorama.fatos_do_cadastro      não lia
+        reavaliar_oportunidades   panorama.fatos_do_cadastro      não lia
+
+    `fatos_do_cadastro` fixava `tem_titulo=None`. Medido, com a sentença JÁ
+    LIDA na chegada do cadastro: o filiado via uma pendência, e o painel e a
+    tabela `oportunidade` mostravam duas — a segunda era "a leitura da
+    sentença já entregue". O sindicato via como pendência um trabalho já
+    feito, e o veredicto GUARDADO, que existe para ser a prova, guardava a
+    resposta mais fraca das três.
+
+    Este teste não fixa QUAL é a resposta — isso é dos testes do motor. Ele
+    fixa que ela é UMA: a mesma pessoa, a mesma pergunta, o mesmo resultado
+    nas três superfícies.
+    """
+    import subprocess
+
+    from servidor import banco
+
+    secao("uma pessoa, três superfícies")
+    entidade = "demo-fatos"
+    cliente, ent, raiz = _servidor(entidade)
+    r = _cadastrar_com_titulo(cliente, A, entidade)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+
+    # 1. O filiado.
+    do_filiado = _faltas_do_filiado(cliente, A, entidade)
+    checa(do_filiado, "o filiado não recebeu oportunidade nenhuma")
+
+    # 2. O veredicto GUARDADO, pela ferramenta de verdade.
+    t = subprocess.run(
+        [sys.executable, str(RAIZ / "ferramentas" / "reavaliar_oportunidades.py"),
+         "--entidade", entidade, "--raiz", str(raiz), "--banco", URL],
+        capture_output=True, text=True,
+        env={**os.environ, "PROTOCOL_DATABASE_URL": URL},
+    )
+    checa(t.returncode == 0, f"reavaliar saiu {t.returncode}: {t.stderr[:300]}")
+    guardado = {
+        (g["trilha"], g["referencia"]):
+            (g["veredicto"], sorted(f["o_que"] for f in g["falta"]))
+        for g in banco.oportunidades_de(URL, entidade, A)
+    }
+    checa(guardado == do_filiado,
+          "o veredicto GUARDADO não é o que o filiado vê:\n"
+          f"    filiado:  {do_filiado}\n    guardado: {guardado}")
+
+    # 3. O painel do sindicato. Ele agrega, então a comparação é pelo
+    #    conjunto do que falta — numa base que tem só esta pessoa.
+    painel = cliente.get(
+        f"/api/entidade/{entidade}/panorama",
+        headers={"Authorization": f"Bearer {_token(cliente, B, entidade)}"},
+    ).json()
+    checa(painel["pessoas"] == 1,
+          f"a base do teste devia ter 1 pessoa, tem {painel['pessoas']}")
+    no_painel = {g["o_que"] for g in painel["gargalos"]}
+    checa("a leitura da sentença já entregue" not in no_painel,
+          "o painel cobra do sindicato a leitura de uma sentença que JÁ foi "
+          "lida na chegada do cadastro")
+    do_filiado_tudo = {
+        o_que for _, faltas in do_filiado.values() for o_que in faltas
+    }
+    checa(do_filiado_tudo <= no_painel,
+          f"o filiado vê pendência que o painel não mostra: "
+          f"{do_filiado_tudo - no_painel}")
+    checa(painel["leu_documentos"] is True,
+          "o painel usou os documentos lidos e continua dizendo que não leu")
+    checa("Nenhum documento foi lido" not in painel["limite"],
+          f"o painel leu os documentos e o texto do limite ainda afirma o "
+          f"contrário: {painel['limite']!r}")
+    print("  ok     filiado, painel e veredicto guardado concordam")
+
+
+def teste_ler_os_documentos_nao_faz_o_painel_custar_por_pessoa():
+    """A razão ORIGINAL de o painel não ler documento era custo: reabrir os
+    PDFs da base inteira a cada carregamento de tela. Os achados passaram a
+    ser gravados na chegada — e o painel continuou sem lê-los.
+
+    Ao ligar uma coisa na outra, o custo não pode voltar pela porta dos
+    fundos: UMA consulta traz os achados da entidade inteira. Este teste
+    conta comandos SQL do painel com poucas e com muitas pessoas COM
+    documento, e exige o mesmo número.
+    """
+    import psycopg
+
+    def comandos_do_painel(entidade: str, quantas: int) -> int:
+        cliente, ent, raiz = _servidor(entidade)
+        cpfs = [_cpf_sintetico(5000 + i) for i in range(quantas)]
+        _por_no_rol(raiz, entidade, cpfs)
+        for cpf in cpfs:
+            _cadastrar_com_titulo(cliente, cpf, entidade)
+        token = _token(cliente, B, entidade)
+
+        original = psycopg.Cursor.execute
+        contador = {"n": 0}
+
+        def espiao(self, *a, **k):
+            contador["n"] += 1
+            return original(self, *a, **k)
+
+        psycopg.Cursor.execute = espiao
+        try:
+            r = cliente.get(f"/api/entidade/{entidade}/panorama",
+                            headers={"Authorization": f"Bearer {token}"})
+        finally:
+            psycopg.Cursor.execute = original
+        checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+        checa(r.json()["pessoas"] == quantas,
+              f"a base devia ter {quantas}, tem {r.json()['pessoas']}")
+        return contador["n"]
+
+    com_poucas = comandos_do_painel("demo-custo-p", 2)
+    com_muitas = comandos_do_painel("demo-custo-m", 9)
+    checa(com_poucas == com_muitas,
+          f"o painel custa por pessoa: {com_poucas} comandos com 2 pessoas, "
+          f"{com_muitas} com 9")
+    print(f"  ok     {com_poucas} comandos com 2 pessoas, {com_muitas} "
+          f"com 9 — plano")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -1993,6 +2163,8 @@ TESTES = [
     teste_o_apagamento_fica_registrado_e_leitura_nao_e_apagada,
     teste_sem_registro_de_auditoria_nao_apaga_nada,
     teste_motivo_e_pedido_por_tem_teto_e_recusa_em_vez_de_cortar,
+    teste_as_tres_superficies_dizem_o_mesmo_sobre_a_mesma_pessoa,
+    teste_ler_os_documentos_nao_faz_o_painel_custar_por_pessoa,
     teste_falha_ao_conferir_apagamento_nao_entrega_codigo,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,

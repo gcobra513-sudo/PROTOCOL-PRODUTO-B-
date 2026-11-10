@@ -689,6 +689,34 @@ def achados_do_cpf(url: str, entidade: str, cpf: str) -> list:
         ]
 
 
+def fatos_lidos_da_entidade(url: str, entidade: str) -> dict[str, dict]:
+    """{cpf: fatos confiáveis} de TODA a entidade, numa consulta só.
+
+    Existe para o painel e para a reavaliação, que olham a base inteira.
+    `achados_do_cpf` responde por uma pessoa, e chamá-la em laço faria o
+    painel custar uma ida ao banco por filiado — que foi a razão ORIGINAL de
+    o painel não ler documento, e não pode voltar pela porta dos fundos. Há
+    teste contando os comandos.
+
+    Quem não tem achado nenhum NÃO aparece no dicionário: ausência aqui é
+    "olhamos, e os documentos desta pessoa não disseram nada".
+    """
+    from nucleo import leitura as mod
+
+    por_cpf: dict[str, list] = {}
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT cpf, tipo, valor, confianca, trecho, posicao, metodo "
+            "FROM achado ORDER BY cpf, posicao, tipo"
+        )
+        for cpf, t, v, c, tr, pos, m in cur.fetchall():
+            por_cpf.setdefault(cpf, []).append(
+                mod.Achado(tipo=t, valor=v, confianca=c, trecho=tr,
+                           posicao=pos, metodo=m))
+    return {cpf: mod.fatos_confiaveis(achados)
+            for cpf, achados in por_cpf.items()}
+
+
 def processos_para_acompanhar(url: str, entidade: str) -> list[str]:
     """Todos os processos desta entidade, de qualquer fonte.
 

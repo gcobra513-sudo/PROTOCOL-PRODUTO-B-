@@ -35,6 +35,7 @@ from dataclasses import dataclass
 
 from . import cadastro as conta
 from . import entendimentos as ent
+from . import leitura
 from . import motor
 from . import participacao as part
 from . import pendencia
@@ -184,9 +185,30 @@ def ultimo_envio_por_cpf(registros) -> dict[str, dict]:
     return por_cpf
 
 
-def fatos_do_cadastro(linha: dict, entregues: tuple[str, ...]) -> motor.Fatos:
-    """O que o cadastro basta para dizer. **`tem_titulo` fica `None`**: ele
-    sai do conteúdo da sentença, e este módulo não abre documento."""
+def fatos_do_cadastro(
+    linha: dict,
+    entregues: tuple[str, ...],
+    lidos: dict[str, str] | None = None,
+) -> motor.Fatos:
+    """Os fatos de UMA pessoa, para o motor. É o ÚNICO construtor: a tela do
+    filiado, o painel do sindicato e o veredicto guardado passam por aqui.
+
+    Eram dois, e a diferença entre eles era um defeito: este fixava
+    `tem_titulo=None` ("este módulo não abre documento"), e o da tela do
+    filiado lia. Resultado medido em 10/11/2026: com a sentença JÁ LIDA, o
+    painel cobrava do sindicato "a leitura da sentença já entregue", e o
+    veredicto guardado — que existe para ser a prova — guardava a resposta
+    mais fraca das três.
+
+    `lidos` são os fatos que os documentos da pessoa disseram
+    (`leitura.fatos_confiaveis`). Este módulo continua sem ABRIR documento:
+    quem lê é quem recebe, uma vez, na chegada. Aqui só se usa o que foi
+    lido.
+
+    `lidos=None` quer dizer NINGUÉM OLHOU os documentos, e `{}` quer dizer
+    olharam e não havia fato. Para o título os dois dão `None` — mas quem
+    chama precisa da diferença para dizer se o panorama leu ou não.
+    """
     return motor.Fatos(
         cpf=conta.so_digitos(linha.get("cpf") or ""),
         nome=str(linha.get("nome_completo") or ""),
@@ -196,7 +218,7 @@ def fatos_do_cadastro(linha: dict, entregues: tuple[str, ...]) -> motor.Fatos:
         data_aposentadoria=str(linha.get("data_aposentadoria") or ""),
         filiado_desde=str(linha.get("filiado_desde") or ""),
         filiado_ate=str(linha.get("filiado_ate") or ""),
-        tem_titulo=None,
+        tem_titulo=leitura.titulo_de(lidos) if lidos is not None else None,
         ja_executou=conta.resposta_booleana(linha.get("ja_executou") or ""),
         tem_acao_propria=conta.resposta_booleana(
             linha.get("tem_acao_propria") or ""
@@ -209,6 +231,7 @@ def montar(
     registros,
     catalogo: ent.Catalogo,
     exemplos: int = EXEMPLOS_PADRAO,
+    lidos_por_cpf: dict[str, dict[str, str]] | None = None,
 ) -> Panorama:
     """O panorama desta entidade, a partir do diário e do catálogo dela.
 
@@ -228,7 +251,10 @@ def montar(
 
     for cpf, envio in pessoas.items():
         linha = envio["linha"]
-        fatos = fatos_do_cadastro(linha, envio["entregues"])
+        # `None` no mapa inteiro = ninguém olhou documento nenhum. Com o
+        # mapa em mãos, quem não aparece nele foi olhado e não tinha fato.
+        lidos = None if lidos_por_cpf is None else lidos_por_cpf.get(cpf, {})
+        fatos = fatos_do_cadastro(linha, envio["entregues"], lidos)
         quem = part.Filiado(
             cpf=fatos.cpf,
             cargo=fatos.cargo,
@@ -286,5 +312,5 @@ def montar(
         ),
         gargalos=tuple(gargalos),
         aptos=aptos,
-        leu_documentos=False,
+        leu_documentos=lidos_por_cpf is not None,
     )

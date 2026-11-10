@@ -6,13 +6,18 @@ fazer". O que não existia era a resposta GUARDADA — e sem ela não há como
 dizer o que mudou quando um tema é julgado. A tabela `oportunidade` estava no
 esquema desde o checkpoint 9 e ninguém escrevia nela.
 
-A PRIMEIRA TRANSIÇÃO DE VERDADE VAI SER A HOMOLOGAÇÃO. Hoje nada está
-homologado, então o motor emite `FALTA` e `NAO_PODE` e nenhum `PODE` — o que
-está correto. No dia em que um advogado marcar `homologado = "S"` e subir a
-`versao` do catálogo, esta ferramenta vai mostrar `FALTA → PODE` para todo
-mundo que a tese alcança. É por isso que ela vem ANTES da homologação: sem o
-veredicto anterior guardado, o efeito passa e ninguém consegue provar qual
-catálogo produziu o quê.
+O QUE ESTA FERRAMENTA NÃO FAZ, E EU JÁ ESCREVI AQUI QUE FARIA. A primeira
+versão deste texto dizia que "a primeira transição de verdade vai ser a
+homologação": no dia em que um advogado marcasse `homologado = "S"`, isto
+mostraria `FALTA → PODE` para todo mundo que a tese alcança. NÃO MEDI, E ESTÁ
+ERRADO. Medido em 10/11/2026 (`docs/auditoria_do_produto.md`, item 1): com
+TUDO homologado, o melhor resultado continua sendo `FALTA`, porque nenhum
+caminho do produto informa se a pessoa consta do rol de substituídos — e o
+motor exige saber. A homologação sozinha produz zero `PODE`.
+
+O que continua valendo, e é o motivo de guardar: sem o veredicto anterior
+gravado, quando a resposta MUDAR — por catálogo novo, por rol que passe a
+entrar — ninguém consegue provar qual catálogo produziu o quê.
 
     python3 ferramentas/reavaliar_oportunidades.py --entidade sind-x
 
@@ -95,11 +100,16 @@ def main() -> int:
 
     pessoas = panorama.ultimo_envio_por_cpf(banco.base(args.banco,
                                                        ent.apelido))
+    # O VEREDICTO GUARDADO USA OS DOCUMENTOS JÁ LIDOS. A primeira versão
+    # desta ferramenta não usava, e guardava como prova a resposta mais
+    # fraca que o produto tinha: "falta ler a sentença" de sentença lida.
+    lidos = banco.fatos_lidos_da_entidade(args.banco, ent.apelido)
     gravadas = 0
     try:
         for cpf, envio in pessoas.items():
             fatos = panorama.fatos_do_cadastro(envio["linha"],
-                                               envio["entregues"])
+                                               envio["entregues"],
+                                               lidos.get(cpf, {}))
             oportunidades = motor.avaliar(fatos, catalogo)
             gravadas += banco.registrar_oportunidades(
                 args.banco, ent.apelido, cpf, oportunidades,

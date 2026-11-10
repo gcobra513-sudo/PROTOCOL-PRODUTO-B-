@@ -1003,14 +1003,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         # `ja_executou_conferido=False` porque a resposta é DELA, não da base
         # de execuções: o motor conta com ela e deixa nota dizendo de onde
         # veio. Quando a base existir, ela entra aqui e a nota desaparece.
-        fatos = documentos.fatos_para_o_motor(
-            _fatos_lidos_do_cpf(ent, linha["cpf"]),
+        #
+        # O MESMO CONSTRUTOR DO PAINEL E DO VEREDICTO GUARDADO. Eram dois, e
+        # a diferença entre eles fazia o sindicato ver uma resposta e o
+        # filiado outra sobre a mesma pessoa.
+        fatos = panorama.fatos_do_cadastro(
             linha,
-            documentos_entregues=_entregues_do_cpf(ent, linha["cpf"]),
-            ja_executou=conta.resposta_booleana(linha["ja_executou"]),
-            tem_acao_propria=conta.resposta_booleana(
-                linha["tem_acao_propria"]
-            ),
+            _entregues_do_cpf(ent, linha["cpf"]),
+            _fatos_lidos_do_cpf(ent, linha["cpf"]),
         )
         quem = participacao.Filiado(
             cpf=fatos.cpf,
@@ -1192,7 +1192,16 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             banco.base(cfg.banco_url, ent.apelido) if cfg.tem_banco
             else deposito.ler_diario(ent.pasta(cfg.raiz))
         )
-        visao = panorama.montar(registros, catalogo)
+        # OS DOCUMENTOS JÁ LIDOS ENTRAM. Os achados são gravados na chegada
+        # do cadastro justamente para o painel poder olhar a base inteira —
+        # e o painel continuou sem olhar, cobrando do sindicato "a leitura
+        # da sentença já entregue" de sentença já lida. Sem banco não há
+        # achado gravado: o panorama sai sem documento, e DIZ isso.
+        lidos = (
+            banco.fatos_lidos_da_entidade(cfg.banco_url, ent.apelido)
+            if cfg.tem_banco else None
+        )
+        visao = panorama.montar(registros, catalogo, lidos_por_cpf=lidos)
         return {
             "entidade": ent.apelido,
             "nome": ent.nome,
@@ -1228,7 +1237,17 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             ],
             # Dito na resposta, não só na tela: quem consumir esta API por
             # fora recebe o limite junto com o número.
+            # DOIS TEXTOS, porque são dois estados e afirmar o errado nos
+            # dois sentidos é defeito: dizer "nenhum documento foi lido" de
+            # um panorama que leu esconde do sindicato que a resposta já
+            # considera as sentenças; dizer que leu sem ter lido faria o
+            # contrário.
             "limite": (
+                "Apurado a partir do CADASTRO e do que os documentos "
+                "entregues disseram quando foram lidos, na chegada. A leitura "
+                "é automática e só usa o que deu para afirmar com certeza — "
+                "nada aqui é parecer."
+                if visao.leu_documentos else
                 "Apurado a partir do CADASTRO e da lista de arquivos "
                 "entregues. Nenhum documento foi lido para montar este "
                 "panorama, e nada aqui é parecer."
