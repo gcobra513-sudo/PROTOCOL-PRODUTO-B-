@@ -23,6 +23,8 @@ import {
   faltaNaLeitura,
   fatosDaLeitura,
   rotuloDoDispositivo,
+  filtrarPessoas,
+  situacaoDaPessoa,
 } from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
@@ -306,5 +308,50 @@ describe("o formulário de leitura, por tipo de documento", () => {
     expect(r.mostra).toBe(true);
     expect(r.frase).toContain("2 documentos");
     expect(r.frase.toLowerCase()).toContain("pedir de novo");
+  });
+});
+
+describe("a lista nome por nome", () => {
+  const P = (nome: string, extra: Partial<api.PessoaNaLista> = {}): api.PessoaNaLista => ({
+    nome, cpf: "***.444.777-**", cadastrou: true, pode: false,
+    depende_de: [], acoes: [], oportunidades: [], ...extra,
+  });
+  const BASE = [
+    P("JOSÉ DA SILVA (EXEMPLO)", { depende_de: ["VOCE", "TRIBUNAL"] }),
+    P("MARIA JOÃO (EXEMPLO)", { depende_de: ["CONFERENCIA"] }),
+    P("ANA PAULA (EXEMPLO)", { pode: true }),
+  ];
+
+  it("busca pelo nome sem exigir acento nem maiúscula", () => {
+    // O gestor digita "jose" e "joao". Exigir o acento é fazer a busca
+    // falhar para quem escreve como todo mundo escreve.
+    expect(filtrarPessoas(BASE, { texto: "jose", dono: "" }).map((p) => p.nome))
+      .toEqual(["JOSÉ DA SILVA (EXEMPLO)"]);
+    expect(filtrarPessoas(BASE, { texto: "JOAO", dono: "" })).toHaveLength(1);
+  });
+
+  it("filtra por de quem depende — e quem depende de dois aparece nos dois", () => {
+    expect(filtrarPessoas(BASE, { texto: "", dono: "VOCE" })).toHaveLength(1);
+    expect(filtrarPessoas(BASE, { texto: "", dono: "TRIBUNAL" })).toHaveLength(1);
+    expect(filtrarPessoas(BASE, { texto: "", dono: "CONFERENCIA" })[0]!.nome)
+      .toContain("MARIA");
+  });
+
+  it("\"quem já pode\" é filtro próprio, não um dono", () => {
+    expect(filtrarPessoas(BASE, { texto: "", dono: "PODE" }).map((p) => p.nome))
+      .toEqual(["ANA PAULA (EXEMPLO)"]);
+  });
+
+  it("sem filtro, devolve todo mundo", () => {
+    expect(filtrarPessoas(BASE, { texto: "  ", dono: "" })).toHaveLength(3);
+  });
+
+  it("a situação de cada um cabe numa linha, com as palavras do painel", () => {
+    expect(situacaoDaPessoa(BASE[2]!)).toContain("pode");
+    const s = situacaoDaPessoa(BASE[0]!);
+    expect(s).toContain("depende do filiado");
+    expect(s).toContain("depende do tribunal");
+    // Quem não tem pendência nem pode: não se inventa estado.
+    expect(situacaoDaPessoa(P("X"))).toBe("sem ação que a alcance");
   });
 });

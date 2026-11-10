@@ -317,3 +317,26 @@ feita pelo sindicato precisa de um visto de advogado antes de valer para
 `PODE`, é decisão do jurídico — e o lugar para o visto já existe: a coluna
 `achado.conferido` e o `metodo = "pessoa"` distinguem esses fatos de todos
 os outros.
+
+## O item 5, fechado em 10/11/2026 — nome por nome, e a planilha
+
+O painel ganhou a lista: cada pessoa da base, o que ela já pode, e de quem
+depende o resto — com busca pelo nome (sem exigir acento) e filtro por dono
+da pendência. E a exportação: `GET /api/entidade/{apelido}/pessoas.csv`.
+
+- **a lista sai do MESMO laço do panorama** (`panorama.por_pessoa`). É a
+  quarta superfície que responde sobre uma pessoa, e há teste exigindo que
+  diga o mesmo que a tela do filiado;
+- **na tela o CPF vem mascarado; na planilha, inteiro** — é por ele que o
+  sindicato casa a lista com os registros dele. Por isso a exportação é a
+  maior saída de dado do produto, e o registro de QUEM exportou é síncrono:
+  sem registro, não sai arquivo;
+- o dialeto é o do Excel em português (`;` e marca de UTF-8), e toda célula
+  passa pela trava de fórmula — o nome vem do filiado;
+- a lista custa 10 comandos SQL com 2 pessoas e 10 com 9.
+
+**Um vazamento pequeno achado lendo o laço:** `nome = fatos.nome or cpf`.
+Quem não tinha nome na base aparecia nos exemplos de cada pendência, no
+painel, pelo CPF em claro. Corrigido, com teste.
+
+O ensaio de navegador confere a planilha como o navegador a BAIXOU.

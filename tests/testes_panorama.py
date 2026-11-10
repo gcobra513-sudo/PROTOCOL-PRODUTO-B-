@@ -343,7 +343,69 @@ def teste_registro_ilegivel_nao_derruba_o_panorama():
     print("  ok     registro ilegível é pulado, não derruba")
 
 
+def teste_pessoa_sem_nome_nao_aparece_pelo_cpf():
+    """`nome = fatos.nome or cpf`: quem não tinha nome na base aparecia nos
+    EXEMPLOS de cada pendência pelo CPF em claro — e os exemplos vão para o
+    painel. Achado lendo o laço, em 10/11/2026."""
+    secao("nome por nome")
+    sem_nome = registro(A)
+    sem_nome["linha"]["nome_completo"] = ""
+    visao = panorama.montar([sem_nome], acervo())
+    exemplos = [e for g in visao.gargalos for e in g.exemplos]
+    checa(exemplos, "a premissa falhou: não há gargalo com exemplo")
+    checa(all(A not in e for e in exemplos),
+          f"o CPF de quem não tem nome foi para os exemplos: {exemplos}")
+    print("  ok     sem nome, o exemplo não vira CPF")
+
+
+def teste_a_lista_por_pessoa_sai_do_mesmo_caminho_do_panorama():
+    """A lista "nome por nome" e o panorama são a MESMA avaliação, vista de
+    dois jeitos. Se fossem dois laços, um dia divergiriam — foi exatamente o
+    defeito das três superfícies. Aqui: a contagem de pessoas presas em cada
+    pendência, tirada da lista, tem de bater com os gargalos do panorama."""
+    registros = [registro(A), registro(B, arquivos=("contribuicao-1.pdf",
+                                                    "sentenca.pdf")),
+                 registro(C, cargo="Analista Tributário")]
+    catalogo = acervo()
+    visao = panorama.montar(registros, catalogo)
+    lista = panorama.por_pessoa(registros, catalogo)
+    checa(len(lista) == visao.pessoas,
+          f"a lista tem {len(lista)} e o panorama conta {visao.pessoas}")
+
+    da_lista: dict[tuple[str, str], int] = {}
+    for pessoa in lista:
+        dela = {(f.quem, f.o_que) for o in pessoa.oportunidades
+                for f in (*o.falta, *o.falta_para_valor)}
+        for chave in dela:
+            da_lista[chave] = da_lista.get(chave, 0) + 1
+    do_panorama = {(g.quem, g.o_que): g.pessoas for g in visao.gargalos}
+    checa(da_lista == do_panorama,
+          f"a lista e o panorama discordam:\n  lista: {da_lista}\n"
+          f"  panorama: {do_panorama}")
+    print("  ok     a lista por pessoa e o panorama são a mesma avaliação")
+
+
+def teste_de_quem_depende_cada_pessoa():
+    """O filtro que o gestor usa: de QUEM depende a resposta de cada um.
+    Sem prioridade inventada — uma pessoa pode depender de dois donos, e
+    escolher um esconderia o outro."""
+    lista = panorama.por_pessoa(
+        [registro(A), registro(C, cargo="Analista Tributário")], acervo())
+    por_cpf = {p.cpf: p for p in lista}
+    checa("CONFERENCIA" in por_cpf[A].depende_de,
+          f"quem espera homologação depende da conferência: "
+          f"{por_cpf[A].depende_de}")
+    checa(por_cpf[A].pode is False, "nada homologado e alguém PODE")
+    checa(list(por_cpf[A].depende_de) == sorted(
+              por_cpf[A].depende_de, key=pendencia.DONOS.index),
+          "os donos não saem na ordem de leitura")
+    print("  ok     cada pessoa diz de quem depende, sem escolher um só")
+
+
 TESTES = [
+    teste_pessoa_sem_nome_nao_aparece_pelo_cpf,
+    teste_a_lista_por_pessoa_sai_do_mesmo_caminho_do_panorama,
+    teste_de_quem_depende_cada_pessoa,
     teste_conta_pessoa_nao_linha,
     teste_o_ultimo_envio_vence,
     teste_a_soma_bate_com_o_motor_pessoa_a_pessoa,

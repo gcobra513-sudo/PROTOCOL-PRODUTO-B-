@@ -24,8 +24,10 @@ caminho do pedido, e isso é mudança de desenho, não ajuste de ramo.
 
 from __future__ import annotations
 
+import csv
 import dataclasses
 import hashlib
+import io
 import json
 import logging
 import pathlib
@@ -1450,6 +1452,147 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         log.info("apagado a pedido ent=%s cpf=%s vestigios=%d",
                  ent.apelido, _hash_curto(cpf), len(saida["vestigios"]))
         return saida
+
+    # --------------------------------------------- nome por nome
+
+    def _base_avaliada(ent: entidades.Entidade) -> list:
+        """Cada pessoa da base, avaliada — pelo MESMO laço do panorama."""
+        catalogo = entendimentos.carregar_categorias(
+            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        )
+        if cfg.tem_banco:
+            registros = banco.base(cfg.banco_url, ent.apelido)
+            lidos = banco.fatos_lidos_da_entidade(cfg.banco_url, ent.apelido)
+        else:
+            registros = deposito.ler_diario(ent.pasta(cfg.raiz))
+            lidos = None
+        return panorama.por_pessoa(registros, catalogo, lidos)
+
+    def _cpf_mascarado(cpf: str) -> str:
+        """`***.444.777-**`: dá para o gestor distinguir dois homônimos, e
+        não é o CPF. O inteiro só sai na exportação, que é pedida de
+        propósito e registrada."""
+        d = conta.so_digitos(cpf)
+        return f"***.{d[3:6]}.{d[6:9]}-**" if len(d) == 11 else ""
+
+    @app.get("/api/entidade/{apelido}/pessoas")
+    def ver_pessoas(apelido: str, pedido: Request) -> dict:
+        """A base, NOME POR NOME: o que cada pessoa pode fazer, o que falta
+        e de quem depende.
+
+        A frase do produto é "nós dizemos, nome por nome", e o sindicato
+        recebia totais e até oito nomes de exemplo por pendência. Esta é a
+        quarta superfície que responde sobre uma pessoa — e sai do mesmo
+        laço do panorama, para não poder dizer outra coisa.
+        """
+        ent = _gestor_de(apelido, pedido)
+        _auditar(ent, "pessoas", quem_hash=_sessao_de(pedido).cpf_hash)
+        return {
+            "entidade": ent.apelido,
+            "pessoas": [
+                {
+                    "nome": a.nome,
+                    "cpf": _cpf_mascarado(a.cpf),
+                    "cadastrou": a.cadastrou,
+                    "pode": a.pode,
+                    "depende_de": list(a.depende_de),
+                    "acoes": [
+                        {"id": p.acao, "estado": p.estado}
+                        for p in a.participacoes
+                    ],
+                    "oportunidades": [
+                        {
+                            "trilha": o.trilha,
+                            "referencia": o.referencia,
+                            "rotulo": o.rotulo,
+                            "veredicto": o.veredicto,
+                            "falta": [{"quem": f.quem, "o_que": f.o_que}
+                                      for f in o.falta],
+                        }
+                        for o in a.oportunidades
+                    ],
+                }
+                for a in _base_avaliada(ent)
+            ],
+        }
+
+    @app.get("/api/entidade/{apelido}/pessoas.csv")
+    def exportar_pessoas(apelido: str, pedido: Request) -> Response:
+        """A mesma lista, como planilha que o sindicato leva embora.
+
+        COM O CPF INTEIRO, porque é por ele que o sindicato casa esta lista
+        com os registros dele — uma exportação sem CPF não serve para o que
+        se exporta. Por isso é a maior saída de dado do produto, e:
+
+        - o registro de QUEM exportou é SÍNCRONO. `_auditar` engole falha,
+          decisão tomada para a consulta de uma tela; aqui, sem registro,
+          não sai arquivo — é esse registro que torna um vazamento
+          investigável;
+        - vem como anexo, sem cache.
+
+        O DIALETO É O DO EXCEL EM PORTUGUÊS: `;` como separador e a marca de
+        UTF-8 no começo. Com vírgula tudo cai numa coluna só; sem a marca,
+        os acentos saem trocados. (Comportamento conhecido do Excel, não
+        medido aqui — não há Excel nesta máquina.)
+
+        CÉLULA QUE COMEÇA COM `=` É FÓRMULA, e o nome vem do filiado: tudo
+        passa por `deposito._sem_formula`, a mesma trava do manifesto.
+        """
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        if cfg.tem_banco:
+            try:
+                banco.registrar_leitura(cfg.banco_url, ent.apelido,
+                                        quem_hash=sessao.cpf_hash,
+                                        o_que="exportar")
+            except Exception:  # noqa: BLE001
+                log.exception("AUDITORIA DA EXPORTAÇÃO falhou ent=%s",
+                              ent.apelido)
+                raise _problema(
+                    503,
+                    "não conseguimos registrar quem pediu esta exportação, "
+                    "e sem esse registro não exportamos. Tente de novo.",
+                ) from None
+
+        def faltas(a, dono: str) -> str:
+            return " | ".join(sorted(
+                o_que for quem, o_que in a.pendencias if quem == dono))
+
+        buffer = io.StringIO(newline="")
+        escritor = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
+        escritor.writerow([
+            "cpf", "nome", "cadastrou_no_portal", "pode",
+            # Os três donos com o nome que a casa já usa em
+            # `pendencia.ROTULO_CURTO`: a mesma pendência com outro nome na
+            # planilha faria o gestor achar que são coisas diferentes.
+            "depende_do_filiado", "depende_do_sindicato",
+            "depende_do_tribunal", "acoes_de_que_participa",
+        ])
+        for a in _base_avaliada(ent):
+            escritor.writerow([deposito._sem_formula(str(c)) for c in (
+                a.cpf,
+                a.nome,
+                "sim" if a.cadastrou else "não",
+                " | ".join(f"{o.trilha}: {o.referencia}"
+                           for o in a.oportunidades
+                           if o.veredicto == motor.PODE),
+                faltas(a, pendencia.VOCE),
+                faltas(a, pendencia.CONFERENCIA),
+                faltas(a, pendencia.TRIBUNAL),
+                " | ".join(p.acao for p in a.participacoes
+                           if p.estado == participacao.PARTICIPA),
+            )])
+        log.info("exportação ent=%s", ent.apelido)
+        return Response(
+            content=("\ufeff" + buffer.getvalue()).encode("utf-8"),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition":
+                    f'attachment; filename="base-{ent.apelido}.csv"',
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     # ------------------------------------------- a conferência humana
 

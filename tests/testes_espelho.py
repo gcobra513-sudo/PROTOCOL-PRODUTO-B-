@@ -2606,6 +2606,182 @@ def teste_a_recuperacao_refaz_as_leituras_humanas():
     print("  ok     a leitura humana se refaz a partir do arquivo dela")
 
 
+# ------------------------------------------- nome por nome, e a exportação
+
+def teste_a_lista_nome_por_nome_e_a_quarta_superficie():
+    """Achado 5 da auditoria de produto. A frase do produto é "nós dizemos,
+    NOME POR NOME" — e o sindicato recebia totais e até 8 nomes de exemplo.
+
+    A lista é a quarta superfície que responde sobre uma pessoa, depois da
+    tela do filiado, do painel e do veredicto guardado. Tem de dizer o
+    mesmo.
+    """
+    import json as _json
+
+    secao("nome por nome")
+    entidade = "demo-lista"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+
+    r = cliente.get(f"/api/entidade/{entidade}/pessoas",
+                    headers=_gestor(cliente, entidade))
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    if r.status_code != 200:
+        return
+    corpo = r.json()
+    checa(len(corpo["pessoas"]) == 1, f"{corpo}")
+    pessoa = corpo["pessoas"][0]
+    checa(pessoa["nome"].startswith("FULANO"), f"sem nome: {pessoa}")
+    checa(A not in _json.dumps(corpo),
+          "a lista NA TELA devolveu o CPF inteiro; ele só sai inteiro na "
+          "exportação, que é pedida e registrada")
+    checa(A[3:9] in pessoa["cpf"].replace(".", ""),
+          f"o CPF mascarado não deixa reconhecer a pessoa: {pessoa['cpf']}")
+
+    da_lista = {
+        (o["trilha"], o["referencia"]):
+            (o["veredicto"], sorted(f["o_que"] for f in o["falta"]))
+        for o in pessoa["oportunidades"]
+    }
+    checa(da_lista == _faltas_do_filiado(cliente, A, entidade),
+          f"a lista do sindicato e a tela do filiado discordam: {da_lista}")
+    checa(pessoa["cadastrou"] is True and "depende_de" in pessoa,
+          f"{pessoa}")
+    print("  ok     a lista diz, por pessoa, o mesmo que o filiado vê")
+
+
+def teste_a_exportacao_e_planilha_que_abre_e_nao_executa():
+    """O sindicato precisa levar a base organizada para dentro dos sistemas
+    dele — e lá ele casa pelo CPF. Então a exportação traz o CPF INTEIRO,
+    e por isso é pedida de propósito, baixada como anexo, sem cache.
+
+    E É ABERTA NO EXCEL: célula que começa com `=` é fórmula. O nome vem do
+    filiado; sem neutralizar, ele executaria na máquina do gestor.
+    """
+    import json as _json
+
+    entidade = "demo-lista-2"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    malicioso = _cpf_sintetico(6001)
+    _por_no_rol(raiz, entidade, [malicioso])
+    cliente.post(
+        "/api/cadastro",
+        data={"token": _token(cliente, malicioso, entidade),
+              "linha": _json.dumps(linha(
+                  malicioso, nome_completo="=HYPERLINK(\"http://x\")"))},
+        files=[("arquivos", ("contribuicao-1.pdf", _pdf(CONTRIB),
+                             "application/pdf"))],
+    )
+
+    r = cliente.get(f"/api/entidade/{entidade}/pessoas.csv",
+                    headers=_gestor(cliente, entidade))
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    if r.status_code != 200:
+        return
+    checa(r.headers["content-type"].startswith("text/csv"),
+          f"{r.headers['content-type']}")
+    checa("attachment" in r.headers.get("content-disposition", ""),
+          "a exportação não vem como anexo")
+    checa("no-store" in r.headers.get("cache-control", ""),
+          "a base inteira do sindicato ficaria em cache")
+    checa(r.content.startswith(b"\xef\xbb\xbf"),
+          "sem a marca de UTF-8 o Excel em português troca os acentos")
+    texto = r.content.decode("utf-8-sig")
+    linhas_ = texto.split("\r\n")
+    cabecalho = linhas_[0].split(";")
+    checa(cabecalho[:2] == ["cpf", "nome"],
+          f"cabeçalho inesperado, ou separador que o Excel não abre em "
+          f"colunas: {linhas_[0]!r}")
+    checa(any(l.startswith(A + ";") for l in linhas_),
+          "o CPF não sai inteiro na exportação — e é por ele que o "
+          "sindicato casa com os próprios registros")
+    checa("\n=HYPERLINK" not in texto and ";=HYPERLINK" not in texto,
+          "o nome do filiado saiu como FÓRMULA na planilha do gestor")
+    checa("'=HYPERLINK" in texto,
+          "o nome malicioso sumiu em vez de ser neutralizado")
+    print("  ok     CSV com CPF inteiro, que o Excel abre, e sem fórmula")
+
+
+def teste_so_gestor_ve_a_lista_e_exporta():
+    entidade = "demo-lista-3"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    do_filiado = {"Authorization": f"Bearer {_token(cliente, A, entidade)}"}
+    for caminho in (f"/api/entidade/{entidade}/pessoas",
+                    f"/api/entidade/{entidade}/pessoas.csv"):
+        checa(cliente.get(caminho).status_code == 401,
+              f"{caminho} sem sessão não deu 401")
+        checa(cliente.get(caminho, headers=do_filiado).status_code == 403,
+              f"{caminho} com sessão de filiado não deu 403")
+    print("  ok     lista e exportação: sem sessão 401, filiado 403")
+
+
+def teste_a_lista_nao_custa_por_pessoa():
+    import psycopg
+
+    def comandos(entidade: str, quantas: int) -> int:
+        cliente, ent, raiz = _servidor(entidade)
+        cpfs = [_cpf_sintetico(7000 + i) for i in range(quantas)]
+        _por_no_rol(raiz, entidade, cpfs)
+        for cpf in cpfs:
+            _cadastrar_com_titulo(cliente, cpf, entidade)
+        cabecalho = _gestor(cliente, entidade)
+        original = psycopg.Cursor.execute
+        contador = {"n": 0}
+
+        def espiao(self, *a, **k):
+            contador["n"] += 1
+            return original(self, *a, **k)
+
+        psycopg.Cursor.execute = espiao
+        try:
+            r = cliente.get(f"/api/entidade/{entidade}/pessoas",
+                            headers=cabecalho)
+        finally:
+            psycopg.Cursor.execute = original
+        checa(r.status_code == 200 and len(r.json()["pessoas"]) == quantas,
+              f"{r.status_code} {r.text[:120]}")
+        return contador["n"]
+
+    poucas, muitas = comandos("demo-lista-p", 2), comandos("demo-lista-m", 9)
+    checa(poucas == muitas,
+          f"a lista custa por pessoa: {poucas} comandos com 2, {muitas} com 9")
+    print(f"  ok     {poucas} comandos com 2 pessoas, {muitas} com 9 — plano")
+
+
+def teste_sem_registro_de_quem_exportou_nao_exporta():
+    """A exportação é a maior saída de dado do produto: a base inteira, com
+    CPF. O registro de leitura é o que torna um vazamento investigável — e
+    `_auditar` engole falha, decisão tomada para a CONSULTA de uma tela.
+    Aqui, sem conseguir registrar QUEM exportou, não sai arquivo nenhum."""
+    from servidor import banco
+
+    entidade = "demo-lista-4"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    cabecalho = _gestor(cliente, entidade)
+
+    original = banco.registrar_leitura
+    banco.registrar_leitura = lambda *a, **k: (_ for _ in ()).throw(
+        RuntimeError("registro fora do ar"))
+    try:
+        r = cliente.get(f"/api/entidade/{entidade}/pessoas.csv",
+                        headers=cabecalho)
+    finally:
+        banco.registrar_leitura = original
+    checa(r.status_code == 503,
+          f"exportou a base sem registrar quem exportou: {r.status_code}")
+    checa(A.encode() not in r.content, "o CPF saiu mesmo com a recusa")
+
+    r = cliente.get(f"/api/entidade/{entidade}/pessoas.csv", headers=cabecalho)
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute("SELECT count(*) FROM leitura WHERE o_que = 'exportar'")
+        checa(r.status_code == 200 and cur.fetchone()[0] == 1,
+              "a exportação feita não ficou registrada")
+    print("  ok     sem registro de quem exportou, não exporta")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -2675,6 +2851,11 @@ TESTES = [
     teste_o_que_nem_uma_pessoa_le_sai_da_fila_e_e_contado,
     teste_reenvio_tira_o_documento_antigo_da_fila_e_do_motor,
     teste_a_recuperacao_refaz_as_leituras_humanas,
+    teste_a_lista_nome_por_nome_e_a_quarta_superficie,
+    teste_a_exportacao_e_planilha_que_abre_e_nao_executa,
+    teste_so_gestor_ve_a_lista_e_exporta,
+    teste_a_lista_nao_custa_por_pessoa,
+    teste_sem_registro_de_quem_exportou_nao_exporta,
     teste_falha_ao_conferir_apagamento_nao_entrega_codigo,
     teste_um_cadastro_nao_custa_o_diario_inteiro,
     teste_meu_cadastro_nao_le_a_base_inteira,

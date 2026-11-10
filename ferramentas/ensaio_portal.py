@@ -340,6 +340,7 @@ def main() -> int:
             if not falhas:
                 falhas += _conferir_a_leitura(raiz, banco_url,
                                               da_fila.get("conferencia"))
+                falhas += _conferir_a_lista(da_fila.get("lista"))
 
         if banco_url and not falhas:
             print("  dirigindo o Chromium — o gestor…")
@@ -532,6 +533,33 @@ def _conferir_a_leitura(raiz: pathlib.Path, url: str, na_tela) -> list[str]:
             f"o gestor leu tudo e a fila não esvaziou: "
             f"{banco.aguardando_leitura(url, APELIDO)}"
         )
+    return problemas
+
+
+def _conferir_a_lista(da_tela) -> list[str]:
+    """A lista "nome por nome" e a planilha que o gestor BAIXOU.
+
+    Confere o arquivo como o navegador o recebeu: é ele que o sindicato leva
+    para os sistemas dele. Na tela o CPF vem mascarado; na planilha, inteiro.
+    """
+    from servidor import validacao
+
+    if not da_tela:
+        return ["o gestor não chegou à lista nome por nome"]
+    problemas: list[str] = []
+    digitos = validacao.so_digitos(CPF_FILIADO)
+    if not da_tela.get("viuNome"):
+        problemas.append("a lista não mostrou o nome de quem se cadastrou")
+    if da_tela.get("cpfInteiroNaTela"):
+        problemas.append("a TELA mostrou o CPF inteiro; ele só sai na planilha")
+    planilha = da_tela.get("planilha") or ""
+    if not planilha.startswith("\ufeff"):
+        problemas.append("a planilha baixada não tem a marca de UTF-8")
+    linhas = planilha.lstrip("\ufeff").split("\r\n")
+    if not linhas[0].startswith("cpf;nome;"):
+        problemas.append(f"cabeçalho inesperado na planilha: {linhas[0][:60]!r}")
+    if not any(l.startswith(f"{digitos};{NOME_FILIADO};") for l in linhas):
+        problemas.append("a planilha baixada não traz a pessoa, com CPF e nome")
     return problemas
 
 

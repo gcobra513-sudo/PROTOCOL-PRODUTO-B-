@@ -34,6 +34,9 @@ import {
   camposDaLeitura,
   faltaNaLeitura,
   fatosDaLeitura,
+  filtrarPessoas,
+  rotuloDoDono,
+  situacaoDaPessoa,
   frasesDaMudanca,
   fracao,
   pessoas,
@@ -686,6 +689,140 @@ function FilaDeConferencia({
   );
 }
 
+
+/** Quantas linhas a tela mostra de uma vez. A base pode ter milhares; a
+ *  busca e o filtro acham quem se procura, e a planilha leva todo mundo. */
+const LINHAS_NA_TELA = 50;
+
+/** A base, NOME POR NOME.
+ *
+ * A frase do produto é "nós dizemos, nome por nome" — e o painel mostrava
+ * totais e três nomes de exemplo. Esta é a lista: cada pessoa, o que ela já
+ * pode, e de quem depende o resto.
+ *
+ * O CPF AQUI VEM MASCARADO. O inteiro sai só na PLANILHA, que o gestor pede
+ * de propósito, vem como arquivo e fica registrada — porque é por ele que o
+ * sindicato casa esta lista com os registros dele.
+ */
+function NomePorNome({ entidade, token }: { entidade: string; token: string }) {
+  const [lista, setLista] = useState<api.PessoaNaLista[] | null>(null);
+  const [texto, setTexto] = useState("");
+  const [dono, setDono] = useState("");
+  const [erro, setErro] = useState("");
+  const [baixando, setBaixando] = useState(false);
+
+  useEffect(() => {
+    void api
+      .verPessoas(entidade, token)
+      .then(setLista)
+      .catch((e) =>
+        setErro(e instanceof Error ? e.message : "não foi possível abrir"),
+      );
+  }, [entidade, token]);
+
+  async function baixar() {
+    setBaixando(true);
+    setErro("");
+    try {
+      const blob = await api.exportarPessoas(entidade, token);
+      const endereco = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = endereco;
+      a.download = `base-${entidade}.csv`;
+      a.click();
+      URL.revokeObjectURL(endereco);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "não foi possível exportar");
+    } finally {
+      setBaixando(false);
+    }
+  }
+
+  if (!lista) {
+    return erro ? <Aviso tom="alerta">{erro}</Aviso> : null;
+  }
+  const filtradas = filtrarPessoas(lista, { texto, dono });
+  const filtros: [string, string][] = [
+    ["", "Todos"],
+    ["PODE", "Já pode"],
+    ["VOCE", rotuloDoDono("VOCE")],
+    ["CONFERENCIA", rotuloDoDono("CONFERENCIA")],
+    ["TRIBUNAL", rotuloDoDono("TRIBUNAL")],
+  ];
+
+  return (
+    <Cartao
+      titulo="Nome por nome"
+      explicacao="Cada pessoa da base: o que ela já pode, e de quem depende o resto."
+    >
+      <Campo
+        rotulo="Procurar pelo nome"
+        valor={texto}
+        onChange={setTexto}
+        placeholder="Ex.: maria"
+      />
+      <div className="flex flex-wrap gap-2">
+        {filtros.map(([valor, rotulo]) => (
+          <Botao
+            key={valor || "todos"}
+            tipo={dono === valor ? "principal" : "secundario"}
+            tamanho="pequeno"
+            aria-pressed={dono === valor}
+            onClick={() => setDono(valor)}
+          >
+            {rotulo}
+          </Botao>
+        ))}
+      </div>
+
+      <p className="text-sm text-tinta/70">
+        {pessoas(filtradas.length)}
+        {filtradas.length !== lista.length
+          ? ` de ${lista.length} na base`
+          : " na base"}
+        {filtradas.length > LINHAS_NA_TELA
+          ? ` — mostrando as primeiras ${LINHAS_NA_TELA}. A planilha traz todas.`
+          : "."}
+      </p>
+
+      <div className="space-y-1">
+        {filtradas.slice(0, LINHAS_NA_TELA).map((p) => (
+          <div
+            key={`${p.cpf}-${p.nome}`}
+            className="border-b border-borda py-2 text-sm"
+          >
+            <p className="text-tinta">
+              {p.nome}
+              <span className="ml-2 text-tinta/50">{p.cpf}</span>
+              {!p.cadastrou ? (
+                <span className="ml-2 text-tinta/60">
+                  · ainda não entrou no portal
+                </span>
+              ) : null}
+            </p>
+            <p className="mt-0.5 text-tinta/70">{situacaoDaPessoa(p)}</p>
+          </div>
+        ))}
+      </div>
+
+      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
+      <div>
+        <Botao
+          tipo="secundario"
+          disabled={baixando}
+          onClick={() => void baixar()}
+        >
+          {baixando ? "Preparando…" : "Baixar a planilha da base"}
+        </Botao>
+        <p className="mt-2 text-sm text-tinta/60">
+          A planilha traz o CPF inteiro de cada pessoa, para você casar com
+          os seus registros. Fica registrado quem baixou.
+        </p>
+      </div>
+    </Cartao>
+  );
+}
+
 export function Painel({ entidade }: { entidade: string }) {
   const [token, setToken] = useState("");
   const [dados, setDados] = useState<api.PainelDoGestor | null>(null);
@@ -867,6 +1004,8 @@ export function Painel({ entidade }: { entidade: string }) {
         <strong>Não é intimação e não serve para contar prazo.</strong>
       </Aviso>
     </Cartao>
+
+      <NomePorNome entidade={entidade} token={token} />
 
       <ApagarAPedido
         entidade={entidade}
