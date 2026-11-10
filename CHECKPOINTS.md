@@ -25,7 +25,7 @@
 | 10 | **Migração para região brasileira** | **decidido, a contratar** | — |
 | 17 | Auditoria de segurança independente: 13 achados, todos fechados | **pronto** | `a338473` |
 | 18 | A Regra Zero conferida por programa: escritório deixa de ser arquitetura | **pronto** | — |
-| 19 | Auditoria de PRODUTO: o produto faz a frase dele? | **feita — 10 achados, 2 fechados** | `docs/auditoria_do_produto.md` |
+| 19 | Auditoria de PRODUTO: o produto faz a frase dele? | **feita — 10 achados, 2 fechados, e a fila de leitura com saída** | `docs/auditoria_do_produto.md` |
 | 16 | O agendador, e o silêncio que ele podia criar | **pronto** | `deb55ce` |
 | 15 | O aviso de movimentação: a promessa do formulário, cumprida | **pronto** | `e1bc2ab` |
 | 14 | O portal reconhece quem já está na base | **pronto** | `5c3aef4` |
@@ -113,7 +113,7 @@ responde.
 | **T7** | Os motivos do motor são escritos na TERCEIRA pessoa ("esta pessoa consta do rol"), porque o mesmo texto serve o painel do sindicato. Na tela do próprio filiado isso lê como dossiê sobre outra pessoa. Trocar por "você" com substituição cega gera concordância errada — "esta pessoa é filiada" concorda com *pessoa*, e viraria "você é filiada" para um homem | decidir se o motor passa a emitir dois registros, um por público |
 | **T8** | `ja_executou` vem da RESPOSTA DA PRÓPRIA PESSOA, não de base de execuções — essa base não existe. O motor conta com a resposta e deixa nota dizendo que foi declarada. Enquanto for assim, "não executei" errado só é pego pelo advogado na homologação | o sindicato fornecer a base de execuções já ajuizadas |
 | **T19** | **O produto não consegue dizer `PODE` por nenhum caminho, nem homologado.** Duas travas medidas: (a) nada informa se a pessoa consta do rol de substituídos, e o motor exige saber mesmo com `exige_rol = false`; (b) o motor cobra DA PESSOA a sentença de uma coletiva que o catálogo já registra como transitada. `docs/auditoria_do_produto.md`, item 1 | código: a porta de entrada do rol. Jurídico: a regra para ação sem rol, e se o título da coletiva entra uma vez, pela ação |
-| **T24** | **A fila de leitura humana tem entrada e contador, e não tem saída.** Scanner e foto passaram a ENTRAR (T20, fechado em 10/11: aceita, marca no diário, avisa o filiado, conta no painel) — mas não existe tela para uma pessoa REGISTRAR o que leu. Quem mandou foto fica em `FALTA: a leitura da sentença já entregue` até isso existir | código: a tela de conferência. E decidir QUEM lê — o sindicato, ou nós |
+| **T25** | **O fato que o gestor digita entra como CERTO e alimenta o motor.** A fila de leitura humana ganhou saída em 10/11 (T24, fechado: o sindicato abre, lê e registra pelo painel; a leitura fica em `leituras.jsonl`, com autor). Hoje isso não chega a `PODE` porque falta o rol (T19). No dia em que o rol existir, "procedente" e uma data de trânsito digitados por quem não é advogado bastam para `PODE executar`. `docs/auditoria_do_produto.md`, fim | o jurídico diz se a leitura do sindicato precisa de visto de advogado antes de valer. O lugar para o visto já existe (`achado.conferido`, `metodo = "pessoa"`) |
 | **T21** | **O sindicato não tem porta de entrada na web** (1 rota de upload em 11, a do filiado) **nem recebe "nome por nome"** (sem lista por pessoa, sem exportação). Itens 4 e 5 | código, depois de T19 e T20 |
 | **T22** | **Nada está no ar**: sem artefato de implantação, hospedagem não contratada, banco no plano que pausa, migração pendente. Item 6 | contratar a hospedagem |
 | **T23** | **O rascunho do navegador é compartilhado entre pessoas** no computador da sede — lido no código, não ensaiado. Item 7 | código |
@@ -132,7 +132,7 @@ PROTOCOL_DATABASE_URL='postgresql://...' python3 tests/rodar_todos.py
 Verde não quer dizer "produto pronto": quer dizer "o que está escrito aqui
 faz o que diz". O que não existe não tem teste, e está na tabela acima.
 
-Hoje são **452 grupos em Python e 110 testes no portal** (22 suítes mais o ensaio de navegador), e
+Hoje são **459 grupos em Python e 118 testes no portal** (22 suítes mais o ensaio de navegador), e
 13.831 linhas de teste contra 17.477 de código.
 
 E uma coisa que a auditoria ensinou e que vale mais que o número:

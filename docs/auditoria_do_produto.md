@@ -265,3 +265,55 @@ trânsito, o período. Enquanto isso não existir, a resposta de quem mandou
 foto fica em `FALTA: a leitura da sentença já entregue`, para sempre. O
 painel diz isso sem prometer fluxo ("a resposta fica incompleta"), e a frase
 tem teste para não dizer "em análise".
+
+## T24, fechado em 10/11/2026 — a fila de leitura ganhou saída
+
+Decisão: **quem lê é o sindicato, pelo painel dele.**
+
+O gestor vê "Documentos para ler", ABRE o documento, e registra uma de duas
+coisas: o que leu, nos poucos campos que o motor usa (o dispositivo da
+sentença, a data do trânsito, o período do comprovante), ou que não deu para
+ler — e aí o documento vai para a lista de a quem pedir de novo.
+
+- o que ele registra vira FATO, com `metodo = "pessoa"` e o marcador dele
+  como autor; só entram valores que existem (dispositivo é um de quatro,
+  data de verdade e não futura);
+- a autoridade é um arquivo append-only, `leituras.jsonl`: a leitura humana
+  não é derivável de nada, e o banco se refaz dele
+  (`banco.projetar_leituras`);
+- abrir o documento é a leitura mais sensível do produto — é onde o PDF de um
+  filiado sai do servidor. Só gestor da própria entidade, só documento da
+  fila dela, registrado em `leitura`, e `no-store`;
+- o arquivo de leituras guarda CPF e o que a sentença diz: sai no apagamento
+  a pedido. A varredura de bytes de `vestigios` o achou SOZINHA antes de eu
+  ensinar o `apagar` a limpá-lo — a rede fazendo o trabalho dela num lugar
+  criado no mesmo dia.
+
+Provado de ponta a ponta pelo ensaio de navegador, que ganhou a fase do
+meio: o filiado manda foto e scanner, o gestor abre a sentença, registra as
+duas leituras, a fila esvazia, e o apagamento não deixa nada.
+
+**Dois defeitos antigos achados no caminho, e corrigidos:**
+
+1. **O reenvio não substituía.** A pessoa mandava a sentença fotografada e
+   depois reenviava a original: a linha da antiga ficava em `documento` — a
+   fila contava um documento que não estava mais na entrega — e os fatos
+   lidos dela ficavam em `achado`, alimentando o motor com sentença
+   substituída. Agora o reenvio tira o que veio do CADASTRO, e só isso: o
+   que o sindicato entregou sobre a mesma pessoa não é dela para substituir
+   (`documento.origem`).
+2. **Dois reenvios no mesmo segundo quebravam o depósito**, DEPOIS de o
+   diário já ter gravado: a pasta de histórico era nomeada só pelo segundo.
+   Achado por um teste que reenviava três vezes seguidas.
+
+### A pergunta que isto abre, e não é de código (T25)
+
+**O fato que o gestor digita entra como CERTO e alimenta o motor.** Hoje
+isso não chega a `PODE` — falta o rol (item 1). No dia em que o rol existir,
+"procedente" e uma data de trânsito digitados por um gestor, que não é
+advogado, bastam para o motor dizer `PODE executar` sobre aquela pessoa. A
+regra da casa é "o software prepara; quem assina é advogado". Se a leitura
+feita pelo sindicato precisa de um visto de advogado antes de valer para
+`PODE`, é decisão do jurídico — e o lugar para o visto já existe: a coluna
+`achado.conferido` e o `metodo = "pessoa"` distinguem esses fatos de todos
+os outros.

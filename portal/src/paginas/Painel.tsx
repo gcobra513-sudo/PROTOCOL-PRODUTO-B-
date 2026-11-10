@@ -28,9 +28,12 @@
  */
 import { useEffect, useState } from "react";
 
-import { Aviso, Botao, Campo, Cartao } from "../componentes/ui";
+import { Aviso, Botao, Campo, Cartao, Escolha } from "../componentes/ui";
 import * as api from "../lib/envio";
 import {
+  camposDaLeitura,
+  faltaNaLeitura,
+  fatosDaLeitura,
   frasesDaMudanca,
   fracao,
   pessoas,
@@ -39,6 +42,7 @@ import {
   resumoDaFilaDeLeitura,
   resumoDasMudancas,
   resumoDoApagamento,
+  rotuloDoDispositivo,
 } from "../lib/painel";
 import { conferirCpf, formatarCpf } from "../lib/validacao";
 import { Portao } from "./Portao";
@@ -443,12 +447,255 @@ function MudouDeVeredicto({ p }: { p: api.Panorama }) {
   );
 }
 
+
+/** Um documento da fila: abrir, ler, registrar.
+ *
+ * O GESTOR ABRE ANTES DE REGISTRAR, e a tela é desenhada para isso: o botão
+ * de abrir vem primeiro e os campos depois. Um formulário que deixasse
+ * registrar sem nunca ter aberto convidaria a preencher de memória.
+ *
+ * DUAS SAÍDAS, porque são duas: "li, e diz isto" e "não dá para ler". Sem a
+ * segunda, a foto tremida ficaria na fila para sempre.
+ */
+function DocumentoParaLer({
+  entidade,
+  token,
+  doc,
+  dispositivos,
+  onFeito,
+}: {
+  entidade: string;
+  token: string;
+  doc: api.DocumentoNaFila;
+  dispositivos: string[];
+  onFeito: () => void;
+}) {
+  const [valores, setValores] = useState<Record<string, string>>({});
+  const [observacao, setObservacao] = useState("");
+  const [indo, setIndo] = useState(false);
+  const [erro, setErro] = useState("");
+  const campos = camposDaLeitura(doc.tipo);
+  const falta = faltaNaLeitura(doc.tipo, valores);
+  const mudar = (campo: string) => (v: string) =>
+    setValores((atual) => ({ ...atual, [campo]: v }));
+
+  async function abrir() {
+    setErro("");
+    // A ABA É ABERTA ANTES DO PEDIDO, ainda dentro do clique: aberta depois
+    // de esperar a rede, o navegador a trata como pop-up e bloqueia.
+    const aba = window.open("", "_blank");
+    try {
+      const blob = await api.abrirDocumento(entidade, token, doc.id);
+      const endereco = URL.createObjectURL(blob);
+      if (aba) aba.location.href = endereco;
+      else window.location.href = endereco;
+      // O endereço só vale nesta sessão do navegador; soltá-lo depois de um
+      // tempo devolve a memória sem fechar o documento na cara do gestor.
+      setTimeout(() => URL.revokeObjectURL(endereco), 10 * 60 * 1000);
+    } catch (e) {
+      aba?.close();
+      setErro(e instanceof Error ? e.message : "não foi possível abrir");
+    }
+  }
+
+  async function registrar(resultado: "lido" | "ilegivel") {
+    setIndo(true);
+    setErro("");
+    try {
+      await api.registrarLeitura(entidade, token, doc.id, {
+        resultado,
+        fatos: resultado === "lido" ? fatosDaLeitura(doc.tipo, valores) : {},
+        observacao,
+      });
+      onFeito();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "não foi possível registrar");
+    } finally {
+      setIndo(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4 rounded-lg border border-borda bg-carta p-4">
+      <div>
+        <p className="text-[15px] font-medium text-tinta">{doc.nome}</p>
+        <p className="mt-0.5 text-sm text-tinta/70">{doc.rotulo}</p>
+      </div>
+      <Botao tipo="secundario" tamanho="pequeno" onClick={() => void abrir()}>
+        Abrir o documento
+      </Botao>
+
+      {campos.includes("dispositivo") ? (
+        <Escolha
+          rotulo="O que a sentença decidiu"
+          obrigatorio
+          valor={valores.dispositivo ?? ""}
+          onChange={mudar("dispositivo")}
+          opcoes={dispositivos.map((d) => ({
+            valor: d,
+            rotulo: rotuloDoDispositivo(d),
+          }))}
+        />
+      ) : null}
+      {campos.includes("numero_processo") ? (
+        <Campo
+          rotulo="Número do processo (se aparecer)"
+          valor={valores.numero_processo ?? ""}
+          onChange={mudar("numero_processo")}
+          inputMode="numeric"
+        />
+      ) : null}
+      {campos.includes("transito_em_julgado") ? (
+        <Campo
+          rotulo="Data do trânsito em julgado"
+          obrigatorio
+          type="date"
+          valor={valores.transito_em_julgado ?? ""}
+          onChange={mudar("transito_em_julgado")}
+        />
+      ) : null}
+      {campos.includes("periodo_inicio") ? (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Campo
+            rotulo="O comprovante cobre de"
+            obrigatorio
+            type="month"
+            valor={valores.periodo_inicio ?? ""}
+            onChange={mudar("periodo_inicio")}
+          />
+          <Campo
+            rotulo="até"
+            obrigatorio
+            type="month"
+            valor={valores.periodo_fim ?? ""}
+            onChange={mudar("periodo_fim")}
+          />
+        </div>
+      ) : null}
+      <Campo
+        rotulo="Observação (opcional)"
+        valor={observacao}
+        onChange={setObservacao}
+        maxLength={300}
+        ajuda="Ex.: página 3; ou por que não deu para ler."
+      />
+
+      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
+      <div className="flex flex-wrap gap-3">
+        <Botao
+          tamanho="pequeno"
+          disabled={indo || falta.length > 0}
+          onClick={() => void registrar("lido")}
+        >
+          {indo ? "Registrando…" : "Registrar o que li"}
+        </Botao>
+        <Botao
+          tipo="secundario"
+          tamanho="pequeno"
+          disabled={indo}
+          onClick={() => void registrar("ilegivel")}
+        >
+          Não dá para ler
+        </Botao>
+      </div>
+      {falta.length ? (
+        <p className="text-sm text-tinta/60">Falta: {falta.join("; ")}.</p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A fila de leitura humana, com SAÍDA.
+ *
+ * Scanner e foto entram no cadastro e a máquina não os lê. QUEM LÊ É O
+ * SINDICATO, por aqui (decisão de 10/11/2026). O que o gestor registra vira
+ * fato, com o marcador dele como autor — e muda a resposta do filiado.
+ *
+ * O QUE ESTA TELA DIZ ANTES DOS CAMPOS: que o que se registra vira dado do
+ * filiado e fica com autor. Não é aviso de rodapé; é o que separa conferir
+ * de preencher formulário.
+ */
+function FilaDeConferencia({
+  entidade,
+  token,
+  onMudou,
+}: {
+  entidade: string;
+  token: string;
+  onMudou: () => void;
+}) {
+  const [fila, setFila] = useState<api.Conferencia | null>(null);
+  const [erro, setErro] = useState("");
+  const [versao, setVersao] = useState(0);
+
+  useEffect(() => {
+    void api
+      .verConferencia(entidade, token)
+      .then(setFila)
+      .catch((e) =>
+        setErro(e instanceof Error ? e.message : "não foi possível abrir"),
+      );
+  }, [entidade, token, versao]);
+
+  if (erro) return null; // sem banco o painel já diz que não sabe da fila
+  if (!fila || (!fila.pendentes.length && !fila.ilegiveis.length)) return null;
+
+  return (
+    <Cartao
+      titulo="Documentos para ler"
+      explicacao={
+        <>
+          Estes documentos chegaram como imagem — foto ou scanner — e a
+          máquina não consegue ler. Abra, leia e registre.{" "}
+          <strong>
+            O que você registrar vira dado do filiado e fica com o seu nome
+            como autor.
+          </strong>
+        </>
+      }
+    >
+      {fila.pendentes.map((doc) => (
+        <DocumentoParaLer
+          key={doc.id}
+          entidade={entidade}
+          token={token}
+          doc={doc}
+          dispositivos={fila.dispositivos}
+          onFeito={() => {
+            setVersao((v) => v + 1);
+            onMudou();
+          }}
+        />
+      ))}
+      {fila.ilegiveis.length ? (
+        <div>
+          <p className="text-[15px] font-medium text-tinta">
+            Não deu para ler — peça de novo
+          </p>
+          <div className="mt-2 space-y-1">
+            {fila.ilegiveis.map((doc) => (
+              <div key={doc.id} className="border-b border-borda py-1 text-sm">
+                <span className="text-tinta">{doc.nome}</span>
+                <span className="ml-2 text-tinta/70">{doc.rotulo}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </Cartao>
+  );
+}
+
 export function Painel({ entidade }: { entidade: string }) {
   const [token, setToken] = useState("");
   const [dados, setDados] = useState<api.PainelDoGestor | null>(null);
   const [panorama, setPanorama] = useState<api.Panorama | null>(null);
   const [erroPanorama, setErroPanorama] = useState("");
   const [erro, setErro] = useState("");
+  // Sobe a cada leitura registrada: a fila mudou, e a contagem do panorama
+  // tem de mudar junto — número parado ao lado de uma fila que anda parece
+  // defeito mesmo quando não é.
+  const [versaoDaFila, setVersaoDaFila] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -460,7 +707,7 @@ export function Painel({ entidade }: { entidade: string }) {
           e instanceof Error ? e.message : "não foi possível apurar",
         ),
       );
-  }, [token, entidade]);
+  }, [token, entidade, versaoDaFila]);
 
   useEffect(() => {
     if (!token) return;
@@ -513,6 +760,11 @@ export function Painel({ entidade }: { entidade: string }) {
           {resumoDaFilaDeLeitura(panorama.aguardando_leitura).frase}
         </Aviso>
       ) : null}
+      <FilaDeConferencia
+        entidade={entidade}
+        token={token}
+        onMudou={() => setVersaoDaFila((v) => v + 1)}
+      />
       {panorama ? <OQueResolverPrimeiro p={panorama} /> : null}
       {erroPanorama ? (
         <Aviso tom="alerta">

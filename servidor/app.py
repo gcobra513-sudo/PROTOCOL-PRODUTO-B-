@@ -32,9 +32,9 @@ import pathlib
 import re
 from typing import Annotated
 
-from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 # `conta` e não `cadastro`: `entidades.Cadastro` já ocupa esse nome aqui,
 # e a colisão deixava o módulo do contrato invisível em silêncio.
@@ -46,6 +46,7 @@ from . import (
     acervo,
     agenda,
     apagamento,
+    conferencia,
     documentos,
     acesso,
     banco,
@@ -1327,18 +1328,20 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         SEM BANCO, DIZ QUE NÃO SABE, pela mesma razão das mudanças: zero
         afirmaria que não há nada esperando.
         """
-        vazio = {"documentos": 0, "pessoas": 0, "sem_banco": not cfg.tem_banco}
+        vazio = {"documentos": 0, "pessoas": 0, "ilegiveis": 0,
+                 "sem_banco": not cfg.tem_banco}
         if not cfg.tem_banco:
             return vazio
         try:
             documentos_, pessoas = banco.aguardando_leitura(cfg.banco_url,
                                                             ent.apelido)
+            ilegiveis = banco.nem_pessoa_leu(cfg.banco_url, ent.apelido)
         except Exception:  # noqa: BLE001
             log.exception("não deu para contar a fila de leitura ent=%s",
                           ent.apelido)
             return {**vazio, "sem_banco": True}
         return {"documentos": documentos_, "pessoas": pessoas,
-                "sem_banco": False}
+                "ilegiveis": ilegiveis, "sem_banco": False}
 
     def _apagados_na_planilha(ent: entidades.Entidade, pessoas) -> int:
         """Quantos CPFs da planilha do sindicato têm tombstone.
@@ -1447,6 +1450,170 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         log.info("apagado a pedido ent=%s cpf=%s vestigios=%d",
                  ent.apelido, _hash_curto(cpf), len(saida["vestigios"]))
         return saida
+
+    # ------------------------------------------- a conferência humana
+
+    #: `<sha256 do arquivo>.<16 do marcador do CPF>`. O sha256 sozinho não
+    #: identifica: duas pessoas podem mandar o MESMO arquivo — a sentença de
+    #: uma coletiva é igual para todos. E o CPF em claro não vai em URL.
+    _ID_DE_DOCUMENTO = re.compile(r"^([0-9a-f]{64})\.([0-9a-f]{16})$")
+
+    def _rotulo_do_tipo(tipo: str) -> str:
+        return str((conta.DOCUMENTOS.get(tipo) or {}).get("rotulo") or tipo)
+
+    def _id_do_documento(linha: dict) -> str:
+        return f"{linha['sha256']}.{portao.marcar_cpf(linha['cpf'])[:16]}"
+
+    def _para_a_tela(linha: dict) -> dict:
+        """NOME, nunca CPF. O gestor precisa saber de quem é o documento, e
+        o CPF em claro numa resposta de API é mais um lugar com ele."""
+        return {
+            "id": _id_do_documento(linha),
+            "nome": linha["nome"] or "(sem nome na base)",
+            "tipo": linha["tipo"],
+            "rotulo": _rotulo_do_tipo(linha["tipo"]),
+            "recebido_em": linha["recebido_em"].isoformat(timespec="seconds"),
+        }
+
+    def _documento_da_fila(ent: entidades.Entidade, doc_id: str) -> dict:
+        """A linha do documento, ou 404.
+
+        PROCURADO NA FILA DESTA ENTIDADE, e não aberto por caminho: o que o
+        gestor pode abrir é exatamente o que espera a leitura dele (ou o que
+        ele marcou como ilegível, para poder rever). Documento que a máquina
+        leu não passa por aqui — não há motivo para o gestor baixá-lo, e o
+        que não tem motivo não tem rota.
+        """
+        casou = _ID_DE_DOCUMENTO.match(doc_id or "")
+        if not casou:
+            raise _problema(404, "documento não encontrado")
+        for situacao in ("", conferencia.ILEGIVEL):
+            for linha in banco.fila_de_leitura(cfg.banco_url, ent.apelido,
+                                               situacao):
+                if _id_do_documento(linha) == doc_id:
+                    return linha
+        raise _problema(404, "documento não encontrado")
+
+    def _exigir_banco_para_conferir() -> None:
+        if not cfg.tem_banco:
+            raise _problema(
+                503,
+                "este servidor está sem banco de dados, e a fila de leitura "
+                "mora nele",
+            )
+
+    @app.get("/api/entidade/{apelido}/conferencia")
+    def ver_fila_de_leitura(apelido: str, pedido: Request) -> dict:
+        """O que espera a leitura de uma PESSOA, para o gestor da entidade.
+
+        Scanner e foto entram no cadastro e a máquina não os lê. Quem lê é o
+        sindicato, por aqui — decisão de 10/11/2026.
+        """
+        ent = _gestor_de(apelido, pedido)
+        _exigir_banco_para_conferir()
+        _auditar(ent, "conferencia", quem_hash=_sessao_de(pedido).cpf_hash)
+        return {
+            "pendentes": [
+                _para_a_tela(l) for l in
+                banco.fila_de_leitura(cfg.banco_url, ent.apelido)
+            ],
+            # A QUEM PEDIR DE NOVO: o que alguém abriu e não conseguiu ler.
+            "ilegiveis": [
+                _para_a_tela(l) for l in
+                banco.fila_de_leitura(cfg.banco_url, ent.apelido,
+                                      conferencia.ILEGIVEL)
+            ],
+            "dispositivos": list(conferencia.DISPOSITIVOS),
+        }
+
+    @app.get("/api/entidade/{apelido}/conferencia/{doc_id}/arquivo")
+    def abrir_documento_da_fila(apelido: str, doc_id: str,
+                                pedido: Request) -> Response:
+        """O PDF, para o gestor LER. É a leitura mais sensível do produto: é
+        aqui que o documento de um filiado sai do servidor.
+
+        Por isso: só gestor da própria entidade; só documento que está na
+        fila dela; registrado em `leitura` com o marcador de quem abriu e de
+        quem é; e `no-store`, para o navegador do gestor não guardar cópia.
+        """
+        ent = _gestor_de(apelido, pedido)
+        _exigir_banco_para_conferir()
+        linha = _documento_da_fila(ent, doc_id)
+        _auditar(ent, "ver_documento",
+                 quem_hash=_sessao_de(pedido).cpf_hash,
+                 alvo_hash=portao.marcar_cpf(linha["cpf"]))
+        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(linha["cpf"])
+        for arquivo in sorted(pasta.glob("*.pdf")) if pasta.is_dir() else []:
+            corpo = arquivo.read_bytes()
+            if hashlib.sha256(corpo).hexdigest() == linha["sha256"]:
+                return Response(
+                    content=corpo,
+                    media_type="application/pdf",
+                    headers={
+                        "Content-Disposition": 'inline; filename="documento.pdf"',
+                        "Cache-Control": "no-store",
+                        "X-Content-Type-Options": "nosniff",
+                    },
+                )
+        raise _problema(
+            404,
+            "o arquivo deste documento não está mais na entrega — a pessoa "
+            "pode ter enviado outro no lugar",
+        )
+
+    @app.post("/api/entidade/{apelido}/conferencia/{doc_id}")
+    def registrar_leitura_humana(
+        apelido: str, doc_id: str, pedido: Request,
+        # COM PADRÃO, de propósito: sem ele o FastAPI recusa o pedido sem
+        # corpo com 422 ANTES de esta função rodar — e quem não tem sessão
+        # recebia um erro de formato em vez de 401. Primeiro quem é, depois
+        # o que mandou.
+        corpo: dict = Body(default_factory=dict),
+    ) -> dict:
+        """O gestor registra o que LEU — ou que não deu para ler.
+
+        O QUE ELE REGISTRA VIRA FATO, e fato alimenta o motor. Então só
+        entram valores que existem (`conferencia.validar`), e a ordem é a de
+        sempre: o arquivo de leituras primeiro, com fsync, e o banco depois.
+        Se o banco falhar, a leitura está gravada e a projeção se refaz.
+        """
+        ent = _gestor_de(apelido, pedido)
+        _exigir_banco_para_conferir()
+        sessao = _sessao_de(pedido)
+        linha = _documento_da_fila(ent, doc_id)
+        resultado = str(corpo.get("resultado", ""))
+        observacao = str(corpo.get("observacao", "") or "")
+        fatos, problemas = conferencia.validar(
+            linha["tipo"], resultado, corpo.get("fatos") or {}, observacao)
+        if problemas:
+            raise _problema(422, "leitura não registrada",
+                            problemas=problemas)
+
+        registro = conferencia.registrar(
+            ent.pasta(cfg.raiz), entidade=ent.apelido, cpf=linha["cpf"],
+            documento=linha["sha256"], tipo=linha["tipo"],
+            resultado=resultado, fatos=fatos, observacao=observacao,
+            quem=sessao.cpf_hash,
+        )
+        _auditar(ent, "registrar_leitura", quem_hash=sessao.cpf_hash,
+                 alvo_hash=portao.marcar_cpf(linha["cpf"]))
+        try:
+            banco.projetar_leituras(cfg.banco_url, ent.apelido, [registro])
+        except Exception:  # noqa: BLE001
+            log.exception(
+                "PROJEÇÃO da leitura falhou ent=%s — a leitura está em %s; "
+                "refaça com banco.projetar_leituras",
+                ent.apelido, conferencia.ARQUIVO,
+            )
+            raise _problema(
+                503,
+                "a leitura foi registrada, mas ainda não aparece no painel. "
+                "Não registre de novo: avise quem opera o servidor.",
+            ) from None
+        log.info("leitura humana ent=%s tipo=%s resultado=%s",
+                 ent.apelido, linha["tipo"], resultado)
+        return {"resultado": resultado, "tipo": linha["tipo"],
+                "fatos": fatos}
 
     @app.get("/api/entidade/{apelido}/completude")
     def ver_completude(apelido: str, pedido: Request) -> dict:

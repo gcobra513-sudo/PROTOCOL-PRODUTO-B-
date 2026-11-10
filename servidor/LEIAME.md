@@ -127,8 +127,30 @@ continua recebendo só PDF.
 O que continua recusado: arquivo que **não abre** — corrompido ou com senha.
 Esse ninguém lê, e guardá-lo criaria uma fila que não anda.
 
-**O que ainda não existe:** a tela para uma pessoa REGISTRAR o que leu. A
-fila tem entrada e contador, e não tem saída.
+### Quem lê: o sindicato, pelo painel
+
+No painel do gestor aparece **"Documentos para ler"**. Ele abre o documento,
+lê, e registra o que leu — ou que não deu para ler.
+
+```
+GET  /api/entidade/{apelido}/conferencia                  a fila
+GET  /api/entidade/{apelido}/conferencia/{id}/arquivo     o PDF, para ler
+POST /api/entidade/{apelido}/conferencia/{id}             registra a leitura
+```
+
+- o que o gestor registra **vira fato**, com o marcador dele como autor e
+  `metodo = "pessoa"`. Só entram valores que existem;
+- a autoridade é `<entidade>/leituras.jsonl`, append-only. O banco se refaz
+  dele com `banco.projetar_leituras`;
+- **abrir o documento é a leitura mais sensível do produto**: é onde o PDF
+  de um filiado sai do servidor. Só gestor da própria entidade, só documento
+  da fila dela, registrado em `leitura`, com `Cache-Control: no-store`;
+- o que nem uma pessoa conseguiu ler sai da fila e aparece em "peça de
+  novo", com o nome de quem mandou.
+
+**O reenvio substitui.** Quando a pessoa manda de novo, o que ela tinha
+mandado antes sai do banco — documento e fatos lidos dele. O que o sindicato
+entregou sobre a mesma pessoa fica.
 
 ## O veredicto guardado, e a prova de por que mudou
 

@@ -37,7 +37,7 @@ from __future__ import annotations
 import pathlib
 import shutil
 
-from . import acervo, banco, deposito, rol, validacao
+from . import acervo, banco, conferencia, deposito, rol, validacao
 from .entidades import Entidade
 
 #: Extensões que a varredura de bytes abre. PDF fica de fora de propósito: o
@@ -150,6 +150,14 @@ def vestigios(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
         cobertos.add(caminho)
         if caminho.is_file() and _procurar(caminho, digitos, ""):
             achados.append(f"rol: linha em {nome_do_rol} ({marca})")
+
+    # AS LEITURAS HUMANAS. O arquivo guarda o CPF e o que a sentença da
+    # pessoa diz, lido pelo gestor. A varredura de bytes o acharia de
+    # qualquer jeito; nomeá-lo aqui dá o rótulo que o operador usa.
+    leituras = pasta / conferencia.ARQUIVO
+    cobertos.add(leituras)
+    if leituras.is_file() and _procurar(leituras, digitos, ""):
+        achados.append(f"leituras: registro de leitura humana ({marca})")
 
     # O ACERVO, pessoas E retrato. O `retrato` é indexado por CPF em três
     # campos, e foi a cegueira que a caça adversarial achou.
@@ -316,6 +324,7 @@ def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
 
     saiu_do_rol = rol.remover(pasta, digitos)
     saiu_do_acervo = _remover_do_acervo(pasta, digitos)
+    sairam_leituras = conferencia.remover_pessoa(pasta, digitos)
     das_mensagens = _limpar_logs(raiz, digitos, email)
 
     # 5. O banco.
@@ -330,6 +339,7 @@ def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
         "arquivos": arquivos,
         "rol": saiu_do_rol,
         "acervo": saiu_do_acervo,
+        "leituras": sairam_leituras,
         "logs": das_mensagens,
         "email_conhecido": bool(email),
         "vestigios": vestigios(url, ent, raiz, digitos, portao=portao,

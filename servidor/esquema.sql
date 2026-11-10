@@ -116,6 +116,20 @@ CREATE TABLE IF NOT EXISTS documento (
     caracteres  integer NOT NULL DEFAULT 0,
     tem_texto   boolean NOT NULL DEFAULT false,
     recebido_em timestamptz NOT NULL DEFAULT now(),
+    -- DE ONDE VEIO: 'cadastro' (a pessoa mandou pelo portal) ou 'sindicato'
+    -- (o sindicato entregou). Existe porque o REENVIO substitui: quando a
+    -- pessoa manda de novo, o que ela tinha mandado antes sai — e o que o
+    -- sindicato entregou sobre ela NÃO é dela para substituir. Sem esta
+    -- coluna não dá para distinguir, e a linha do documento antigo ficava
+    -- para sempre: na fila de leitura e alimentando o motor.
+    origem      text NOT NULL DEFAULT 'cadastro'
+                CHECK (origem IN ('cadastro', 'sindicato')),
+    -- A LEITURA POR UMA PESSOA, para o documento que a máquina não lê
+    -- (`tem_texto = false`): '' ainda na fila, 'lido' alguém leu e os fatos
+    -- estão em `achado` com metodo 'pessoa', 'ilegivel' nem uma pessoa
+    -- conseguiu. É projeção: a autoridade é `leituras.jsonl`.
+    leitura_humana text NOT NULL DEFAULT ''
+                CHECK (leitura_humana IN ('', 'lido', 'ilegivel')),
     PRIMARY KEY (entidade, cpf, tipo, sha256)
 );
 

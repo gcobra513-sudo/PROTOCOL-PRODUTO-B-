@@ -15,7 +15,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apagarFiliado } from "./envio";
+import { apagarFiliado, registrarLeitura } from "./envio";
 
 const RESPOSTA = {
   marcador: "abc", banco: {}, portao: 0, diario: 0, arquivos: 0,
@@ -84,5 +84,39 @@ describe("apagarFiliado, no fio", () => {
         cpf: "111.444.777-35", motivo: "", pedidoPor: "g",
       }),
     ).rejects.toThrow("sem registro");
+  });
+});
+
+describe("registrarLeitura, no fio", () => {
+  it("manda resultado, fatos e observação com os nomes que o servidor lê", async () => {
+    // O que o gestor registra vira FATO. Um nome de campo errado aqui não
+    // daria erro de rede: daria 422 para ele, ou — pior — um fato a menos.
+    const espia = fingirFetch({ resultado: "lido", tipo: "sentenca", fatos: {} });
+    await registrarLeitura("sind-x", "T0K3N", "abc.def", {
+      resultado: "lido",
+      fatos: { dispositivo: "procedente" },
+      observacao: "página 3",
+    });
+    const [url, opcoes] = espia.mock.calls[0]!;
+    expect(url).toContain("/api/entidade/sind-x/conferencia/abc.def");
+    expect(opcoes.method).toBe("POST");
+    const corpo = JSON.parse(String(opcoes.body));
+    expect(Object.keys(corpo).sort()).toEqual(["fatos", "observacao", "resultado"]);
+    expect(corpo.fatos).toEqual({ dispositivo: "procedente" });
+    expect((opcoes.headers as Record<string, string>).Authorization).toBe(
+      "Bearer T0K3N",
+    );
+  });
+
+  it("recusa do servidor sobe com os PROBLEMAS, para o gestor saber o que corrigir", async () => {
+    fingirFetch(
+      { detail: { erro: "leitura não registrada",
+                  problemas: ["a data do trânsito em julgado está no futuro"] } },
+      false, 422);
+    await expect(
+      registrarLeitura("sind-x", "T", "abc.def", {
+        resultado: "lido", fatos: {}, observacao: "",
+      }),
+    ).rejects.toThrow("no futuro");
   });
 });
