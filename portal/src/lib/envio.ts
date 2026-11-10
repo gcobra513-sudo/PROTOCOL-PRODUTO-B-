@@ -520,6 +520,100 @@ export interface Mudancas {
   grupos: MudancaDeVeredicto[];
 }
 
+/** O que a planilha traz, ANTES de valer. `gravado: false` é a prévia. */
+export interface PreviaDaPlanilha {
+  sha256: string;
+  arquivo: string;
+  manchete: string;
+  linhas: number;
+  pessoas: number;
+  alcancaveis: number;
+  inalcancaveis: number;
+  divergentes: number;
+  colunas_ausentes: string[];
+  /** QUANTOS pediram apagamento e serão pulados — nunca quem. */
+  apagados_a_pedido: number;
+  gravado: boolean;
+  projetadas?: number;
+}
+
+export interface PreviaDosDocumentos {
+  sha256: string;
+  arquivos: number;
+  casaram: number;
+  pessoas: number;
+  sobraram: { arquivo: string; motivo: string }[];
+  sobraram_total: number;
+  avisos: string[];
+  gravado: boolean;
+}
+
+async function enviarFormulario<T>(
+  url: string,
+  token: string,
+  corpo: FormData,
+  falha: string,
+): Promise<T> {
+  // SEM `Content-Type` À MÃO. Num multipart é o navegador que escreve o
+  // limite entre as partes; fixar o cabeçalho aqui faria o servidor não
+  // achar arquivo nenhum.
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: corpo,
+  });
+  const dados = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const problemas: string[] = dados?.detail?.problemas ?? [];
+    throw new ErroDoServidor(
+      problemas.length ? problemas.join("; ") : (dados?.detail?.erro ?? falha),
+      r.status,
+    );
+  }
+  return dados as T;
+}
+
+/** O sindicato manda a lista de filiados — CSV ou .xlsx.
+ *
+ *  EM DUAS ETAPAS. Sem `confirmar`, o servidor só LÊ e devolve o que o
+ *  arquivo traz; nada é gravado. Com `confirmar` igual ao `sha256` da
+ *  prévia, grava — e recusa se o arquivo for outro. */
+export function enviarPlanilha(
+  apelido: string,
+  token: string,
+  arquivo: File,
+  confirmar = "",
+): Promise<PreviaDaPlanilha> {
+  const corpo = new FormData();
+  corpo.append("arquivo", arquivo);
+  corpo.append("confirmar", confirmar);
+  return enviarFormulario(
+    `${BASE}/api/entidade/${encodeURIComponent(apelido)}/planilha`,
+    token,
+    corpo,
+    "não foi possível enviar a planilha",
+  );
+}
+
+/** Os documentos que o SINDICATO já guarda — PDFs, ou um .zip deles. As
+ *  mesmas duas etapas da planilha. */
+export function enviarDocumentosDoSindicato(
+  apelido: string,
+  token: string,
+  arquivos: File[],
+  confirmar = "",
+): Promise<PreviaDosDocumentos> {
+  const corpo = new FormData();
+  for (const arquivo of arquivos) corpo.append("arquivos", arquivo);
+  corpo.append("confirmar", confirmar);
+  return enviarFormulario(
+    `${BASE}/api/entidade/${encodeURIComponent(apelido)}/documentos-do-sindicato`,
+    token,
+    corpo,
+    "não foi possível enviar os documentos",
+  );
+}
+
 /** Uma pessoa na lista "nome por nome" do gestor. O CPF vem MASCARADO: o
  *  inteiro só sai na exportação, que é pedida de propósito e registrada. */
 export interface PessoaNaLista {

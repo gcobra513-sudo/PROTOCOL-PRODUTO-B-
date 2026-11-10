@@ -19,6 +19,7 @@ import type {
   Mudancas,
   MudancaDeVeredicto,
   PessoaNaLista,
+  PreviaDaPlanilha,
   ResultadoDoApagamento,
 } from "./envio";
 
@@ -349,4 +350,44 @@ export function situacaoDaPessoa(p: PessoaNaLista): string {
   if (p.pode) partes.push("já pode");
   for (const dono of p.depende_de) partes.push(rotuloDoDono(dono));
   return partes.length ? partes.join(" · ") : "sem ação que a alcance";
+}
+
+// ------------------------------------------------- a prévia da planilha
+
+/** O que o gestor lê ANTES de confirmar a planilha.
+ *
+ *  A planilha é a base inteira do sindicato, e a confirmação é a única
+ *  conferência que ela recebe. Então cada linha aqui é uma coisa que ele
+ *  precisa saber para decidir — e o que não aconteceu NÃO vira linha:
+ *  "0 pediram apagamento" em toda prévia é o ruído que ensina a não ler,
+ *  justamente para o dia em que o número não for zero.
+ */
+export function resumoDaPlanilha(p: PreviaDaPlanilha): string[] {
+  const linhas = [`${pessoas(p.pessoas)} no arquivo.`];
+  if (p.inalcancaveis > 0) {
+    linhas.push(
+      `Você não consegue falar com ${p.inalcancaveis} ` +
+        `(sem e-mail que sirva, ou CPF que não fecha) — ` +
+        "elas entram na base, mas não conseguem usar o portal.",
+    );
+  }
+  if (p.divergentes > 0) {
+    linhas.push(
+      `${p.divergentes === 1 ? "1 linha repete" : `${p.divergentes} linhas repetem`} ` +
+        "uma pessoa com informação diferente (divergência): nada é escolhido " +
+        "sozinho, e elas aparecem para você decidir.",
+    );
+  }
+  if (p.colunas_ausentes.length) {
+    linhas.push(`A planilha não trouxe: ${p.colunas_ausentes.join(", ")}.`);
+  }
+  if (p.apagados_a_pedido > 0) {
+    linhas.push(
+      `${pessoas(p.apagados_a_pedido)} desta planilha ` +
+        `${p.apagados_a_pedido === 1 ? "pediu" : "pediram"} apagamento e NÃO ` +
+        "será gravada. Tire do arquivo: enquanto estiver nele, todo envio vai " +
+        "pular de novo.",
+    );
+  }
+  return linhas;
 }

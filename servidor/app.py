@@ -34,7 +34,10 @@ import pathlib
 import re
 from typing import Annotated
 
-from fastapi import Body, FastAPI, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    Body, FastAPI, File, Form, HTTPException, Request, UploadFile,
+)
+from starlette.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
@@ -44,6 +47,7 @@ from nucleo import cadastro as conta
 from nucleo import entendimentos, leitura, motor, panorama
 from nucleo import participacao, pendencia
 
+from . import documentos_do_sindicato as lote
 from . import (
     acervo,
     agenda,
@@ -56,6 +60,7 @@ from . import (
     completude,
     deposito,
     entidades,
+    ingestao,
     remetente,
     rol,
     validacao,
@@ -1452,6 +1457,221 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         log.info("apagado a pedido ent=%s cpf=%s vestigios=%d",
                  ent.apelido, _hash_curto(cpf), len(saida["vestigios"]))
         return saida
+
+    # ------------------------------------ a porta de entrada do sindicato
+
+    #: Teto da planilha. A de 100 mil filiados não chega a um décimo disto;
+    #: o que passa daqui é exportação que levou a folha inteira do Excel.
+    LIMITE_DA_PLANILHA = 20 * 1024 * 1024
+    #: Quantas sobras voltam na resposta. O total vai junto.
+    SOBRAS_NA_RESPOSTA = 50
+
+    def _exigir_banco_para_ingerir() -> None:
+        if not cfg.tem_banco:
+            raise _problema(
+                503,
+                "este servidor está sem banco de dados. A base do sindicato "
+                "mora nele, e é nele que se confere quem pediu para sair",
+            )
+
+    def _conferir_confirmacao(confirmar: str, soma: str) -> bool:
+        """`True` se é para GRAVAR. Levanta 409 se o arquivo é outro.
+
+        A CONFIRMAÇÃO VALE PARA O ARQUIVO CONFERIDO. A prévia devolve a
+        impressão digital do que foi lido, e é ela que volta na segunda
+        etapa: se o que chega agora é outro arquivo, o gestor confirmaria
+        uma base que não viu.
+        """
+        if not confirmar:
+            return False
+        if confirmar != soma:
+            raise _problema(
+                409,
+                "o arquivo enviado agora não é o que foi conferido. Nada "
+                "foi gravado: confira este arquivo antes de confirmar.",
+            )
+        return True
+
+    def _processar_planilha(ent: entidades.Entidade, quem: str, nome: str,
+                            corpo: bytes, confirmar: str) -> dict:
+        soma = hashlib.sha256(corpo).hexdigest()
+        pessoas, problemas = acervo.ler_bytes(corpo, nome)
+        if problemas:
+            # A mesma regra da ferramenta: problema DE ARQUIVO recusa, com o
+            # motivo. Problema de linha não recusa nada — vira achado.
+            raise _problema(422, "a planilha não pôde ser usada",
+                            problemas=problemas)
+        try:
+            ficam, apagadas = ingestao.sem_apagados(
+                pessoas, banco_url=cfg.banco_url, apelido=ent.apelido,
+                marcador_de=portao.marcar_cpf)
+        except ingestao.IngestaoRecusada as e:
+            log.error("PLANILHA recusada ent=%s: %s", ent.apelido, e)
+            raise _problema(
+                503,
+                "não conseguimos conferir quem pediu apagamento, e sem isso "
+                "a planilha poderia recriar quem pediu para sair. Nada foi "
+                "gravado: tente de novo.",
+            ) from None
+
+        retrato = completude.retratar(ficam)
+        resposta = {
+            "sha256": soma,
+            "arquivo": nome,
+            "manchete": retrato.manchete(),
+            "linhas": retrato.linhas,
+            "pessoas": retrato.total,
+            "alcancaveis": retrato.alcancaveis,
+            "inalcancaveis": retrato.inalcancaveis,
+            "divergentes": retrato.divergentes,
+            "colunas_ausentes": list(retrato.colunas_ausentes),
+            # QUANTOS, nunca quem: a pessoa pediu para sair. O número existe
+            # para o sindicato corrigir a FONTE — enquanto ela estiver na
+            # planilha dele, toda ingestão vai pulá-la de novo.
+            "apagados_a_pedido": apagadas,
+            "gravado": False,
+        }
+        if not _conferir_confirmacao(confirmar, soma):
+            return resposta
+        feito = ingestao.gravar_planilha(
+            ent, cfg.raiz, ficam, origem=nome, banco_url=cfg.banco_url,
+            quem=quem)
+        log.info("planilha ingerida ent=%s pessoas=%d", ent.apelido,
+                 retrato.total)
+        return {**resposta, "gravado": True,
+                "projetadas": feito["projetadas"]}
+
+    def _nome_de_envio(arquivo: UploadFile) -> str:
+        """O nome que o gestor deu, SÓ COMO RÓTULO. Nunca vira caminho: é
+        cortado no último separador e no tamanho."""
+        return pathlib.PurePath(
+            (arquivo.filename or "arquivo").replace("\\", "/")).name[:120]
+
+    @app.post("/api/entidade/{apelido}/planilha")
+    async def enviar_planilha(
+        apelido: str,
+        pedido: Request,
+        # Com padrão, para a SESSÃO ser conferida antes do formato: sem ele
+        # o FastAPI recusa o pedido sem arquivo antes de esta função rodar.
+        arquivo: UploadFile | None = File(None),
+        confirmar: str = Form(""),
+    ) -> dict:
+        """O sindicato manda a lista de filiados — CSV ou .xlsx.
+
+        EM DUAS ETAPAS, E A PRIMEIRA NÃO GRAVA NADA. Sem `confirmar`, volta
+        o que o arquivo traz: quantas pessoas, quantas o sindicato não
+        alcança, quantas pediram para sair. Com `confirmar` igual à
+        impressão digital devolvida, grava.
+
+        O miolo é `servidor/ingestao.py`, o MESMO da ferramenta de linha de
+        comando: as travas dela — quem pediu para sair não volta, falha
+        fechada sem os tombstones — valem aqui sem terem sido reescritas.
+        """
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        _exigir_banco_para_ingerir()
+        if arquivo is None:
+            raise _problema(422, "envie o arquivo da planilha")
+        corpo = await _ler_limitado(arquivo, LIMITE_DA_PLANILHA)
+        if not corpo:
+            raise _problema(422, "a planilha chegou vazia")
+        _auditar(ent, "enviar_planilha", quem_hash=sessao.cpf_hash)
+        # Ler dez mil linhas e projetá-las no banco leva segundos. Fora do
+        # laço de eventos, para o portal do filiado não parar enquanto isso.
+        return await run_in_threadpool(
+            _processar_planilha, ent, sessao.cpf_hash,
+            _nome_de_envio(arquivo), corpo, confirmar)
+
+    def _processar_documentos(ent: entidades.Entidade,
+                              arquivos: list[tuple[str, bytes]],
+                              confirmar: str) -> dict:
+        cpfs = ingestao.cpfs_da_base(cfg.banco_url, ent.apelido,
+                                     ent.pasta(cfg.raiz))
+        if not cpfs:
+            # Sem base, nenhum arquivo casa com ninguém. Aceitar e devolver
+            # "0 casaram" faria o gestor achar que os arquivos estão errados.
+            raise _problema(
+                409,
+                "a base desta entidade está vazia. Envie primeiro a "
+                "planilha de filiados: é por ela que cada documento "
+                "encontra o dono.",
+            )
+        r = lote.casar(arquivos, cpfs)
+        soma = hashlib.sha256("\n".join(sorted(
+            hashlib.sha256(corpo).hexdigest() for _, corpo in arquivos
+        )).encode()).hexdigest()
+        resposta = {
+            "sha256": soma,
+            "arquivos": len(arquivos),
+            "casaram": sum(len(v) for v in r.casados.values()),
+            "pessoas": len(r.casados),
+            # A PILHA DO QUE NÃO CASOU, com o motivo de cada um. "3.812 de
+            # 4.000" esconde 188 sentenças de gente que ficaria sem resposta.
+            "sobraram": [{"arquivo": x.arquivo, "motivo": x.motivo}
+                         for x in r.sobraram[:SOBRAS_NA_RESPOSTA]],
+            "sobraram_total": len(r.sobraram),
+            "avisos": list(r.avisos[:SOBRAS_NA_RESPOSTA]),
+            "gravado": False,
+        }
+        if not _conferir_confirmacao(confirmar, soma):
+            return resposta
+        gravados = ingestao.gravar_documentos(ent, cfg.raiz, r,
+                                              cfg.banco_url)
+        log.info("documentos do sindicato ent=%s gravados=%d sobraram=%d",
+                 ent.apelido, gravados, len(r.sobraram))
+        return {**resposta, "gravado": True}
+
+    @app.post("/api/entidade/{apelido}/documentos-do-sindicato")
+    async def enviar_documentos_do_sindicato(
+        apelido: str,
+        pedido: Request,
+        arquivos: list[UploadFile] = File(default=[]),
+        confirmar: str = Form(""),
+    ) -> dict:
+        """As sentenças e certidões que o SINDICATO já guarda — PDFs, ou um
+        .zip deles.
+
+        Cada arquivo casa com alguém da base pelo CPF, no nome do arquivo ou
+        no texto. Em duas etapas, como a planilha: a primeira mostra o que
+        casou e o que SOBROU, com o motivo; a segunda grava.
+
+        O NOME QUE O SINDICATO DEU AO ARQUIVO NUNCA VIRA CAMINHO: no disco
+        ele ganha o nome do tipo (`ingestao.gravar_documentos`). E o .zip é
+        aberto por `lote.abrir_zip`, que conta os bytes enquanto lê — a
+        trava contra zip que declara um tamanho e entrega outro.
+        """
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        _exigir_banco_para_ingerir()
+        if not arquivos:
+            raise _problema(422, "envie os documentos, ou um .zip com eles")
+
+        recebidos: list[tuple[str, bytes]] = []
+        total = 0
+        for arquivo in arquivos:
+            nome = _nome_de_envio(arquivo)
+            corpo = await _ler_limitado(arquivo, LIMITE_ARQUIVO_BYTES)
+            total += len(corpo)
+            if total > LIMITE_PACOTE_BYTES:
+                raise _problema(
+                    413,
+                    "o envio passa do limite. Mande os documentos em "
+                    "partes menores.",
+                )
+            if nome.lower().endswith(".zip"):
+                try:
+                    recebidos += lote.abrir_zip(corpo)
+                except lote.ZipRecusado as e:
+                    raise _problema(
+                        422, f"o arquivo {nome} não pôde ser aberto: {e}"
+                    ) from None
+            else:
+                recebidos.append((nome, corpo))
+        if not recebidos:
+            raise _problema(422, "não havia nenhum PDF no envio")
+        _auditar(ent, "enviar_documentos", quem_hash=sessao.cpf_hash)
+        return await run_in_threadpool(
+            _processar_documentos, ent, recebidos, confirmar)
 
     # --------------------------------------------- nome por nome
 

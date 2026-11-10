@@ -240,6 +240,22 @@ async function faseConferencia(navegador, gritos, resultado) {
     resultado.conferencia.registradas += 1;
     marco("leitura do comprovante fotografado registrada — a fila esvaziou");
 
+    // O SINDICATO MANDA A LISTA. Uma planilha .xlsx de verdade, em duas
+    // etapas: conferir, e só então gravar. A pessoa nova tem de aparecer
+    // na lista sem recarregar a página.
+    const entrada = g.getByLabel(/A planilha de filiados/);
+    await entrada.setInputFiles(cfg.planilha.caminho);
+    await g.getByRole("button", { name: "Conferir a planilha" }).click();
+    await g.getByText("Confira antes de gravar.").waitFor({ timeout: 20000 });
+    if ((await g.innerText("body")).includes(cfg.planilha.nome)) {
+      throw new Error("a pessoa da planilha apareceu na base ANTES da confirmação");
+    }
+    await g.getByRole("button", { name: "Confirmar e gravar a planilha" }).click();
+    await g.getByText(/Planilha gravada/).waitFor({ timeout: 20000 });
+    await g.getByText(cfg.planilha.nome).first().waitFor({ timeout: 20000 });
+    resultado.planilha = { gravou: true };
+    marco("o gestor enviou a planilha .xlsx: conferiu, confirmou, e a base cresceu");
+
     // NOME POR NOME, e a planilha. O gestor vê a pessoa na lista — com o
     // CPF mascarado — e baixa a base. O que se confere do lado de fora é o
     // ARQUIVO que o navegador recebeu: é ele que o sindicato leva embora.

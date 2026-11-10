@@ -390,7 +390,118 @@ def teste_planilha_sem_filiacao_continua_sendo_lida():
     print("  ok     planilha sem filiação entra, e a falta aparece depois")
 
 
+def _xlsx_do_csv(caminho_csv) -> bytes:
+    """A MESMA planilha suja, em .xlsx. Cada célula entra como TEXTO, que é
+    o que o CSV traz: assim os dois formatos carregam exatamente o mesmo
+    conteúdo, e qualquer diferença no resultado é do leitor."""
+    import csv as _csv
+    import io as _io
+
+    import openpyxl
+
+    texto = acervo._decodificar(caminho_csv.read_bytes())
+    separador = acervo._separador(texto.splitlines()[0])
+    livro = openpyxl.Workbook()
+    folha = livro.active
+    for linha in _csv.reader(_io.StringIO(texto), delimiter=separador):
+        folha.append(linha)
+    saida = _io.BytesIO()
+    livro.save(saida)
+    return saida.getvalue()
+
+
+def teste_xlsx_e_csv_dao_as_mesmas_pessoas():
+    """O sindicato tem a base no EXCEL, e o leitor só abria CSV. Para a
+    planilha poder entrar pela web sem alguém converter antes, o .xlsx
+    passa a ser lido — e a prova de que é a MESMA leitura é esta: a mesma
+    planilha suja, nos dois formatos, dá as mesmas pessoas, os mesmos campos
+    e os mesmos achados."""
+    try:
+        import openpyxl  # noqa: F401
+    except ImportError:
+        print("  --     PULADO: sem openpyxl não há .xlsx para ler")
+        return
+
+    do_csv, problemas_csv = acervo.ler(SUJO)
+    do_xlsx, problemas_xlsx = acervo.ler_bytes(_xlsx_do_csv(SUJO),
+                                               "base.xlsx")
+    checa(do_csv, "a premissa falhou: o CSV de teste não trouxe ninguém")
+    checa(len(do_xlsx) == len(do_csv),
+          f"{len(do_xlsx)} pessoas no .xlsx e {len(do_csv)} no CSV")
+
+    def forma(pessoas):
+        return [(p.cpf, sorted(p.campos.items()),
+                 sorted((a.coluna, a.estado) for a in p.achados))
+                for p in pessoas]
+
+    checa(forma(do_xlsx) == forma(do_csv),
+          "o .xlsx e o CSV da mesma planilha deram pessoas diferentes")
+    print(f"  ok     {len(do_xlsx)} pessoas iguais, do .xlsx e do CSV")
+
+
+def teste_xlsx_com_data_e_numero_de_verdade():
+    """No Excel a data é DATA e o número é NÚMERO, não texto. A data tem de
+    chegar como o sindicato a vê na tela (dd/mm/aaaa), e o número inteiro
+    sem o ".0" que o Excel põe por baixo."""
+    try:
+        import openpyxl
+    except ImportError:
+        print("  --     PULADO: sem openpyxl")
+        return
+    import datetime as _dt
+    import io as _io
+
+    livro = openpyxl.Workbook()
+    folha = livro.active
+    folha.append(["CPF", "Nome", "E-mail", "Data de Nascimento", "Matrícula"])
+    folha.append([11144477735, "FULANA DE TAL (CADASTRO DE EXEMPLO)",
+                  "fulana@exemplo.invalid", _dt.datetime(1958, 3, 15), 4812.0])
+    saida = _io.BytesIO()
+    livro.save(saida)
+
+    pessoas, problemas = acervo.ler_bytes(saida.getvalue(), "base.xlsx")
+    checa(len(pessoas) == 1, f"{pessoas} {problemas}")
+    if not pessoas:
+        return
+    campos = pessoas[0].campos
+    checa(pessoas[0].cpf == "11144477735",
+          f"o CPF guardado como número chegou torto: {pessoas[0].cpf!r}")
+    checa(campos.get("data_nascimento") == "15/03/1958",
+          f"a data chegou como {campos.get('data_nascimento')!r}")
+    checa("4812" in campos.values() and "4812.0" not in campos.values(),
+          f"o número inteiro chegou com casa decimal: {campos}")
+    print("  ok     data e número do Excel chegam como o sindicato os vê")
+
+
+def teste_xlsx_que_nao_e_planilha_e_recusado_com_motivo():
+    """Um arquivo .xlsx é um zip. Um zip qualquer com esse nome — ou uma
+    planilha que declara conteúdo gigante — é recusado, com o motivo, em vez
+    de derrubar o servidor ou voltar uma lista vazia sem explicação."""
+    import io as _io
+    import zipfile
+
+    falso = _io.BytesIO()
+    with zipfile.ZipFile(falso, "w") as z:
+        z.writestr("qualquer.txt", "isto não é uma planilha")
+    pessoas, problemas = acervo.ler_bytes(falso.getvalue(), "base.xlsx")
+    checa(pessoas == [] and problemas,
+          f"um zip qualquer passou por planilha: {pessoas} {problemas}")
+
+    enorme = _io.BytesIO()
+    with zipfile.ZipFile(enorme, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("xl/worksheets/sheet1.xml",
+                   b"0" * (acervo.TETO_DO_XLSX_ABERTO + 1))
+    pessoas, problemas = acervo.ler_bytes(enorme.getvalue(), "base.xlsx")
+    checa(pessoas == [] and any("grande" in x for x in problemas),
+          f"planilha que se expande além do teto não foi recusada: "
+          f"{problemas}")
+    print("  ok     zip que não é planilha, e planilha-bomba: recusados")
+
+
 TESTES.extend([
+    teste_xlsx_e_csv_dao_as_mesmas_pessoas,
+    teste_xlsx_com_data_e_numero_de_verdade,
+    teste_xlsx_que_nao_e_planilha_e_recusado_com_motivo,
     teste_le_planilha_de_excel_brasileiro,
     teste_le_exportacao_em_latin1,
     teste_arquivo_sem_coluna_de_cpf_reprova_alto,

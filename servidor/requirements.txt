@@ -8,3 +8,4 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 pypdf>=4.0          # confere a camada de texto dos PDFs recebidos
+openpyxl>=3.1        # lê a planilha .xlsx que o sindicato envia pela web

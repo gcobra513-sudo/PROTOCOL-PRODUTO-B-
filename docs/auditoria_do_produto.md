@@ -340,3 +340,58 @@ Quem não tinha nome na base aparecia nos exemplos de cada pendência, no
 painel, pelo CPF em claro. Corrigido, com teste.
 
 O ensaio de navegador confere a planilha como o navegador a BAIXOU.
+
+## O item 4, fechado em parte em 10/11/2026 — a porta de entrada do sindicato
+
+O painel do gestor ganhou "Enviar a base do sindicato":
+
+```
+POST /api/entidade/{apelido}/planilha                   CSV ou .xlsx
+POST /api/entidade/{apelido}/documentos-do-sindicato    PDFs, ou um .zip
+```
+
+- **em duas etapas, e a primeira não grava nada.** O servidor LÊ e devolve o
+  que o arquivo traz — quantas pessoas, quantas o sindicato não alcança,
+  quantas pediram apagamento; quantos documentos acharam o dono e quais
+  sobraram, com o motivo. A confirmação leva a impressão digital do arquivo
+  conferido, e é recusada (409) se o arquivo for outro;
+- **o miolo é o MESMO da linha de comando.** Ele desceu das duas
+  ferramentas para `servidor/ingestao.py`, e a ferramenta e a rota chamam as
+  mesmas funções. As travas vieram junto sem serem reescritas: quem pediu
+  para sair não volta pela planilha, e sem conseguir ler os tombstones nada
+  é gravado;
+- **a planilha entra em .xlsx**, que é o que o sindicato tem. A mesma
+  planilha suja de teste, em CSV e em .xlsx, dá as mesmas pessoas, campos e
+  achados. Um .xlsx é um zip: o tamanho declarado é somado antes de abrir;
+- a ingestão pela web registra QUEM enviou, no próprio arquivo de acervo.
+
+O ensaio de navegador confere: o gestor envia uma planilha .xlsx, a pessoa
+não aparece na base antes da confirmação, aparece depois, e está na
+planilha que ele baixa.
+
+### O que CONTINUA nas mãos de quem opera o servidor
+
+| | por quê |
+|---|---|
+| criar a entidade | é o contrato: quem é cliente, e que carreiras contratou |
+| `gestores.csv` — quem é gestor | alguém tem de nomear o primeiro, e gestor não nomeia gestor |
+| **`filiados.csv` — quem pode ENTRAR no portal** | **decisão pendente (T26)** |
+
+**A planilha enviada pela web alimenta a BASE, e não o PORTÃO.** O código de
+acesso continua indo para o e-mail que está em `filiados.csv`, posto por nós.
+Ligar uma coisa na outra — a planilha do gestor passar a definir quem entra
+e para qual e-mail vai o código — é possível, e muda o que uma sessão de
+gestor consegue fazer: hoje ela vê a base, exporta, lê a fila e apaga; com o
+rol, ela passaria a poder trocar o e-mail de qualquer filiado e ENTRAR NO
+LUGAR DELE. A regra da casa é "o e-mail do portão vem do sindicato" — e o
+gestor é o sindicato. Mas uma conta de gestor comprometida viraria todas as
+contas. É decisão de política, não de código.
+
+### Uma observação para o dia em que houver planilha real (soma ao item 9)
+
+CPF que começa com zero, guardado no Excel como NÚMERO, perde o zero:
+`01234567890` vira `1234567890`, com dez dígitos, e é marcado como "CPF que
+não fecha" — a pessoa entra como inalcançável. Cerca de um em cada dez CPFs
+começa com zero. O leitor não completa o zero sozinho, e isso é deliberado
+(não adivinha); mas é o primeiro lugar para olhar quando uma planilha real
+trouxer inalcançáveis demais.
