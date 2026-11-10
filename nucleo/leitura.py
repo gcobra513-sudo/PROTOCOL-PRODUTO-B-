@@ -350,3 +350,38 @@ def para_conferir(achados: list[Achado]) -> list[Achado]:
         a for a in achados
         if a.confianca != CERTO or a.tipo in discordantes
     ]
+
+
+#: Dispositivos que produzem título executivo, quando há trânsito.
+#: "parcialmente procedente" entra: o que foi deferido é executável, e o
+#: limite do que se pode cobrar é problema do cálculo, não da existência do
+#: título.
+DISPOSITIVOS_COM_TITULO = ("procedente", "parcialmente_procedente")
+DISPOSITIVOS_SEM_TITULO = ("improcedente", "extinto")
+
+
+def titulo_de(fatos_lidos: dict[str, str]) -> bool | None:
+    """Há título executivo? True / False / None, e o None importa.
+
+    Título é DISPOSITIVO FAVORÁVEL **mais** TRÂNSITO EM JULGADO. Um sem o
+    outro não é título:
+
+      - procedente sem trânsito  -> ainda cabe recurso. None
+      - improcedente             -> definitivo e nada a cobrar. False
+      - trânsito sem dispositivo -> não se sabe do quê. None
+
+    MORA AQUI, NO NÚCLEO, e não em `servidor/documentos.py` onde nasceu: lá
+    só a tela do filiado a alcançava, e o painel do sindicato e o veredicto
+    guardado — que montam os fatos em `nucleo/panorama.py` — ficavam com
+    `tem_titulo=None` para sempre. Três lugares chamavam o motor e só um
+    sabia se havia título.
+    """
+    dispositivo = fatos_lidos.get("dispositivo")
+    transito = fatos_lidos.get("transito_em_julgado")
+
+    if dispositivo in DISPOSITIVOS_SEM_TITULO:
+        # Improcedente é resposta, e não depende do trânsito para sê-lo.
+        return False
+    if dispositivo in DISPOSITIVOS_COM_TITULO and transito:
+        return True
+    return None

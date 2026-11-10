@@ -17,6 +17,15 @@ Medido nos dois bancos: **zero linhas.** No Supabase de São Paulo também.
 
 ## A dependência do T1, dita direito
 
+> **CORREÇÃO DE 10/11/2026 — o que esta seção afirma abaixo está ERRADO num
+> ponto, e fica escrito para o erro ser visível.** Ela diz que a
+> homologação vai mostrar `FALTA → PODE`. Não medi quando escrevi. Medido
+> depois (`docs/auditoria_do_produto.md`, item 1): com tudo homologado, o
+> resultado continua `FALTA`, porque nenhum caminho do produto preenche o
+> rol de substituídos, e o motor exige sabê-lo. **A homologação sozinha
+> produz zero `PODE`.** O desenho da tabela e a razão de guardar o
+> veredicto continuam valendo; a previsão sobre o primeiro efeito, não.
+
 O T11 estava registrado como "depende do T1, porque hoje o motor não emite
 nenhum `PODE` para persistir". Isso está certo e **não é um bloqueio** — e
 ler direito muda o rumo desta entrega.

@@ -170,6 +170,33 @@ def t_escritorio_nao_e_arquitetura():
           "contrato:\n  " + "\n  ".join(achados))
 
 
+def t_ha_um_so_lugar_que_monta_os_fatos_de_uma_pessoa():
+    """`motor.Fatos(` é construído em UM lugar do código de produção.
+
+    Eram dois construtores — um para a tela do filiado, que lia os
+    documentos, e um para o painel e para o veredicto guardado, que fixava
+    `tem_titulo=None`. Medido em 10/11/2026: a mesma pessoa recebia
+    respostas diferentes conforme quem perguntava, e a prova guardada era a
+    mais fraca das três.
+
+    Um teste de concordância entre as três superfícies pega a divergência
+    DEPOIS que ela existe. Este pega antes: um segundo `motor.Fatos(` em
+    código de produção é um segundo jeito de montar os fatos, e é assim que
+    a divergência nasce.
+    """
+    achados = []
+    for pasta in ("nucleo", "servidor", "ferramentas"):
+        for caminho in sorted((RAIZ / pasta).rglob("*.py")):
+            for n, linha in enumerate(
+                caminho.read_text(encoding="utf-8").splitlines(), 1
+            ):
+                if "motor.Fatos(" in linha and not linha.strip().startswith("#"):
+                    achados.append(f"{caminho.relative_to(RAIZ)}:{n}")
+    checa(len(achados) == 1 and achados[0].startswith("nucleo/panorama.py:"),
+          f"os fatos de uma pessoa são montados em mais de um lugar (ou em "
+          f"nenhum): {achados}")
+
+
 TESTES = [
     ("a raiz de dados padrão está ignorada", t_a_raiz_padrao_esta_ignorada),
     ("todo arquivo que a aplicação escreve está ignorado",
@@ -178,6 +205,8 @@ TESTES = [
     ("a pasta antiga continua ignorada", t_a_pasta_antiga_continua_ignorada),
     ("escritório não é arquitetura (Regra Zero)",
      t_escritorio_nao_e_arquitetura),
+    ("um só lugar monta os fatos de uma pessoa",
+     t_ha_um_so_lugar_que_monta_os_fatos_de_uma_pessoa),
 ]
 
 
