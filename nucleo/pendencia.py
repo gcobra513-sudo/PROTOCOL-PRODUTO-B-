@@ -45,6 +45,34 @@ TITULOS = {
     TRIBUNAL: "O que depende do tribunal",
 }
 
+#: O QUE O GESTOR LÊ. Os títulos acima falam com o filiado; no painel do
+#: sindicato, "O que depende de você" em cima de uma pendência que é DO
+#: FILIADO diz ao gestor que a tarefa é dele — e ele não tem como mandar o
+#: documento de outra pessoa. O mesmo defeito das frases do motor, visto do
+#: outro lado: cada leitor tem o seu texto, e nenhum lê o do outro.
+TITULOS_DO_SINDICATO = {
+    VOCE: "depende do filiado",
+    CONFERENCIA: "depende do sindicato",
+    TRIBUNAL: "depende do tribunal",
+}
+
+EXPLICACOES_DO_SINDICATO = {
+    VOCE: (
+        "Só o próprio filiado resolve: mandar um documento, ou responder "
+        "uma pergunta sobre ele mesmo. O que o sindicato pode fazer é "
+        "avisar quem está nesta lista."
+    ),
+    CONFERENCIA: (
+        "Está com o sindicato: homologar, enviar o rol, ler um documento, "
+        "conferir uma base. Nada aqui é afirmado antes de um advogado "
+        "conferir e assinar."
+    ),
+    TRIBUNAL: (
+        "Depende de um tribunal julgar, e não há o que fazer senão "
+        "aguardar. Cobrar andamento não antecipa."
+    ),
+}
+
 #: O mesmo dono, curto o bastante para caber no meio de uma frase.
 #: "O que o sindicato está conferindo" é título de cartão; numa manchete ele
 #: ocupa a linha inteira e empurra o número para fora da vista.

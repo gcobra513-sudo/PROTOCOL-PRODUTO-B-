@@ -36,6 +36,7 @@ from . import entendimentos as ent
 from . import pendencia
 from . import valor as mod_valor
 from . import participacao as part
+from .dito import ambos, dito, exigir, nao_homologado
 
 EXECUTAR = ent.EXECUTAR
 AJUIZAR = ent.AJUIZAR
@@ -135,6 +136,11 @@ class Oportunidade:
     #: em juízo e inútil como produto.
     falta_para_valor: tuple[pendencia.Falta, ...] = ()
 
+    def __post_init__(self) -> None:
+        # Nenhuma frase sai daqui com um leitor só: ver `nucleo/dito.py`.
+        for frase in (*self.motivos, *self.notas):
+            exigir(frase, "Oportunidade")
+
     def __bool__(self) -> bool:
         return self.veredicto == PODE
 
@@ -157,6 +163,10 @@ class _Juizo:
     notas: list[str] = field(default_factory=list)
     impedido: bool = False
 
+    # TODA FRASE ENTRA COM OS DOIS LEITORES (`nucleo/dito.py`), e é aqui que
+    # isso é cobrado: texto cru levanta. Sem a cobrança, a frase nova escrita
+    # só em terceira pessoa chegaria à tela do filiado como "esta pessoa…".
+
     def impede(self, motivo: str) -> None:
         self.impedido = True
         self.motivo(motivo)
@@ -166,6 +176,7 @@ class _Juizo:
         homologação, de propósito — cinto e suspensório. Mas a pessoa não tem
         de ler a mesma pendência duas vezes, e lista com item repetido parece
         defeito de quem escreveu, não zelo."""
+        exigir(texto, "motivo")
         if texto not in self.motivos:
             self.motivos.append(texto)
 
@@ -178,6 +189,7 @@ class _Juizo:
         self.motivo(motivo)
 
     def nota(self, texto: str) -> None:
+        exigir(texto, "nota")
         if texto not in self.notas:
             self.notas.append(texto)
 
@@ -198,8 +210,7 @@ def _homologacao(item, juizo: _Juizo) -> None:
         juizo.falta_saber(
             pendencia.CONFERENCIA,
             f"a homologação de {rotulo} por advogado",
-            f"{rotulo}: ainda não homologado — o motor prepara, quem assina "
-            f"é gente",
+            nao_homologado(rotulo),
         )
 
 
@@ -252,10 +263,10 @@ def _avaliar_executar(
     # 1. O TÍTULO, e ele vem antes de tudo. Sem título não há execução, e
     #    nenhuma das perguntas seguintes muda isso.
     if fatos.tem_titulo is False:
-        j.impede(
+        j.impede(ambos(
             "não há título a executar: execução cobra o que uma decisão já "
             "determinou, e sem sentença transitada não há o que cobrar"
-        )
+        ))
     elif fatos.tem_titulo is None:
         if "sentenca" in fatos.documentos_entregues:
             # Chegou e ainda não foi lida, ou foi lida e não deu para
@@ -263,24 +274,33 @@ def _avaliar_executar(
             j.falta_saber(
                 pendencia.CONFERENCIA,
                 "a leitura da sentença já entregue",
-                "a sentença foi entregue e ainda não se pôde concluir se há "
-                "título. Sem essa resposta não dá para dizer que pode "
-                "executar",
+                dito(
+                    "a sentença foi entregue e ainda não se pôde concluir se "
+                    "há título. Sem essa resposta não dá para dizer que pode "
+                    "executar",
+                    "a sua sentença foi entregue e ainda não deu para "
+                    "concluir se há título. Sem essa resposta não dá para "
+                    "dizer que você pode executar",
+                ),
             )
         else:
             j.falta_saber(
                 pendencia.VOCE,
                 "a sentença e a certidão de trânsito em julgado",
-                "não se sabe se há título. Sem essa resposta não dá para "
-                "dizer que pode executar",
+                dito(
+                    "não se sabe se há título. Sem essa resposta não dá para "
+                    "dizer que pode executar",
+                    "não sabemos se você tem título. Sem essa resposta não "
+                    "dá para dizer que você pode executar",
+                ),
             )
 
     if not acao.transitada:
         j.falta_saber(
             pendencia.CONFERENCIA,
             f"o trânsito em julgado de {acao.rotulo}",
-            f"{acao.rotulo}: a ação coletiva não consta como transitada em "
-            f"julgado",
+            ambos(f"{acao.rotulo}: a ação coletiva não consta como "
+                  f"transitada em julgado"),
         )
 
     # 2. O ROL. `participacao` já barrou quem está fora do rol de uma ação
@@ -296,10 +316,10 @@ def _avaliar_executar(
         # sindicato enviou, e ninguém o conferiu contra os autos. A resposta
         # conta — e quem assina lê que ela é declarada, pela mesma razão do
         # "não executei" dito pela própria pessoa.
-        j.nota(
+        j.nota(ambos(
             f"a resposta sobre o rol de {acao.rotulo} veio de um arquivo "
             f"ENVIADO pelo sindicato, não conferido contra os autos"
-        )
+        ))
     if no_rol is False:
         if pendentes:
             tema = pendentes[0]
@@ -312,44 +332,68 @@ def _avaliar_executar(
                 # resposta completa, e nenhum telefonema a melhora.
                 pendencia.TRIBUNAL,
                 f"o julgamento do {tema.rotulo}",
-                f"esta pessoa está FORA do rol de substituídos, e o "
-                f"{tema.rotulo} — que decide exatamente se quem está fora do "
-                f"rol pode executar — ainda não foi julgado.{suspensao} "
-                f"Protocolar agora é apostar com o processo dela",
+                dito(
+                    f"esta pessoa está FORA do rol de substituídos, e o "
+                    f"{tema.rotulo} — que decide exatamente se quem está "
+                    f"fora do rol pode executar — ainda não foi julgado."
+                    f"{suspensao} Protocolar agora é apostar com o processo "
+                    f"dela",
+                    f"o seu nome está FORA do rol de substituídos, e o "
+                    f"{tema.rotulo} — que decide exatamente se quem está "
+                    f"fora do rol pode executar — ainda não foi julgado."
+                    f"{suspensao} Entrar com a execução agora seria apostar "
+                    f"com o seu processo",
+                ),
             )
         else:
-            j.impede(
+            j.impede(dito(
                 "esta pessoa não consta do rol de substituídos da ação "
                 "coletiva, e há decisões extinguindo execução por "
-                "ilegitimidade nesse caso"
-            )
+                "ilegitimidade nesse caso",
+                "o seu nome não consta do rol de substituídos da ação "
+                "coletiva, e há decisões extinguindo execução por "
+                "ilegitimidade nesse caso",
+            ))
     elif no_rol is None:
         j.falta_saber(
             pendencia.CONFERENCIA,
             "o rol de substituídos da ação coletiva",
-            f"{acao.rotulo}: não se sabe se esta pessoa consta do rol",
+            dito(
+                f"{acao.rotulo}: não se sabe se esta pessoa consta do rol",
+                f"{acao.rotulo}: ainda não sabemos se o seu nome consta do "
+                f"rol",
+            ),
         )
 
     # 3. EXECUÇÃO PRÉVIA. Executar duas vezes cria dois processos para a
     #    mesma dívida, e o erro só aparece semanas depois.
     if fatos.ja_executou is True:
-        j.impede(
+        j.impede(dito(
             "esta pessoa já executou este título — executar de novo criaria "
-            "dois processos para a mesma dívida"
-        )
+            "dois processos para a mesma dívida",
+            "você já executou este título — executar de novo criaria dois "
+            "processos para a mesma dívida",
+        ))
     elif fatos.ja_executou is False and not fatos.ja_executou_conferido:
         # A resposta conta, e a nota diz de onde ela veio. Sem a nota, a
         # autodeclaração entra no lugar da base — e quem assina depois não
         # tem como saber que entrou.
-        j.nota(
+        j.nota(dito(
             "a resposta de que não houve execução anterior foi DECLARADA "
-            "pela pessoa, não conferida contra base de execuções"
-        )
+            "pela pessoa, não conferida contra base de execuções",
+            "a resposta de que não houve execução anterior foi DECLARADA "
+            "por você, não conferida contra base de execuções",
+        ))
     elif fatos.ja_executou is None:
         j.falta_saber(
             pendencia.CONFERENCIA,
             "a base de execuções já ajuizadas",
-            "não é possível afirmar que não há execução em curso para este CPF",
+            dito(
+                "não é possível afirmar que não há execução em curso para "
+                "este CPF",
+                "não é possível afirmar que não há execução em curso em seu "
+                "nome",
+            ),
         )
 
     # 4. QUANTO. A prescrição corta o período ANTES de qualquer soma: somar
@@ -371,19 +415,24 @@ def _avaliar_executar(
         bases={},
     )
     if periodo.meses_prescritos:
-        j.nota(
+        j.nota(dito(
             f"{periodo.meses_prescritos} mês(es) do período de participação "
-            f"já prescreveram e não entram na conta"
-        )
+            f"já prescreveram e não entram na conta",
+            f"{periodo.meses_prescritos} mês(es) do seu período de "
+            f"participação já prescreveram e não entram na conta",
+        ))
 
     # 5. LIQUIDAÇÃO. Não decide se pode; decide COMO se faz. Nota, não trava.
     for e in catalogo.por_efeito("dispensa_liquidacao_se_calculo_aritmetico"):
         if e.esta_homologado and not e.pendente:
-            j.nota(
+            j.nota(dito(
                 f"{e.rotulo}: dispensa a liquidação prévia quando a pessoa "
                 f"comprova documentalmente o enquadramento e o crédito sai "
-                f"por cálculo aritmético simples"
-            )
+                f"por cálculo aritmético simples",
+                f"{e.rotulo}: dispensa a liquidação prévia quando você "
+                f"comprova com documentos o enquadramento e o crédito sai "
+                f"por cálculo aritmético simples",
+            ))
 
     return Oportunidade(
         trilha=EXECUTAR,
@@ -431,8 +480,12 @@ def _avaliar_ajuizar(
             categoria=e.categoria,
             veredicto=NAO_PODE,
             motivos=(
-                f"{e.rotulo} é da categoria {e.categoria!r}, e o cargo "
-                f"informado é de outra carreira ({fatos.cargo})",
+                dito(
+                    f"{e.rotulo} é da categoria {e.categoria!r}, e o cargo "
+                    f"informado é de outra carreira ({fatos.cargo})",
+                    f"{e.rotulo} é da categoria {e.categoria!r}, e o cargo "
+                    f"que você informou é de outra carreira ({fatos.cargo})",
+                ),
             ),
             fonte=e.fonte,
         )
@@ -443,15 +496,24 @@ def _avaliar_ajuizar(
             j.falta_saber(
                 pendencia.CONFERENCIA,
                 "a conferência da carreira informada",
-                f"o cargo {fatos.cargo!r} não foi reconhecido, e é ele que "
-                f"diz se este entendimento é da carreira dela",
+                dito(
+                    f"o cargo {fatos.cargo!r} não foi reconhecido, e é ele "
+                    f"que diz se este entendimento é da carreira dela",
+                    f"o cargo que você informou ({fatos.cargo}) não foi "
+                    f"reconhecido, e é ele que diz se este entendimento é "
+                    f"da sua carreira",
+                ),
             )
         else:
             j.falta_saber(
                 pendencia.VOCE,
                 "o cargo, que é o que define a categoria",
-                "a pessoa não informou o cargo, e é ele que define a "
-                "categoria",
+                dito(
+                    "a pessoa não informou o cargo, e é ele que define a "
+                    "categoria",
+                    "você não informou o cargo, e é ele que define a "
+                    "categoria",
+                ),
             )
 
     _homologacao(e, j)
@@ -460,21 +522,27 @@ def _avaliar_ajuizar(
         j.falta_saber(
             pendencia.TRIBUNAL,
             f"o julgamento do {e.rotulo}",
-            f"{e.rotulo} ainda não tem tese fixada — não há entendimento "
-            f"firmado em que apoiar a ação",
+            ambos(f"{e.rotulo} ainda não tem tese fixada — não há "
+                  f"entendimento firmado em que apoiar a ação"),
         )
 
     # Quem já tem ação própria sobre o mesmo objeto não entra de novo.
     if fatos.tem_acao_propria is True:
-        j.impede(
+        j.impede(dito(
             "esta pessoa já tem ação própria sobre o mesmo objeto; ajuizar "
-            "de novo é litispendência"
-        )
+            "de novo é litispendência",
+            "você já tem ação própria sobre o mesmo objeto; ajuizar de novo "
+            "é litispendência",
+        ))
     elif fatos.tem_acao_propria is None:
         j.falta_saber(
             pendencia.VOCE,
             "saber se já existe ação própria sobre o mesmo assunto",
-            "não se sabe se já existe ação própria",
+            dito(
+                "não se sabe se já existe ação própria",
+                "não sabemos se você já tem ação própria sobre o mesmo "
+                "assunto",
+            ),
         )
 
     # Os critérios objetivos do entendimento. Enquanto o catálogo não os
@@ -483,14 +551,18 @@ def _avaliar_ajuizar(
         j.falta_saber(
             pendencia.CONFERENCIA,
             f"os critérios objetivos de enquadramento no {e.rotulo}",
-            f"{e.rotulo}: o catálogo não traz critério algum, então não há "
-            f"como dizer que esta pessoa se enquadra",
+            dito(
+                f"{e.rotulo}: o catálogo não traz critério algum, então não "
+                f"há como dizer que esta pessoa se enquadra",
+                f"{e.rotulo}: o catálogo não traz critério algum, então não "
+                f"há como dizer que você se enquadra",
+            ),
         )
     else:
-        j.nota(
+        j.nota(ambos(
             f"{e.rotulo}: enquadramento a conferir contra "
             + "; ".join(e.criterios)
-        )
+        ))
 
     return Oportunidade(
         trilha=AJUIZAR,
