@@ -135,6 +135,88 @@ def mesmo_email(a: str, b: str) -> bool:
     return a.strip().casefold() == b.strip().casefold()
 
 
+#: QUANTAS PESSOAS um domínio FORA dos provedores comuns recebe no acesso
+#: sem ninguém conferir. Passou disso, as novas esperam por quem opera.
+#:
+#: Existe porque a regra do e-mail repetido compara endereços, e quem
+#: controla um domínio escreve quantos endereços quiser — `p1@`, `p2@`,
+#: todos caindo na mesma caixa. Não é medição: é um botão. Baixo o bastante
+#: para que tomar muitas contas custe muitos domínios; alto o bastante para
+#: um casal, ou três colegas de um escritório pequeno, não dependerem de nós.
+LIMITE_POR_DOMINIO = 3
+
+#: Os provedores onde cada endereço é uma conta que alguém teve de criar.
+#: Neles o limite por domínio não se aplica — metade de qualquer sindicato
+#: está no Gmail —, e o que segura é a regra da caixa, abaixo.
+#:
+#: LISTA ESCRITA À MÃO, não medida numa base real: quando chegar a primeira
+#: planilha de verdade, o que estiver fora daqui e for comum aparece como
+#: entrada segurada, e a lista se corrige com dado.
+PROVEDORES_COMUNS = frozenset({
+    "gmail.com", "googlemail.com",
+    "hotmail.com", "hotmail.com.br", "outlook.com", "outlook.com.br",
+    "live.com", "live.com.br", "msn.com",
+    "yahoo.com", "yahoo.com.br", "ymail.com",
+    "icloud.com", "me.com", "mac.com",
+    "uol.com.br", "bol.com.br", "terra.com.br", "ig.com.br",
+    "globo.com", "globomail.com", "r7.com", "zipmail.com.br", "oi.com.br",
+    "proton.me", "protonmail.com", "pm.me", "aol.com",
+})
+
+_GMAIL = frozenset({"gmail.com", "googlemail.com"})
+
+#: Rótulos que, logo antes de um código de país, são CATEGORIA e não nome:
+#: em `exemplo.com.br` quem foi registrado é `exemplo`, não `com`.
+_CATEGORIAS = frozenset({
+    "com", "org", "net", "gov", "edu", "mil", "jus", "leg", "mp", "def",
+    "adv", "eng", "med", "art", "eco", "emp", "ind", "inf", "srv", "tur",
+    "coop", "ong", "co", "ac", "ne", "or",
+})
+
+
+def caixa(email: str) -> str:
+    """Em que CAIXA este endereço cai — para saber se dois são o mesmo.
+
+    `joana+boleto@x` e `joana@x` são a mesma caixa: o que vem depois do `+`
+    é etiqueta. No Gmail o ponto também não distingue, e `googlemail.com` é
+    o mesmo serviço. Comparar o TEXTO do endereço deixava uma caixa só
+    receber o código de quantas pessoas novas se quisesse, sem comprar
+    domínio nem criar conta.
+
+    ERRA PARA O LADO DE JUNTAR. Nem todo provedor trata o `+` como
+    etiqueta; num que não trate, duas pessoas de verdade seriam juntadas —
+    e o custo é uma entrada segurada, que alguém confere. O erro contrário
+    é uma credencial indo para quem não é o dono.
+    """
+    local, _, dominio = email.strip().casefold().rpartition("@")
+    local = local.split("+", 1)[0]
+    if dominio in _GMAIL:
+        local, dominio = local.replace(".", ""), "gmail.com"
+    return f"{local}@{dominio}"
+
+
+def dominio_registravel(email: str) -> str:
+    """De que DONO é o domínio deste endereço: `a.b.exemplo.com.br` ->
+    `exemplo.com.br`.
+
+    Contar por domínio inteiro (`a.exemplo.com.br` diferente de
+    `b.exemplo.com.br`) não contaria nada: quem tem o domínio cria
+    subdomínio de graça.
+
+    É HEURÍSTICA, sem a lista pública de sufixos — que mudaria a cada
+    versão e teria de ser baixada. Código de país com uma categoria
+    conhecida antes (`com.br`, `gov.br`) guarda três rótulos; o resto,
+    dois. Onde erra, erra JUNTANDO: `loja.floripa.br` vira `floripa.br`
+    inteiro. O custo é o mesmo de `caixa`: uma entrada segurada a mais.
+    """
+    rotulos = [r for r in email.strip().casefold().rpartition("@")[2]
+               .split(".") if r]
+    if len(rotulos) > 2 and len(rotulos[-1]) == 2 \
+            and rotulos[-2] in _CATEGORIAS:
+        return ".".join(rotulos[-3:])
+    return ".".join(rotulos[-2:])
+
+
 class RolAusente(FileNotFoundError):
     """A entidade não entregou o rol. Não há como conferir ninguém."""
 

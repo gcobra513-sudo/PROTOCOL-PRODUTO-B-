@@ -531,6 +531,9 @@ export interface AcessoPelaPlanilha {
   /** Novos que vieram com um e-mail que OUTRA pessoa usa: não entram até
    *  quem opera o serviço conferir. Um endereço, uma pessoa. */
   novos_aguardando: number;
+  /** Novos que usam um domínio de e-mail fora dos provedores comuns que
+   *  já aparece em várias pessoas: esperam por quem opera o serviço. */
+  novos_por_dominio: number;
   trocas_aguardando: number;
   trocas_recusadas: number;
   sem_email: number;

@@ -115,9 +115,11 @@ class PlanoDoPortao:
         default_factory=list)
     #: quem tinha troca pedida e a planilha voltou a concordar com o portão.
     retiradas: list[str] = dataclasses.field(default_factory=list)
-    #: (cpf, e-mail) de quem é novo e veio com um e-mail que OUTRA pessoa
-    #: usa. NÃO entra: vira pedido, como a troca.
-    seguradas: list[tuple[str, str]] = dataclasses.field(default_factory=list)
+    #: (cpf, e-mail, motivo) de quem é novo e NÃO entra direto: a caixa é
+    #: de outra pessoa (`trocas.REPETIDO`), ou o domínio está concentrado
+    #: (`trocas.DOMINIO`). Vira pedido, como a troca.
+    seguradas: list[tuple[str, str, str]] = dataclasses.field(
+        default_factory=list)
     #: novos sem e-mail que sirva: entram na base e não têm como entrar.
     sem_email: int = 0
     #: a mesma pessoa com dois e-mails na planilha: nenhum é escolhido.
@@ -130,7 +132,10 @@ class PlanoDoPortao:
     def para_json(self) -> dict:
         return {
             "novos": len(self.novos),
-            "novos_aguardando": len(self.seguradas),
+            "novos_aguardando": sum(
+                1 for s in self.seguradas if s[2] == trocas.REPETIDO),
+            "novos_por_dominio": sum(
+                1 for s in self.seguradas if s[2] == trocas.DOMINIO),
             "trocas_aguardando": len(self.trocas),
             "trocas_recusadas": self.recusadas,
             "sem_email": self.sem_email,
@@ -170,9 +175,21 @@ def plano_do_portao(pasta: pathlib.Path, pessoas: list) -> PlanoDoPortao:
     é a dona seria resolver a divergência sozinho. Casal que divide endereço
     cai aqui também, e passa a depender de quem opera — custo aceito.
 
-    O QUE ISTO NÃO FECHA: quem controla um domínio inteiro escreve um
-    endereço diferente por pessoa. A regra pega o endereço repetido, não a
-    intenção.
+    "O MESMO E-MAIL" É A MESMA CAIXA, não o mesmo texto (`rol.caixa`):
+    `joana+1@` e `joana+2@` caem no mesmo lugar.
+
+    E UM DOMÍNIO FORA DOS PROVEDORES COMUNS TEM LIMITE. Quem controla um
+    domínio escreve um endereço diferente por pessoa, todos na mesma caixa.
+    Então, fora de `rol.PROVEDORES_COMUNS` e dos domínios que quem opera
+    confiou para este sindicato, um domínio só recebe gente nova até
+    `rol.LIMITE_POR_DOMINIO` — contando quem já entra e quem espera, e pelo
+    domínio REGISTRÁVEL, para que nem uma pessoa por envio nem um
+    subdomínio por pessoa contornem. Passou do limite, NENHUMA das novas
+    daquele domínio entra.
+
+    O QUE ISTO NÃO FECHA: muitos domínios, poucas pessoas em cada. Tomar N
+    contas passa a custar N/limite domínios registrados — deixa de ser
+    grátis, não deixa de ser possível.
 
     FALHA FECHADA: com um rol que não dá para ler não se sabe quem já entra,
     e tratar todos como novos seria a troca de e-mail em massa que a regra
@@ -205,14 +222,22 @@ def plano_do_portao(pasta: pathlib.Path, pessoas: list) -> PlanoDoPortao:
     # De quem é cada e-mail HOJE: os dois róis e as entradas que esperam.
     # (As TROCAS que esperam não contam: o e-mail pedido nelas ainda não é
     # de ninguém, e a troca só vale se quem opera aprovar.)
+    #
+    # E quem está em cada DOMÍNIO, pela mesma conta: é o que dá o limite.
     donos: dict[str, set[str]] = {}
+    no_dominio: dict[str, set[str]] = {}
+
+    def conhecer(cpf: str, email: str) -> None:
+        donos.setdefault(rol.caixa(email), set()).add(cpf)
+        no_dominio.setdefault(rol.dominio_registravel(email), set()).add(cpf)
+
     for lista in (filiados, gestores):
         for cpf, email in lista.items():
-            donos.setdefault(email.strip().casefold(), set()).add(cpf)
+            conhecer(cpf, email)
     for cpf, pedido in pedidos.pendentes.items():
         if not pedido.get("de"):
-            donos.setdefault(str(pedido.get("para", "")).strip().casefold(),
-                             set()).add(cpf)
+            conhecer(cpf, str(pedido.get("para", "")))
+    sem_limite = rol.PROVEDORES_COMUNS | trocas.dominios_confiados(pasta)
 
     plano = PlanoDoPortao()
     candidatos: list[tuple[str, str]] = []
@@ -240,17 +265,24 @@ def plano_do_portao(pasta: pathlib.Path, pessoas: list) -> PlanoDoPortao:
     # Os novos, depois de TODOS serem conhecidos: só assim dá para ver que
     # dois deles trazem o mesmo endereço.
     for cpf, email in candidatos:
-        donos.setdefault(email.casefold(), set()).add(cpf)
+        conhecer(cpf, email)
     for cpf, email in candidatos:
-        if donos[email.casefold()] == {cpf}:
+        dominio = rol.dominio_registravel(email)
+        if donos[rol.caixa(email)] != {cpf}:
+            motivo = trocas.REPETIDO
+        elif (dominio not in sem_limite
+              and len(no_dominio[dominio]) > rol.LIMITE_POR_DOMINIO):
+            motivo = trocas.DOMINIO
+        else:
             plano.novos.append((cpf, email))
             if cpf in pedidos.pendentes:
-                # Esperava com um e-mail repetido e voltou com um só dela.
+                # Esperava, e o que a segurava deixou de valer.
                 plano.retiradas.append(cpf)
-        elif pedidos.foi_recusada(cpf, email):
+            continue
+        if pedidos.foi_recusada(cpf, email):
             plano.recusadas += 1
         else:
-            plano.seguradas.append((cpf, email))
+            plano.seguradas.append((cpf, email, motivo))
     plano.fora_da_planilha = sum(1 for cpf in filiados if cpf not in por_cpf)
     return plano
 
@@ -263,14 +295,16 @@ def _aplicar_ao_portao(pasta: pathlib.Path, plano: PlanoDoPortao,
     rol.acrescentar(pasta, plano.novos)
     pedidos = trocas.estado(pasta).pendentes
     # A entrada segurada é um pedido com `de` vazio: não há e-mail de antes.
-    for cpf, de, para in (plano.trocas
-                          + [(c, "", e) for c, e in plano.seguradas]):
+    for cpf, de, para, motivo in (
+            [(c, d, e, "") for c, d, e in plano.trocas]
+            + [(c, "", e, m) for c, e, m in plano.seguradas]):
         ja = pedidos.get(cpf)
         # O mesmo pedido de novo não é pedido novo: a planilha é reenviada
         # toda vez que o sindicato atualiza a base.
         if ja and rol.mesmo_email(ja.get("para", ""), para):
             continue
-        trocas.pedir(pasta, cpf=cpf, de=de, para=para, quem=quem)
+        trocas.pedir(pasta, cpf=cpf, de=de, para=para, quem=quem,
+                     motivo=motivo)
         nasceram += 1
     for cpf in plano.retiradas:
         trocas.retirar(pasta, cpf)

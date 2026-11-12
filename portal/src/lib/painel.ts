@@ -425,6 +425,15 @@ export function resumoDoAcesso(
         "confere antes. Com um e-mail só dela na planilha, cada uma entra na hora.",
     );
   }
+  if (a.novos_por_dominio > 0) {
+    const n = a.novos_por_dominio;
+    linhas.push(
+      `${pessoas(n)} ${n === 1 ? "nova usa" : "novas usam"} um mesmo domínio de e-mail, fora ` +
+        `dos provedores comuns, que aparece em várias pessoas, e por isso NÃO ` +
+        `${n === 1 ? "entra" : "entram"} ainda: quem opera o serviço confere antes. Se é o ` +
+        "domínio da repartição, avise quem opera — uma conferência libera todas.",
+    );
+  }
   if (a.trocas_aguardando > 0) {
     linhas.push(
       `${pessoas(a.trocas_aguardando)} que já ${a.trocas_aguardando === 1 ? "entra" : "entram"} no portal ` +
