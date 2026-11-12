@@ -180,10 +180,11 @@ class _Juizo:
         if texto not in self.motivos:
             self.motivos.append(texto)
 
-    def falta_saber(self, quem: str, o_que: str, motivo: str) -> None:
+    def falta_saber(self, quem: str, o_que: str, motivo: str,
+                    onde: str = "") -> None:
         """`quem` não tem padrão de propósito: quem escreve a falta sabe de
         quem ela é, e um padrão silencioso poria tudo no mesmo dono."""
-        nova = pendencia.Falta(quem, o_que)
+        nova = pendencia.Falta(quem, o_que, onde)
         if nova not in self.falta:
             self.falta.append(nova)
         self.motivo(motivo)
@@ -357,12 +358,16 @@ def _avaliar_executar(
     elif no_rol is None:
         j.falta_saber(
             pendencia.CONFERENCIA,
-            "o rol de substituídos da ação coletiva",
+            # O MESMO TEXTO de `participacao`, com o nome da ação: "da ação
+            # coletiva" não diz qual, e com duas no catálogo o gestor não
+            # sabe que lista procurar.
+            f"o rol de substituídos de {acao.rotulo}",
             dito(
                 f"{acao.rotulo}: não se sabe se esta pessoa consta do rol",
                 f"{acao.rotulo}: ainda não sabemos se o seu nome consta do "
                 f"rol",
             ),
+            onde=pendencia.NO_ROL,
         )
 
     # 3. EXECUÇÃO PRÉVIA. Executar duas vezes cria dois processos para a

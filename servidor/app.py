@@ -1278,6 +1278,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     "o_que": g.o_que,
                     "pessoas": g.pessoas,
                     "exemplos": list(g.exemplos),
+                    # Onde, no painel, o gestor resolve isto — ou vazio.
+                    "onde": g.onde,
                 }
                 for g in visao.gargalos
             ],

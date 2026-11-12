@@ -430,6 +430,30 @@ def teste_o_rol_enviado_pelo_sindicato_vai_com_nota():
 
 
 
+def teste_a_falta_do_rol_diz_de_qual_acao_e_onde_se_resolve():
+    """"O rol de substituídos da ação coletiva" — de QUAL? Com duas ações no
+    catálogo o gestor não sabe qual lista procurar. E a pendência passa a
+    dizer ONDE se resolve: o painel leva ao cartão do rol sem adivinhar pela
+    palavra na frase, que é o que erra calado quando alguém reescreve."""
+    from nucleo import pendencia
+
+    cat = _duas_acoes()
+    achadas = motor.avaliar(fatos(tem_titulo=True, ja_executou=False), cat)
+    por = {o.referencia: o for o in achadas if o.trilha == motor.EXECUTAR}
+    for acao in ("GIFA-2006", "OUTRA-2010"):
+        do_rol = [f for f in por[acao].falta if f.onde == pendencia.NO_ROL]
+        checa(len(do_rol) == 1, f"{acao}: {por[acao].falta}")
+        checa(do_rol and cat.de(acao).rotulo in do_rol[0].o_que,
+              f"{acao}: a falta não diz de qual ação é o rol: {do_rol}")
+    checa(len({f.o_que for a in por.values() for f in a.falta
+               if f.onde == pendencia.NO_ROL}) == 2,
+          "as duas ações pedem o rol com a MESMA frase")
+    outras = [f for o in achadas for f in o.falta if f.onde != pendencia.NO_ROL]
+    checa(all(f.onde == "" for f in outras),
+          f"pendência que não é do rol aponta para algum lugar: {outras}")
+    print("  ok     a falta do rol nomeia a ação e diz onde se resolve")
+
+
 TESTES.extend([
     teste_sem_titulo_ninguem_executa_nunca,
     teste_quem_tem_titulo_e_esta_no_rol_pode_executar,
@@ -452,6 +476,7 @@ TESTES.extend([
     teste_fora_do_rol_de_uma_acao_nao_barra_a_outra,
     teste_a_resposta_da_acao_vence_a_resposta_geral,
     teste_o_rol_enviado_pelo_sindicato_vai_com_nota,
+    teste_a_falta_do_rol_diz_de_qual_acao_e_onde_se_resolve,
 ])
 
 
