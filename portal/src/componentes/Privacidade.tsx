@@ -68,7 +68,11 @@ export function Privacidade({ onFechar }: { onFechar: () => void }) {
         <div className="space-y-5 p-5 text-[15px] leading-relaxed text-tinta/85">
           {temPendencia() ? (
             <Aviso tom="alerta">
-              <strong>Protótipo:</strong> a identificação do responsável e o
+              {/* A palavra "protótipo" saiu das telas; a PENDÊNCIA não. Este
+                  aviso some sozinho quando o responsável for preenchido
+                  (`temPendencia`), e até lá esconder isto seria publicar um
+                  aviso de privacidade sem dizer de quem ele é. */}
+              <strong>Pendente:</strong> a identificação do responsável e o
               canal de contato ainda não foram preenchidos. Antes de usar com
               pessoas de verdade, isso é obrigatório.
             </Aviso>

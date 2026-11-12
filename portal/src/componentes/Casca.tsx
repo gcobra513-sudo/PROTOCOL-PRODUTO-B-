@@ -172,10 +172,12 @@ export function Casca({
           <span className="lg:hidden">
             <Marca />
           </span>
+          {/* SÓ O NOME DO SINDICATO. O rótulo "Protótipo — não é o portal
+              oficial" saiu daqui em 12/11/2026, por decisão do dono do
+              produto. O que protege quem abre um servidor de teste continua
+              existindo e é outra coisa: a faixa de DEMONSTRAÇÃO, que o
+              servidor manda só para sindicato de demonstração. */}
           <div className="ml-auto min-w-0 text-right lg:ml-0 lg:text-left">
-            <p className="text-xs font-semibold uppercase tracking-wide text-alerta">
-              Protótipo — não é o portal oficial
-            </p>
             <p className="truncate text-lg font-semibold text-tinta">
               {entidade ?? "Seus direitos, organizados"}
             </p>
