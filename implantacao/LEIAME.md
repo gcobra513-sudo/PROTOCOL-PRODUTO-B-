@@ -111,8 +111,10 @@ cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh /srv/protoc
 arquivo com `source`**: a URL do banco tem `&`, e o shell a parte ao meio
 sem avisar.
 
-Banco que **já existe** (o de São Paulo): `criar_esquema` NÃO altera tabela
-existente. Aplique as migrações, na ordem, uma vez:
+Banco que **já existe**: `criar_esquema` NÃO altera tabela existente. O de
+São Paulo já recebeu as duas migrações abaixo em 12/11/2026, e a forma dele
+foi conferida (`servidor/migracoes/LEIA.md`) — **não as rode de novo ali**.
+Para qualquer outro banco antigo, aplique na ordem, uma vez:
 
 ```bash
 cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh sh -c 'psql "$PROTOCOL_DATABASE_URL" -v ON_ERROR_STOP=1 -f servidor/migracoes/2026-11-03-oportunidade-origem-do-catalogo.sql'
