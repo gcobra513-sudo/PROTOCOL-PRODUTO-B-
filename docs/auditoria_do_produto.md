@@ -152,6 +152,24 @@ cadastro no computador da sede deixa nome, CPF, e-mail e processos para o
 próximo. E o `LEIAME.md` do servidor prevê exatamente esse uso: *"o sindicato
 atende vários filiados do mesmo computador da sede"*.
 
+**Fechado em 12/11, e a medição mostrou mais do que a leitura.** Eu tinha
+escrito que quem abandona o cadastro "deixa nome, CPF, e-mail e processos
+para o próximo". No navegador é pior: a segunda pessoa nem chega a ver o
+portão — abre o portal e já está DENTRO do cadastro da primeira, na etapa
+em que ela parou. O ensaio travou procurando o botão de pedir código, e foi
+assim que apareceu.
+
+Correção: o rascunho deixou de ser restaurado ao abrir a página. Volta
+depois que o portão confere o CPF, e só para aquele CPF; quando quem entrou
+é outra pessoa, o que estava guardado é apagado — não basta não mostrar. E
+quem usa um computador que não é seu tem um "Sair e apagar". Um detalhe
+que só o ensaio pegaria: a gravação automática rodava ANTES da decisão de
+restaurar, e escrevia o formulário vazio por cima do rascunho que a dona
+vinha buscar (mutante Mc).
+
+Fica: o rascunho parado no navegador não tem prazo, e a troca de CPF na
+mesma aba está testada por função, não ensaiada.
+
 ### 8. Jurídico
 
 - **T16** — o aviso de privacidade que o filiado lê descreve o Produto A;

@@ -42,7 +42,52 @@ export function salvar(r: Rascunho): boolean {
   }
 }
 
-export function carregar(): Rascunho | null {
+export function soDigitos(v: string): string {
+  return (v ?? "").replace(/\D/g, "");
+}
+
+/** O rascunho guardado, SE for desta pessoa. Chamada só depois que o portão
+ *  conferiu o CPF.
+ *
+ *  O RASCUNHO É DE UMA PESSOA, E O NAVEGADOR PODE NÃO SER. O sindicato
+ *  atende vários filiados do mesmo computador da sede, e a versão anterior
+ *  restaurava o rascunho ao abrir a página, antes de qualquer identificação:
+ *  quem sentava depois de alguém que não terminou caía DENTRO do cadastro
+ *  dela, com nome, CPF e e-mail na tela (medido no navegador, 12/11/2026).
+ *
+ *  QUANDO NÃO É DELA, APAGA. Não basta não mostrar: o que ficasse guardado
+ *  ficaria para o próximo que soubesse onde olhar. O custo é a dona, se
+ *  voltar depois de outra pessoa ter usado o computador, começar do zero —
+ *  e entre ela redigitar e o cadastro dela ficar exposto, redigitar.
+ *
+ *  Sem CPF não apaga nem devolve: é a tela ANTES do portão, e apagar ali
+ *  faria a dona perder o rascunho só por abrir a página.
+ */
+export function carregarDe(cpf: string): Rascunho | null {
+  const digitos = soDigitos(cpf);
+  if (digitos.length !== 11) return null;
+  const salvo = carregar();
+  if (!salvo) return null;
+  if (soDigitos(salvo.identificacao.cpf) !== digitos) {
+    apagar();
+    return null;
+  }
+  return salvo;
+}
+
+/** O formulário de quem acabou de se identificar e não tem rascunho: vazio,
+ *  só com o CPF. É também o que se usa quando alguém troca o CPF na mesma
+ *  aba — o que estava na memória era de OUTRA pessoa. */
+export function limpoPara(cpf: string): Rascunho {
+  return {
+    ...RASCUNHO_VAZIO,
+    identificacao: { ...RASCUNHO_VAZIO.identificacao, cpf },
+  };
+}
+
+/** Lê o que está guardado, SEM perguntar de quem é. Não é para a tela:
+ *  quem mostra rascunho usa `carregarDe`. */
+function carregar(): Rascunho | null {
   try {
     const bruto = localStorage.getItem(CHAVE);
     if (!bruto) return null;

@@ -366,12 +366,39 @@ def main() -> int:
                          "nome": NOME_DA_PLANILHA,
                          "cpf": CPF_DA_PLANILHA},
             "fazerPainel": bool(banco_url),
+            # O computador da sede: duas pessoas no MESMO navegador.
+            "sede": {
+                "primeira": {"cpf": CPF_DA_TROCA, "nome": NOME_DA_TROCA,
+                             "email": EMAIL_DE_ANTES},
+                "segunda": {"cpf": CPF_FILIADO},
+            },
         }
         # UMA CHAMADA POR FASE, e a ORDEM é o que importa: o cadastro
         # grava, a conferência lê o disco, e só então o painel apaga. Numa
         # chamada só, a conferência do cadastro rodaria depois do
         # apagamento e acharia tudo vazio — e foi exatamente esse o
         # primeiro defeito que este ensaio pegou. Era meu.
+        # ANTES DE TUDO, o computador da sede — e antes do cadastro porque
+        # nada aqui é enviado: são duas pessoas no mesmo navegador, e o que
+        # se mede é o que uma deixa para a outra.
+        print("  dirigindo o Chromium — o computador da sede…")
+        da_sede = _dirigir(cfg, "sede", falhas)
+        if not falhas:
+            falhas += _conferir_a_sede(da_sede.get("sede"))
+        if not falhas:
+            da_volta = _dirigir(cfg, "volta", falhas)
+            if not falhas and (da_volta.get("volta") or {}).get(
+                    "nomeRecuperado") != NOME_DA_TROCA:
+                falhas.append(
+                    "a DONA do rascunho voltou, passou pelo portão e não "
+                    "reencontrou o que tinha digitado: "
+                    f"{(da_volta.get('volta') or {}).get('nomeRecuperado')!r}")
+            if not falhas and (da_volta.get("volta") or {}).get(
+                    "sobrouAoSair"):
+                falhas.append(
+                    "\"Sair e apagar\" deixou dado da pessoa na tela ou no "
+                    "navegador")
+
         print("  dirigindo o Chromium — o filiado…")
         dados = _dirigir(cfg, "cadastro", falhas)
         protocolo = dados.get("protocolo", "")
@@ -641,6 +668,35 @@ def _conferir_a_planilha(raiz: pathlib.Path, enviada, lista) -> list[str]:
             "quem entrou pela planilha .xlsx não está na base que o gestor "
             "baixou — ou o CPF guardado como número chegou torto"
         )
+    return problemas
+
+
+def _conferir_a_sede(da_tela) -> list[str]:
+    """T23, medido no navegador: o que a segunda pessoa do computador da
+    sede encontra da primeira.
+
+    Três momentos, e os três têm de vir vazios: antes de ela se
+    identificar (a tela não sabe quem é, então não mostra o que é de
+    ninguém), depois de ela entrar com o CPF dela, e no que ficou guardado
+    no navegador — onde o próximo curioso olharia.
+    """
+    if not da_tela:
+        return ["o ensaio do computador da sede não rodou"]
+    problemas = []
+    if da_tela.get("caiuDentroDoCadastro"):
+        problemas.append(
+            "NO COMPUTADOR DA SEDE a segunda pessoa abriu o portal e caiu "
+            "DENTRO do cadastro da primeira, sem passar pelo portão")
+    for chave, quando in (
+        ("vazouAntesDoPortao", "ANTES de se identificar"),
+        ("vazouDepoisDoPortao", "DEPOIS de entrar com o CPF dela"),
+        ("ficouNoNavegador", "guardado no navegador, depois de ela entrar"),
+    ):
+        if da_tela.get(chave):
+            problemas.append(
+                f"NO COMPUTADOR DA SEDE a segunda pessoa encontrou, {quando}, "
+                f"{len(da_tela[chave])} dado(s) da primeira (nome, CPF ou "
+                f"e-mail)")
     return problemas
 
 

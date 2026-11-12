@@ -100,6 +100,137 @@ async function abrirAba(navegador, gritos, rotulo) {
   return { contexto, p };
 }
 
+/** Tudo o que a tela mostra: o texto e o que está dentro dos campos. */
+async function oQueATelaMostra(p) {
+  const texto = await p.innerText("body");
+  const campos = await p.locator("input, textarea, select").evaluateAll(
+    (els) => els.map((e) => e.value || "").join("\n"));
+  return `${texto}\n${campos}`;
+}
+
+/** O COMPUTADOR DA SEDE: duas pessoas, UM navegador.
+ *
+ *  O sindicato atende vários filiados do mesmo computador. A primeira
+ *  começa o cadastro e vai embora sem enviar; a segunda senta em seguida.
+ *  O rascunho existe para a PRIMEIRA não perder o que digitou — e não pode
+ *  ser o jeito de a segunda ler o nome, o CPF e o e-mail dela.
+ *
+ *  Um contexto só, de propósito: é o oposto de `abrirAba`. O que se mede é
+ *  exatamente o que fica no navegador entre uma pessoa e outra. */
+async function faseSede(navegador, gritos, resultado) {
+  const contexto = await navegador.newContext({
+    viewport: { width: 1280, height: 1000 },
+  });
+  const abrir = async (rotulo) => {
+    const p = await contexto.newPage();
+    pagina = p;
+    p.on("console", (m) => {
+      if (m.type() === "error") gritos.push(`${rotulo}: ${m.text()}`);
+    });
+    p.on("pageerror", (e) => gritos.push(`${rotulo} pageerror: ${e.message}`));
+    await p.goto(`${cfg.web}/?entidade=${cfg.entidade}`, { waitUntil: "networkidle" });
+    return p;
+  };
+  const dela = [cfg.sede.primeira.nome, cfg.sede.primeira.cpf,
+                cfg.sede.primeira.cpf.replace(/\D/g, ""),
+                cfg.sede.primeira.email];
+  const aparece = (tela) => dela.filter((d) => tela.includes(d));
+  try {
+    // 1. A primeira pessoa começa, preenche e FECHA A ABA sem enviar.
+    let p = await abrir("sede: primeira");
+    await p.getByRole("button", { name: /^Começar$/ }).click();
+    await entrar(p, cfg.sede.primeira.cpf, "CPF", "Código recebido");
+    await p.getByText(/Acesso confirmado/).waitFor({ timeout: 15000 });
+    await proxima(p);
+    await p.getByLabel("Nome completo").fill(cfg.sede.primeira.nome);
+    await p.getByLabel("E-mail").fill(cfg.sede.primeira.email);
+    await p.waitForTimeout(300);
+    await p.close();
+    marco("sede: a primeira pessoa preencheu e fechou a aba sem enviar");
+
+    // 2. A SEGUNDA senta no mesmo computador e abre o portal.
+    p = await abrir("sede: segunda");
+    let viu = aparece(await oQueATelaMostra(p));
+    const comecar = p.getByRole("button", { name: /^Começar$/ });
+    if (await comecar.count()) {
+      await comecar.click();
+      await p.waitForTimeout(300);
+      viu = viu.concat(aparece(await oQueATelaMostra(p)));
+    }
+    resultado.sede = { vazouAntesDoPortao: [...new Set(viu)] };
+    marco(`sede: antes do portão a segunda viu ${resultado.sede.vazouAntesDoPortao.length} dado(s) da primeira`);
+
+    // Se o portão nem aparece, ela já está DENTRO do cadastro da primeira:
+    // registra e para aqui — não há "entrar" para ensaiar.
+    const portao = p.getByRole("button", { name: /c.digo/i }).first();
+    resultado.sede.caiuDentroDoCadastro =
+      !(await portao.isVisible({ timeout: 3000 }).catch(() => false));
+    if (resultado.sede.caiuDentroDoCadastro) {
+      marco("sede: a segunda pessoa caiu DENTRO do cadastro da primeira, sem portão");
+      return;
+    }
+
+    // 3. A segunda ENTRA, com o CPF dela. O que era da primeira tem de
+    //    sumir da tela E do navegador.
+    await entrar(p, cfg.sede.segunda.cpf, "CPF", "Código recebido");
+    await p.getByText(/Acesso confirmado/).waitFor({ timeout: 15000 });
+    await proxima(p);
+    await p.getByLabel("Nome completo").waitFor({ timeout: 15000 });
+    resultado.sede.vazouDepoisDoPortao = aparece(await oQueATelaMostra(p));
+    const guardado = await p.evaluate(() => JSON.stringify(
+      Object.fromEntries(Object.entries(localStorage))));
+    resultado.sede.ficouNoNavegador = aparece(guardado);
+    await p.close();
+    marco("sede: a segunda entrou com o CPF dela");
+  } finally {
+    await contexto.close();
+  }
+}
+
+/** A DONA DO RASCUNHO VOLTA: fechou a aba sem querer, abre de novo no mesmo
+ *  navegador, passa pelo portão — e encontra o que tinha digitado. É para
+ *  isso que o rascunho existe, e a correção do vazamento não pode custar
+ *  isso. */
+async function faseVolta(navegador, gritos, resultado) {
+  const contexto = await navegador.newContext({
+    viewport: { width: 1280, height: 1000 },
+  });
+  try {
+    for (const vez of ["primeira vez", "de volta"]) {
+      const p = await contexto.newPage();
+      pagina = p;
+      await p.goto(`${cfg.web}/?entidade=${cfg.entidade}`, { waitUntil: "networkidle" });
+      await p.getByRole("button", { name: /^Começar$/ }).click();
+      await entrar(p, cfg.sede.primeira.cpf, "CPF", "Código recebido");
+      await p.getByText(/Acesso confirmado/).waitFor({ timeout: 15000 });
+      await proxima(p);
+      const nome = p.getByLabel("Nome completo");
+      await nome.waitFor({ timeout: 15000 });
+      if (vez === "primeira vez") {
+        await nome.fill(cfg.sede.primeira.nome);
+        await p.waitForTimeout(300);
+        await p.close();
+      } else {
+        resultado.volta = { nomeRecuperado: await nome.inputValue() };
+        // E ELA VAI EMBORA DIREITO: o botão de sair não deixa nada dela no
+        // navegador, nem na tela.
+        await p.getByRole("button", { name: /Sair e apagar/ }).click();
+        await p.getByRole("button", { name: /^Começar$/ }).waitFor({ timeout: 15000 });
+        const guardado = await p.evaluate(() => JSON.stringify(
+          Object.fromEntries(Object.entries(localStorage))));
+        const tela = await oQueATelaMostra(p);
+        resultado.volta.sobrouAoSair = [cfg.sede.primeira.nome,
+          cfg.sede.primeira.cpf.replace(/\D/g, "")]
+          .filter((d) => guardado.includes(d) || tela.includes(d));
+        await p.close();
+      }
+    }
+    marco(`volta: a dona reencontrou "${resultado.volta.nomeRecuperado}", e saiu apagando`);
+  } finally {
+    await contexto.close();
+  }
+}
+
 /** O cadastro do filiado, do início ao protocolo na tela. */
 async function faseCadastro(navegador, gritos, resultado) {
   const { contexto, p } = await abrirAba(navegador, gritos, "cadastro");
@@ -358,7 +489,11 @@ async function main() {
     // confere o que chegou, e só então o painel apaga. Numa chamada só, a
     // conferência do cadastro rodaria depois do apagamento e encontraria
     // tudo vazio — foi o primeiro defeito que este ensaio pegou, e era meu.
-    if (cfg.fase === "cadastro") {
+    if (cfg.fase === "sede") {
+      await faseSede(navegador, gritos, resultado);
+    } else if (cfg.fase === "volta") {
+      await faseVolta(navegador, gritos, resultado);
+    } else if (cfg.fase === "cadastro") {
       await faseCadastro(navegador, gritos, resultado);
     } else if (cfg.fase === "conferencia") {
       await faseConferencia(navegador, gritos, resultado);
