@@ -213,6 +213,9 @@ critérios objetivos preenchidos. Depende de pesquisa jurídica (T2, T6).
 - a chave do rascunho se chama `sindilote` — "lote" é vocabulário do A;
 - enviar o cadastro gasta a sessão: para ver "de quais ações participo" logo
   depois, a pessoa pede outro código, contra um limite de 3 por hora.
+  **Fechado em 12/11 (T32), e era maior do que estava escrito aqui:** não era
+  só depois do cadastro — TODA troca de área pedia código. Ver o fim deste
+  arquivo.
 
 ## O que está sólido
 
@@ -610,3 +613,41 @@ dado como fora.
 Três limites que só um rol de verdade resolve: rol só com nome e matrícula
 não entra (casar por nome é adivinhar), rol em imagem não entra, e ação que
 não tem rol não tem como ser declarada.
+
+
+### 12/11 — uma sessão para todas as áreas (T32)
+
+Medido no navegador, na demonstração, antes de mexer:
+
+```
+área acoes:        pede CPF de novo? sim
+área processos:    pede CPF de novo? sim
+área atendimento:  pede CPF de novo? sim
+área acoes:        pede CPF de novo? sim
+pedidos de código: 4
+```
+
+Cada link do menu recarregava a página, e a sessão só existia na memória da
+área aberta. O limite é de três códigos por hora por CPF, e o pedido além
+do limite responde igual aos outros (de propósito: não revelar filiação) —
+então a pessoa que visitava a quarta área ficava esperando um e-mail que
+não ia chegar.
+
+A saída fácil era guardar a sessão no navegador. Não foi a escolhida: no
+computador da sede ela seria a sessão de uma pessoa entregue à próxima, o
+defeito de T23 de volta. O que mudou:
+
+- trocar de área não recarrega mais a página; a sessão fica na memória e
+  vale em todas;
+- quem enviou o cadastro continua podendo ler com a mesma sessão. O envio
+  continua único — é ele que o uso único protege;
+- **Sair**, sempre à vista, encerra a sessão no servidor;
+- a tela parada por 20 minutos se fecha sozinha, e diz por quê;
+- outra pessoa na mesma aba encontra cada área do zero.
+
+Depois da correção, no ensaio de navegador: três áreas com 1 código; o
+token antigo responde 401 depois de Sair; a segunda pessoa não vê a
+conversa da primeira; 21 minutos de relógio adiantado fecham a sessão.
+
+O que continua pedindo código: recarregar a página, e abrir outra aba. É o
+preço de não guardar nada.

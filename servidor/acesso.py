@@ -342,24 +342,44 @@ class Portao:
 
     # ---------------------------------------------------------------- sessão
 
-    def abrir_sessao(self, token: str) -> Sessao:
+    def abrir_sessao(self, token: str, *, para_enviar: bool = False) -> Sessao:
+        """A sessão deste token, ou `SessaoInvalida`.
+
+        `para_enviar` é a pergunta do cadastro: esta sessão ainda pode
+        ENVIAR? Uma sessão que já enviou continua valendo para LER até
+        expirar. Antes ela morria inteira, e quem acabava de se cadastrar
+        precisava de outro código para ver as próprias ações — medido em
+        12/11/2026: quatro áreas, quatro códigos, contra um limite de três
+        por hora.
+        """
         agora = _iso(_agora())
+        ainda_nao_enviou = " AND usado_em IS NULL" if para_enviar else ""
         with self._conectar() as cx:
             linha = cx.execute(
                 "SELECT entidade, cpf_hash FROM sessoes "
-                "WHERE token_hash = ? AND expira_em >= ? AND usado_em IS NULL",
+                "WHERE token_hash = ? AND expira_em >= ?" + ainda_nao_enviou,
                 (self.marcar(token or ""), agora),
             ).fetchone()
         if linha is None:
             raise SessaoInvalida("sessão inválida ou expirada")
         return Sessao(entidade=linha[0], cpf_hash=linha[1])
 
+    def encerrar_sessao(self, token: str) -> None:
+        """"Sair". Apaga a sessão no servidor: tirar o token só da tela
+        deixaria a credencial valendo por horas para quem a achasse. Token
+        que não existe não é erro — e não pode ser, senão a rota vira jeito
+        de testar se um token vale."""
+        with self._conectar() as cx:
+            cx.execute("DELETE FROM sessoes WHERE token_hash = ?",
+                       (self.marcar(token or ""),))
+
     def gastar_sessao(self, token: str) -> None:
-        """Um token vale um envio. Reenvio começa de novo pelo código.
+        """Um token vale um ENVIO. Reenvio começa de novo pelo código.
 
         Sem isto, um token vazado permite reenviar o cadastro de alguém quantas
         vezes quiser pelas próximas quatro horas — e cada reenvio substitui os
-        documentos da pessoa.
+        documentos da pessoa. O que se gasta é o envio, não a leitura: ver
+        `abrir_sessao`.
         """
         with self._conectar() as cx:
             cx.execute(

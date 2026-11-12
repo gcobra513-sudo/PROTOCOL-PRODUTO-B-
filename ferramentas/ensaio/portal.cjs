@@ -199,6 +199,10 @@ async function faseEntrada(navegador, gritos, resultado) {
     const p = await contexto.newPage();
     pagina = p;
     p.on("pageerror", (e) => gritos.push(`entrada pageerror: ${e.message}`));
+    // O RELÓGIO DA PÁGINA É DO ENSAIO, para poder adiantá-lo no fim: é o
+    // único jeito de ver a tela parada se fechar sem esperar vinte minutos.
+    // Até lá ele anda normalmente.
+    await p.clock.install();
     await p.goto(`${cfg.web}/`, { waitUntil: "networkidle" });
     await p.getByRole("heading", { name: /Quem foi buscar/ }).waitFor({ timeout: 15000 });
     const campo = p.getByLabel("Código ou link do seu sindicato");
@@ -215,6 +219,17 @@ async function faseEntrada(navegador, gritos, resultado) {
     resultado.entrada.levouAoPortal = p.url().includes(`entidade=${cfg.entidade}`);
     marco("entrada: código errado é recusado na tela; o link colado leva ao portal");
 
+    // A SESSÃO É UMA PARA TODAS AS ÁREAS. Daqui em diante contam-se os
+    // códigos pedidos e guarda-se o token que o portão entregou: no fim, a
+    // pessoa passa por três áreas com UM código, sai, e o token morre.
+    let codigosPedidos = 0;
+    let token = "";
+    p.on("response", async (r) => {
+      if (r.url().includes("/api/acesso/codigo")) codigosPedidos += 1;
+      if (r.url().includes("/api/acesso/conferir") && r.ok()) {
+        token = (await r.json().catch(() => ({}))).token || "";
+      }
+    });
     await p.goto(`${cfg.web}/?entidade=${cfg.entidade}&tela=atendimento`, { waitUntil: "networkidle" });
     await entrar(p, cfg.sede.primeira.cpf, "Seu CPF", "Código que chegou no seu e-mail");
     // Quem pergunta aqui ainda NÃO tem cadastro: a resposta certa é dizer
@@ -231,6 +246,58 @@ async function faseEntrada(navegador, gritos, resultado) {
     await conversa.getByText(/Não calculamos valor/).waitFor({ timeout: 15000 });
     resultado.entrada.atendimento = await conversa.innerText();
     marco("atendimento: respondeu o que falta, e que não calcula valor");
+
+    // MEDIDO em 12/11/2026, antes da correção: cada área pedia CPF e código
+    // de novo — quatro visitas, quatro códigos, e o limite é três por hora.
+    const pediuDeNovo = [];
+    for (const [nome, tela] of [["Minhas ações", "acoes"], ["Meus processos", "processos"],
+                                ["Atendimento", "atendimento"]]) {
+      await p.getByRole("link", { name: nome }).first().click();
+      await p.waitForURL(new RegExp(`tela=${tela}`), { timeout: 15000 });
+      await p.waitForLoadState("networkidle");
+      if (await p.getByLabel("Seu CPF", { exact: false }).count()) pediuDeNovo.push(nome);
+    }
+    resultado.entrada.sessao = { pediuDeNovo, codigos: codigosPedidos };
+    marco(`três áreas com ${codigosPedidos} código(s); pediu CPF de novo em: ${pediuDeNovo.join(", ") || "nenhuma"}`);
+
+    // A PRIMEIRA PESSOA SAI COM A CONVERSA NA TELA. Trocar de área zera a
+    // conversa, então ela pergunta de novo aqui — sem isto, a conferência
+    // de que a próxima pessoa não a encontra não conferia nada (foi um
+    // mutante que sobreviveu que mostrou).
+    await p.getByLabel("Sua pergunta").fill("quanto eu vou receber?");
+    await p.getByRole("button", { name: "Perguntar" }).click();
+    await p.getByRole("log").getByText(/Não calculamos valor/).waitFor({ timeout: 15000 });
+
+    // SAIR fecha a porta NA TELA e NO SERVIDOR. No computador da sede, quem
+    // levanta da cadeira não pode deixar a sessão valendo por horas.
+    await p.getByRole("button", { name: /^Sair$/ }).click();
+    await p.getByLabel("Seu CPF", { exact: false }).first().waitFor({ timeout: 15000 });
+    resultado.entrada.sessao.saiuNaTela = true;
+    const depois = await p.request.get(`${cfg.api}/api/meu-cadastro`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    resultado.entrada.sessao.temToken = Boolean(token);
+    resultado.entrada.sessao.depoisDeSair = depois.status();
+    marco(`saiu: a tela voltou ao portão, e o token antigo responde ${depois.status()}`);
+
+    // A PRÓXIMA PESSOA, NA MESMA ABA, sem recarregar. A primeira saiu com a
+    // conversa do atendimento na tela; a segunda entra com o CPF dela e não
+    // pode encontrar nada do que a primeira perguntou ou ouviu.
+    await entrar(p, cfg.gestor.cpf, "Seu CPF", "Código que chegou no seu e-mail");
+    await p.getByLabel("Sua pergunta").waitFor({ timeout: 15000 });
+    const daSegunda = await p.innerText("body");
+    resultado.entrada.sessao.segundaViuAPrimeira =
+      /quanto eu vou receber|Não calculamos valor/i.test(daSegunda);
+    marco(`a segunda pessoa, na mesma aba, ${resultado.entrada.sessao.segundaViuAPrimeira ? "VIU" : "não viu"} a conversa da primeira`);
+
+    // E A TELA ESQUECIDA ABERTA SE FECHA. Vinte e um minutos sem ninguém
+    // mexer: a sessão sai da tela, e o aviso diz por quê.
+    await p.clock.fastForward("21:00");
+    await p.getByText(/ficou um tempo sem mexer/).waitFor({ timeout: 15000 })
+      .then(() => { resultado.entrada.sessao.fechouParada = true; })
+      .catch(() => { resultado.entrada.sessao.fechouParada = false; });
+    resultado.entrada.sessao.portaoDepoisDeParada =
+      await p.getByLabel("Seu CPF", { exact: false }).count() > 0;
+    marco(`21 minutos parada: a sessão ${resultado.entrada.sessao.fechouParada ? "fechou sozinha" : "CONTINUOU ABERTA"}`);
   } finally {
     await contexto.close();
   }
@@ -359,6 +426,17 @@ async function faseCadastro(navegador, gritos, resultado) {
     const tela = await p.innerText("body");
     resultado.avisouImagem = /chegaram como imagem/.test(tela);
     if (resultado.avisouImagem) marco("o recibo avisou: 2 documentos como imagem");
+
+    // O QUE O RECIBO PROMETE: "ver de quais ações eu faço parte". Com a
+    // MESMA sessão que acabou de enviar — antes, o envio a matava inteira e
+    // a pessoa precisava de outro código para ler o que acabou de mandar.
+    await p.getByRole("link", { name: /Ver de quais ações eu faço parte/ }).click();
+    await p.waitForURL(/tela=acoes/, { timeout: 15000 });
+    await p.waitForLoadState("networkidle");
+    const pediu = await p.getByLabel("Seu CPF", { exact: false }).count();
+    const erro = /sessão inválida|não foi possível consultar/i.test(await p.innerText("body"));
+    resultado.acoesSemNovoCodigo = pediu === 0 && !erro;
+    marco(`depois do cadastro, as ações abriram ${resultado.acoesSemNovoCodigo ? "sem" : "PEDINDO"} outro código`);
   } finally {
     await contexto.close();
   }

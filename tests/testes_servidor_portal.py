@@ -1244,6 +1244,70 @@ def teste_pedir_codigo_responde_igual_dentro_e_fora_do_rol():
     print(f"  ok     resposta idêntica em {len(estados)} estados do gestores.csv")
 
 
+def teste_quem_enviou_o_cadastro_continua_podendo_ler():
+    """MEDIDO em 12/11/2026, no navegador: quatro áreas, quatro pedidos de
+    código — e o limite é de três por hora. Metade do defeito era daqui:
+    "um token, um envio" matava a sessão INTEIRA, e a pessoa que acabava de
+    se cadastrar precisava de outro código para ver "de quais ações faço
+    parte", que é o que o cadastro promete na última tela.
+
+    O que o uso único protege é o ENVIO: um token vazado substituiria os
+    documentos da pessoa à vontade. Ler com ele não dá a quem o achou nada
+    que o token ainda não gasto já não desse.
+    """
+    c = Cenario()
+    token = c.token()
+    cabecalho = {"Authorization": f"Bearer {token}"}
+    r = c.enviar(token, linha(), pacote())
+    checa(r.status_code == 200, f"o envio bom falhou: {r.text[:200]}")
+    for rota in ("/api/minhas-acoes", "/api/meus-processos",
+                 "/api/meu-cadastro"):
+        r = c.cliente.get(rota, headers=cabecalho)
+        checa(r.status_code == 200,
+              f"depois do cadastro, {rota} pede outro código: {r.status_code}")
+    r = c.cliente.post("/api/atendimento", headers=cabecalho,
+                       json={"pergunta": "Em quais processos eu estou?"})
+    checa(r.status_code == 200,
+          f"depois do cadastro, o atendimento pede outro código: {r.status_code}")
+    r = c.enviar(token, linha(), pacote())
+    checa(r.status_code == 401,
+          "ler voltou a valer — e ENVIAR de novo com o mesmo token também")
+    print("  ok     depois de enviar: a sessão lê, e não envia de novo")
+
+
+def teste_sair_encerra_a_sessao():
+    """O portal é usado no computador da sede, por uma pessoa depois da
+    outra. "Sair" tem de matar a sessão NO SERVIDOR: apagar o token só da
+    tela deixaria a credencial valendo por quatro horas para quem a achasse.
+
+    E a resposta é a mesma para token que existe e que não existe: a rota
+    não pode servir para testar se um token é válido.
+    """
+    c = Cenario()
+    token = c.token()
+    cabecalho = {"Authorization": f"Bearer {token}"}
+    checa(c.cliente.get("/api/meu-cadastro", headers=cabecalho).status_code
+          == 200, "o preparo: a sessão devia valer")
+    r = c.cliente.post("/api/acesso/sair", headers=cabecalho)
+    checa(r.status_code == 200, f"sair: {r.status_code} {r.text[:120]}")
+    checa(c.cliente.get("/api/meu-cadastro", headers=cabecalho).status_code
+          == 401, "saiu, e a sessão continua valendo no servidor")
+    de_novo = c.cliente.post("/api/acesso/sair", headers=cabecalho)
+    inventado = c.cliente.post("/api/acesso/sair",
+                               headers={"Authorization": "Bearer nao-existe"})
+    sem_nada = c.cliente.post("/api/acesso/sair")
+    checa({(x.status_code, x.text) for x in (r, de_novo, inventado, sem_nada)}
+          == {(r.status_code, r.text)},
+          "a resposta de sair muda conforme o token existe ou não")
+    # Sair não é apagar: a pessoa entra de novo com um código novo.
+    outro = c.token()
+    checa(c.cliente.get("/api/meu-cadastro",
+                        headers={"Authorization": f"Bearer {outro}"}
+                        ).status_code == 200,
+          "depois de sair, um código novo não abriu sessão")
+    print("  ok     sair mata a sessão no servidor, e não serve de oráculo")
+
+
 def _expirar_codigos(c) -> None:
     """Envelhece os códigos vivos, para não esperar 15 minutos no teste."""
     import sqlite3
@@ -1529,6 +1593,8 @@ def teste_acompanhar_aceita_20_numeros_formatados():
 TESTES.extend([
     teste_pedir_codigo_responde_igual_dentro_e_fora_do_rol,
     teste_falha_de_envio_nao_revela_filiacao,
+    teste_quem_enviou_o_cadastro_continua_podendo_ler,
+    teste_sair_encerra_a_sessao,
     teste_openapi_nao_fica_aberto_em_producao,
     teste_corpo_grande_e_recusado_antes_de_ser_lido,
     teste_terceiro_nao_tranca_o_filiado_fora_do_portao,
