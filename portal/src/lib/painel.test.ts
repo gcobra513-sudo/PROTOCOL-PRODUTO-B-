@@ -421,6 +421,13 @@ describe("o que a planilha muda em quem consegue entrar (T26)", () => {
     expect(linhas).not.toContain("atualizad");
   });
 
+  it("diz ao gestor que a pessoa é AVISADA do pedido de troca", () => {
+    // O gestor precisa saber que o filiado vai receber um e-mail: é ele
+    // quem atende o telefone quando alguém perguntar "que troca é essa?".
+    const linhas = resumoDoAcesso(ACESSO, true).join("\n").toLowerCase();
+    expect(linhas).toContain("é avisada");
+  });
+
   it("quem sumiu da planilha continua entrando, e isso é dito", () => {
     const linhas = resumoDoAcesso(ACESSO, true).join("\n").toLowerCase();
     expect(linhas).toContain("7 pessoas");

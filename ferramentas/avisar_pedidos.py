@@ -15,11 +15,16 @@ repete o aviso ENQUANTO houver pedido esperando.
 
 O e-mail leva só contagens — nunca CPF nem e-mail de filiado.
 
+Também TENTA DE NOVO o aviso ao dono do e-mail de antes, quando o da hora
+não saiu: ele é um controle de segurança, e não pode depender de o correio
+estar no ar num instante só. Quem já foi avisado não é avisado outra vez.
+
 CÓDIGOS DE SAÍDA, que é o que o agendador lê:
 
     0  não há pedido esperando, ou o lembrete saiu
-    1  há pedido esperando e NÃO deu para avisar ninguém: falta
-       PROTOCOL_EMAIL_DE_QUEM_OPERA, ou o correio falhou. O agendador
+    1  há pedido esperando e algum aviso NÃO saiu: falta
+       PROTOCOL_EMAIL_DE_QUEM_OPERA, ou o correio falhou — para nós, ou
+       para o dono de um e-mail. O agendador
        registra falha, e a falha aparece em /saude — que é o ponto: pedido
        esperando sem ninguém saber não pode parecer um dia normal.
     2  a entidade não existe
@@ -62,8 +67,22 @@ def main() -> int:
     if not esperando:
         print("nenhum pedido esperando")
         return 0
+    correio = remetente.pelo_ambiente(raiz)
 
+    # PRIMEIRO, O DONO DO E-MAIL DE ANTES que ainda não foi avisado — o
+    # aviso da hora pode ter falhado. Não depende de haver endereço nosso
+    # configurado: é mensagem para o filiado, não para nós. Quem já foi
+    # avisado não é avisado de novo.
+    #
     # QUANTOS, nunca quem: esta saída vai para o log do agendador.
+    sairam, falharam = trocas.avisar_donos(pasta, nome=ent.nome,
+                                           correio=correio)
+    if sairam:
+        print(f"{sairam} dono(s) de e-mail avisado(s) do pedido de troca")
+    if falharam:
+        print(f"{falharam} aviso(s) ao dono do e-mail NÃO saíram em "
+              f"{ent.apelido}", file=sys.stderr)
+
     if not args.para:
         print(f"{esperando} pedido(s) esperando em {ent.apelido} e NINGUÉM "
               f"a avisar: defina PROTOCOL_EMAIL_DE_QUEM_OPERA",
@@ -72,14 +91,14 @@ def main() -> int:
     try:
         trocas.avisar_quem_opera(
             pasta, apelido=ent.apelido, nome=ent.nome, raiz=raiz,
-            correio=remetente.pelo_ambiente(raiz), destino=args.para)
+            correio=correio, destino=args.para)
     except Exception as e:  # noqa: BLE001
         print(f"{esperando} pedido(s) esperando em {ent.apelido} e o "
               f"lembrete NÃO saiu: {type(e).__name__}", file=sys.stderr)
         return 1
     print(f"{esperando} pedido(s) esperando em {ent.apelido}: lembrete "
           f"enviado")
-    return 0
+    return 1 if falharam else 0
 
 
 if __name__ == "__main__":

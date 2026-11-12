@@ -1580,6 +1580,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 ent.apelido, len(feito_no_portao.trocas),
                 len(feito_no_portao.seguradas))
         if feito["pedidos_novos"]:
+            _avisar_os_donos(ent)
             _avisar_quem_opera(ent, feito["pedidos_novos"])
         return {**resposta, "acesso": feito_no_portao.para_json(),
                 # Quem pediu para sair ENTRE a conferência e a gravação
@@ -1587,6 +1588,28 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 "apagados_a_pedido": apagadas + feito["apagadas"],
                 "pessoas": feito["retrato"].total,
                 "gravado": True, "projetadas": feito["projetadas"]}
+
+    def _avisar_os_donos(ent: entidades.Entidade) -> None:
+        """Quem hoje recebe o código fica sabendo que pediram a troca.
+
+        É a única pessoa que SABE se pediu. NUNCA DERRUBA A PLANILHA, pelo
+        mesmo motivo do aviso a quem opera — e o que falhar aqui o lembrete
+        diário tenta de novo, porque só o que saiu fica registrado.
+        """
+        try:
+            sairam, falharam = trocas.avisar_donos(
+                ent.pasta(cfg.raiz), nome=ent.nome, correio=correio)
+        except Exception:  # noqa: BLE001
+            log.exception("AVISO ao dono do e-mail falhou ent=%s",
+                          ent.apelido)
+            return
+        if falharam:
+            # QUANTOS, sem endereço: a exceção do correio costuma trazê-lo.
+            log.error("AVISO ao dono do e-mail: %d não saíram ent=%s — o "
+                      "lembrete diário tenta de novo", falharam, ent.apelido)
+        if sairam:
+            log.info("aviso ao dono do e-mail ent=%s enviados=%d",
+                     ent.apelido, sairam)
 
     def _avisar_quem_opera(ent: entidades.Entidade, novos: int) -> None:
         """O pedido que a planilha deixou chega a quem decide.

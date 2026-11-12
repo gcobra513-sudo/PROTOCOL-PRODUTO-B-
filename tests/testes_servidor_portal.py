@@ -2004,17 +2004,31 @@ def teste_o_lembrete_diario_de_pedido_que_espera():
                  para="outro@exemplo.invalid")
     trocas.pedir(pasta, cpf=NOVO_NO_ROL, de="", para="outro@exemplo.invalid")
 
+    def para(destino: str) -> str:
+        """Só as mensagens que foram para este endereço."""
+        if not log.exists():
+            return ""
+        return "".join(m for m in log.read_text(encoding="utf-8").split("=== ")
+                       if f"\t{destino}\t" in m)
+
     r = _lembrar(c.raiz, "demo-teste", None)
-    checa(r.returncode == 1 and not log.exists(),
+    checa(r.returncode == 1 and para("nos@exemplo.invalid") == "",
           f"pedido esperando e NINGUÉM a avisar tem de ser falha: "
           f"{r.returncode} {r.stdout} {r.stderr}")
-    checa(CPF_DIGITOS not in r.stdout + r.stderr,
-          "a saída da ferramenta vai para o log do agendador e traz CPF")
+    checa(CPF_DIGITOS not in r.stdout + r.stderr
+          and "fulano@" not in r.stdout + r.stderr,
+          "a saída da ferramenta vai para o log do agendador e diz quem é")
+    # O DONO do e-mail de antes foi avisado MESMO ASSIM: a mensagem a ele
+    # não depende de a nossa caixa estar configurada.
+    checa(para("fulano@exemplo.org").count("Pediram a troca") == 1,
+          "sem endereço nosso, o dono do e-mail deixou de ser avisado")
 
     r = _lembrar(c.raiz, "demo-teste", "nos@exemplo.invalid")
-    texto = log.read_text(encoding="utf-8") if log.exists() else ""
-    checa(r.returncode == 0 and "\tnos@exemplo.invalid\t" in texto,
+    texto = para("nos@exemplo.invalid")
+    checa(r.returncode == 0 and texto,
           f"o lembrete não saiu: {r.returncode} {r.stdout} {r.stderr}")
+    checa(para("fulano@exemplo.org").count("Pediram a troca") == 1,
+          "o lembrete do dia seguinte avisou o dono DE NOVO")
     checa("1 troca" in texto and "1 entrada" in texto
           and "demo-teste" in texto,
           f"o lembrete não diz quantos nem onde: {texto}")
@@ -2085,7 +2099,36 @@ def teste_o_endereco_de_quem_opera_na_configuracao():
     print("  ok     endereço torto não sobe; ausente sobe avisando")
 
 
+def teste_o_aviso_ao_dono_nunca_vai_para_o_endereco_pedido():
+    """O aviso ao dono vai para o e-mail que o PORTÃO tem hoje. Quando não
+    há nenhum — a pessoa saiu do acesso com a troca ainda pedida, ou é uma
+    entrada nova segurada —, a resposta é não mandar. Mandar para o
+    endereço PEDIDO seria avisar justamente quem fez o pedido, se ele for
+    indevido."""
+    from servidor import trocas
+
+    c = Cenario()
+    pasta = c.ent.pasta(c.raiz)
+    enviados: list[str] = []
+
+    class Espia:
+        def enviar_mensagem(self, destino, assunto, corpo):
+            enviados.append(destino)
+
+    trocas.pedir(pasta, cpf=CPF_DIGITOS, de="fulano@exemplo.org",
+                 para="pedido@exemplo.invalid")
+    trocas.pedir(pasta, cpf=NOVO_NO_ROL, de="", para="pedido@exemplo.invalid")
+    rol.remover(pasta, CPF_DIGITOS)
+    resultado = trocas.avisar_donos(pasta, nome="Sindicato de Teste",
+                                    correio=Espia())
+    checa(enviados == [] and resultado == (0, 0),
+          f"o aviso ao dono foi para um endereço que não é o do portão: "
+          f"{enviados} {resultado}")
+    print("  ok     sem e-mail no portão, o aviso ao dono não vai a lugar nenhum")
+
+
 TESTES.extend([
+    teste_o_aviso_ao_dono_nunca_vai_para_o_endereco_pedido,
     teste_o_lembrete_diario_de_pedido_que_espera,
     teste_o_lembrete_e_tarefa_do_agendador,
     teste_o_endereco_de_quem_opera_na_configuracao,

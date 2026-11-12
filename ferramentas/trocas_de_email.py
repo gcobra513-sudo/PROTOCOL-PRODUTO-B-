@@ -65,6 +65,11 @@ def main() -> int:
             if hoje:
                 print(f"  {cpf}  troca: {hoje}  ->  {pedido['para']}"
                       f"   (pedida em {pedido['quando']})")
+                # Quem decide precisa saber se a pessoa JÁ FOI AVISADA no
+                # e-mail de hoje: se foi e não reclamou, é um dado; se não
+                # foi, aprovar é decidir sem ela saber.
+                print(f"               dono avisado no e-mail de hoje: "
+                      f"{'sim' if pedido.get('dono_avisado') else 'NÃO'}")
                 continue
             # ENTRADA NOVA segurada: o e-mail é de mais alguém. Quem
             # decide precisa ver de quem.

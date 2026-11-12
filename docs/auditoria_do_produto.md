@@ -481,6 +481,28 @@ T28 fecha. Fica T29, para o jurídico: o NÚMERO do processo de quem saiu
 continua em `processo` (e o que já foi coletado, em `movimento` e
 `movimentos.jsonl`). Numa ação própria, o número identifica a pessoa.
 
+**12/11, por último — os avisos do pedido de troca.** O pedido passou a
+chegar a quem opera (na hora e em lembrete diário, só com contagens) e ao
+dono do e-mail de antes (uma vez, sem link, com o endereço pedido
+mascarado; o que falha é tentado de novo). Três coisas que os mutantes
+mostraram, e que valem mais que a contagem:
+
+- dois mutantes do aviso a quem opera e um do aviso ao dono SOBREVIVERAM à
+  primeira rodada. Cada um era um buraco de teste: nenhum caso só com
+  entrada segurada; a função de aviso nunca chamada sem pedido; e nada
+  cobrindo quem saiu do acesso com a troca ainda pedida — caso em que o
+  mutante mandava o aviso para o endereço PEDIDO. Os três têm teste agora;
+- o teste do apagamento passou de primeira, e por isso não valia: só o
+  mutante mostrou que ele mede alguma coisa. Mediu um defeito **anterior**:
+  o apagamento tirava do log de mensagens a linha do cabeçalho (que tem o
+  e-mail) e deixava o CORPO — o aviso de movimentação, com o nome da pessoa
+  e o processo dela, sem dono aparente. Só existe no remetente de
+  desenvolvimento (sem SMTP); agora sai a mensagem inteira;
+- a suíte do servidor quebrou em dois testes meus da rodada anterior, que
+  afirmavam "sem endereço nosso, nenhum e-mail sai". Deixou de ser verdade
+  de propósito: o aviso ao dono não depende da nossa caixa.
+
+
 ### Uma observação para o dia em que houver planilha real (soma ao item 9)
 
 CPF que começa com zero, guardado no Excel como NÚMERO, perde o zero:
