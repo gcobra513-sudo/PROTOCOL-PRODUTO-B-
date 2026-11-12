@@ -430,7 +430,8 @@ export function resumoDoAcesso(
       `${pessoas(a.trocas_aguardando)} que já ${a.trocas_aguardando === 1 ? "entra" : "entram"} no portal ` +
         `${a.trocas_aguardando === 1 ? "veio" : "vieram"} com e-mail diferente. A troca NÃO vale ` +
         "por esta planilha: é conferida por quem opera o serviço, e até lá o " +
-        "código continua indo para o e-mail de antes.",
+        "código continua indo para o e-mail de antes. Cada pessoa é avisada " +
+        "do pedido, nesse e-mail de antes.",
     );
   }
   if (a.trocas_recusadas > 0) {

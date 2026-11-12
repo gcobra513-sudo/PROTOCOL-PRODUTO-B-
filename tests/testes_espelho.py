@@ -4219,14 +4219,187 @@ def teste_aviso_que_falha_nao_derruba_a_planilha():
     checa(feito.get("gravado") is True
           and A in trocas.estado(ent.pasta(raiz)).pendentes,
           f"a falha do aviso derrubou a planilha ou o pedido: {feito}")
-    # Sem endereço configurado: nada sai, e nada quebra.
+    # Sem endereço NOSSO configurado: para nós nada sai, e nada quebra. O
+    # dono do e-mail de antes é avisado do mesmo jeito — o aviso a ele não
+    # depende de a nossa caixa existir.
     cliente2, ent2, raiz2 = _servidor("demo-avisa-3")
     feito = _confirmar_planilha(cliente2, "demo-avisa-3", _planilha(
         [(A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR)]))
     checa(feito.get("gravado") is True
-          and not (raiz2 / "mensagens_enviadas.log").exists(),
-          "sem endereço de quem opera, saiu e-mail para algum lugar")
+          and _avisos_a_quem_opera(raiz2) == [],
+          "sem endereço de quem opera, saiu aviso para quem opera")
+    checa(len(_mensagens_para(raiz2, "fulana@exemplo.org")) == 1,
+          "sem endereço de quem opera, o DONO do e-mail deixou de ser "
+          "avisado")
     print("  ok     correio fora ou endereço ausente: a planilha entra")
+
+
+# ------------------------------ o dono do e-mail de antes fica sabendo
+
+def _mensagens_para(raiz, destino: str) -> list[str]:
+    log = raiz / "mensagens_enviadas.log"
+    if not log.is_file():
+        return []
+    return [m for m in log.read_text(encoding="utf-8").split("=== ")
+            if f"\t{destino}\t" in m]
+
+
+def teste_o_dono_do_email_de_antes_e_avisado_do_pedido_de_troca():
+    """A defesa mais direta contra uma troca indevida: quem hoje recebe o
+    código fica sabendo que pediram para mudar o endereço — no endereço de
+    HOJE, que é o único que comprovadamente é dele.
+
+    Quem opera confere por fora antes de aprovar; mas a única pessoa que
+    SABE se pediu a troca é ela. Sem este aviso, a conferência depende de
+    alguém nosso conseguir falar com ela.
+
+    O que a mensagem NÃO faz: não traz link (e-mail sobre acesso com link é
+    a aula de phishing), não traz CPF, e não entrega o endereço novo inteiro
+    — a caixa antiga pode não ser mais dela.
+    """
+    from servidor import trocas
+
+    secao("o dono do e-mail de antes fica sabendo")
+    entidade = "demo-dono-1"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    corpo = _planilha([
+        (A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR),
+        (B, "GESTOR (CADASTRO DE EXEMPLO)", "outro.gestor@exemplo.invalid"),
+        (C_PLAN, "UMA (CADASTRO DE EXEMPLO)", MESMO),
+        (D_PLAN, "OUTRA (CADASTRO DE EXEMPLO)", MESMO),
+    ])
+    _enviar_planilha(cliente, entidade, corpo)
+    checa(_mensagens_para(raiz, "fulana@exemplo.org") == [],
+          "a PRÉVIA avisou o filiado: nada foi pedido ainda")
+    _confirmar_planilha(cliente, entidade, corpo)
+
+    dela = _mensagens_para(raiz, "fulana@exemplo.org")
+    checa(len(dela) == 1, f"o dono do e-mail de antes não foi avisado (ou "
+                          f"foi mais de uma vez): {len(dela)}")
+    if len(dela) != 1:
+        return
+    texto = dela[0]
+    checa("Sindicato de Demonstração" in texto,
+          f"a mensagem não diz de que sindicato é: {texto}")
+    checa("não vale" in texto.lower() and "não pediu" in texto.lower(),
+          f"a mensagem não diz que a troca não vale, nem o que fazer se "
+          f"não foi ela: {texto}")
+    checa(INVASOR not in texto and "in•••@exemplo.invalid" in texto,
+          f"o e-mail pedido tem de ir MASCARADO: {texto}")
+    checa(A not in texto and "http" not in texto.lower()
+          and "escritório" not in texto.lower(),
+          f"a mensagem leva CPF, link, ou fala em escritório: {texto}")
+    checa(len(_mensagens_para(raiz, "gestor@exemplo.org")) == 1,
+          "pediram a troca do e-mail de um GESTOR e ele não foi avisado")
+    checa(_mensagens_para(raiz, MESMO) == []
+          and _mensagens_para(raiz, INVASOR) == [],
+          "saiu mensagem para o e-mail NOVO, ou para entrada segurada — "
+          "nenhum dos dois é endereço de alguém que já entra")
+    checa(trocas.estado(pasta).pendentes[A].get("dono_avisado") is True,
+          "o pedido não registra que o dono foi avisado")
+
+    # UMA VEZ POR PEDIDO. A planilha volta toda semana.
+    _confirmar_planilha(cliente, entidade, corpo)
+    # …e retirar o pedido e pedir o MESMO de novo não é pedido novo para
+    # ela: sem isto, alternar duas planilhas viraria uma máquina de e-mail.
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(A, "FULANA (CADASTRO DE EXEMPLO)", "fulana@exemplo.org")]))
+    checa(A not in trocas.estado(pasta).pendentes, "o cenário não montou")
+    _confirmar_planilha(cliente, entidade, corpo)
+    checa(len(_mensagens_para(raiz, "fulana@exemplo.org")) == 1,
+          f"o mesmo pedido avisou de novo: "
+          f"{len(_mensagens_para(raiz, 'fulana@exemplo.org'))} mensagens")
+    # Outro endereço pedido É notícia.
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(A, "FULANA (CADASTRO DE EXEMPLO)", "terceiro@exemplo.invalid")]))
+    checa(len(_mensagens_para(raiz, "fulana@exemplo.org")) == 2,
+          "um pedido para OUTRO endereço não avisou")
+    print("  ok     o dono do e-mail de antes é avisado, uma vez por pedido")
+
+
+def teste_aviso_ao_dono_que_falha_e_tentado_de_novo():
+    """Este aviso é um controle de segurança, e controle que falha calado
+    é controle que não existe. Se o correio cair na hora, a planilha entra
+    — e o lembrete diário tenta de novo, até sair. Depois que saiu, não
+    repete: quem é lembrado todo dia somos nós, não o filiado."""
+    import os
+    import subprocess
+
+    from servidor import remetente, trocas
+
+    entidade = "demo-dono-2"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    original = remetente.ParaArquivo.enviar_mensagem
+
+    def fora_do_ar(self, destino, assunto, corpo):
+        raise OSError("correio fora do ar")
+
+    remetente.ParaArquivo.enviar_mensagem = fora_do_ar
+    try:
+        feito = _confirmar_planilha(cliente, entidade, _planilha(
+            [(A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR)]))
+    finally:
+        remetente.ParaArquivo.enviar_mensagem = original
+    pedido = trocas.estado(pasta).pendentes.get(A) or {}
+    checa(feito.get("gravado") is True and pedido
+          and not pedido.get("dono_avisado"),
+          f"a falha do aviso derrubou a planilha, ou o pedido diz que o "
+          f"dono foi avisado sem ter sido: {feito} {pedido}")
+
+    def lembrete():
+        ambiente = {k: v for k, v in os.environ.items()
+                    if not k.startswith("PROTOCOL_")}
+        ambiente["PROTOCOL_EMAIL_DE_QUEM_OPERA"] = NOS
+        return subprocess.run(
+            [sys.executable, str(RAIZ / "ferramentas" / "avisar_pedidos.py"),
+             "--raiz", str(raiz), "--entidade", entidade],
+            capture_output=True, text=True, env=ambiente)
+
+    r = lembrete()
+    checa(r.returncode == 0
+          and len(_mensagens_para(raiz, "fulana@exemplo.org")) == 1
+          and trocas.estado(pasta).pendentes[A].get("dono_avisado") is True,
+          f"o lembrete não tentou de novo o aviso ao dono: {r.returncode} "
+          f"{r.stdout} {r.stderr}")
+    checa(A not in r.stdout + r.stderr
+          and "fulana@" not in r.stdout + r.stderr,
+          "a saída do lembrete vai para o log do agendador e diz quem é")
+    r = lembrete()
+    checa(len(_mensagens_para(raiz, "fulana@exemplo.org")) == 1
+          and len(_avisos_a_quem_opera(raiz)) == 2,
+          "o segundo lembrete repetiu o aviso ao FILIADO (ou não lembrou "
+          "quem opera)")
+    r = _ferramenta_de_trocas(raiz, entidade, "listar")
+    checa("dono avisado" in r.stdout,
+          f"quem decide não vê se o dono foi avisado: {r.stdout}")
+    print("  ok     aviso que falhou é tentado de novo, e depois não repete")
+
+
+def teste_apagar_leva_o_aviso_que_o_dono_recebeu():
+    """O aviso ao dono fica no arquivo do remetente de desenvolvimento, com
+    o e-mail dela no cabeçalho e o endereço pedido, mascarado, no corpo. O
+    apagamento tem de levar a MENSAGEM, não só a linha do cabeçalho."""
+    entidade = "demo-dono-3"
+    cliente, ent, raiz = _servidor(entidade)
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR)]))
+    log = raiz / "mensagens_enviadas.log"
+    checa("in•••@exemplo.invalid" in log.read_text(encoding="utf-8"),
+          "o cenário não montou")
+    r = _apagar(cliente, entidade,
+                {"cpf": A, "motivo": "pedido do titular", "pedido_por": "g"},
+                _token(cliente, B, entidade))
+    checa(r.status_code == 200 and r.json()["vestigios"] == [],
+          f"{r.status_code} {r.text[:200]}")
+    sobrou = log.read_text(encoding="utf-8") if log.exists() else ""
+    checa("fulana@exemplo.org" not in sobrou
+          and "in•••@exemplo.invalid" not in sobrou
+          and "Pediram a troca" not in sobrou,
+          f"O CORPO DA MENSAGEM DELA FICOU NO LOG depois do apagamento: "
+          f"{sobrou[:300]}")
+    print("  ok     o apagamento leva a mensagem inteira, não só o cabeçalho")
 
 
 TESTES = [
@@ -4340,6 +4513,9 @@ TESTES = [
     teste_as_tarefas_agendadas_seguram_a_trava_do_apagamento,
     teste_pedido_de_troca_avisa_quem_opera,
     teste_aviso_que_falha_nao_derruba_a_planilha,
+    teste_o_dono_do_email_de_antes_e_avisado_do_pedido_de_troca,
+    teste_aviso_ao_dono_que_falha_e_tentado_de_novo,
+    teste_apagar_leva_o_aviso_que_o_dono_recebeu,
 ]
 
 

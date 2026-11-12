@@ -194,6 +194,23 @@ planilha do sindicato entra do mesmo jeito. Sem endereço configurado e com
 pedido esperando, a tarefa `pedidos` **falha**, e a falha aparece em
 `/saude`. A linha `TROCA DE E-MAIL pedida ent=…` continua no log.
 
+**O dono do e-mail de antes também fica sabendo.** Quando a planilha pede a
+troca, quem HOJE recebe o código recebe uma mensagem, em nome do sindicato:
+pediram a troca, ela ainda não vale, e — se não foi a pessoa — é para avisar
+o sindicato. É a única pessoa que sabe se pediu.
+
+- vai para o e-mail que o **portão tem hoje**, nunca para o pedido;
+- **uma vez** por pessoa e endereço pedido — nem a planilha reenviada nem o
+  lembrete diário repetem, e retirar e pedir de novo o mesmo não conta;
+- **sem link**, sem CPF, e com o e-mail pedido **mascarado**
+  (`in•••@exemplo.org`): a caixa antiga pode não ser mais dela;
+- se o correio falhar, a planilha entra e a tarefa `pedidos` **tenta de novo
+  todo dia**, até sair — só o que saiu fica registrado;
+- não depende de `PROTOCOL_EMAIL_DE_QUEM_OPERA` estar definida.
+
+`trocas_de_email.py listar` mostra, em cada troca, se o dono já foi avisado.
+O texto da mensagem está em `servidor/trocas.py`, `mensagem_para_o_dono`.
+
 `ferramentas/ingerir_acervo.py` segue a mesma regra, porque chama a mesma
 função: rodada por nós, ela também só *pede* a troca.
 

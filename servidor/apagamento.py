@@ -409,6 +409,9 @@ def _limpar_logs(raiz: pathlib.Path, cpf: str, email: str) -> int:
     Ficam na RAIZ, fora de qualquer pasta de entidade: foi por isso que a
     primeira versão da varredura não os viu.
     """
+    def dela(texto: str) -> bool:
+        return cpf in texto or bool(email and email in texto)
+
     saiu = 0
     for nome in ("codigos_enviados.log", "mensagens_enviadas.log"):
         caminho = raiz / nome
@@ -416,8 +419,22 @@ def _limpar_logs(raiz: pathlib.Path, cpf: str, email: str) -> int:
             continue
         linhas = caminho.read_text(encoding="utf-8",
                                    errors="replace").splitlines()
-        ficam = [linha for linha in linhas
-                 if cpf not in linha and not (email and email in linha)]
+        if nome == "mensagens_enviadas.log":
+            # A MENSAGEM INTEIRA, não só a linha que diz o e-mail. Cada
+            # mensagem é um cabeçalho `=== quando<TAB>destino<TAB>assunto`
+            # e o corpo nas linhas seguintes — e o corpo não repete o
+            # endereço. Tirando só a linha do cabeçalho, ficava no arquivo
+            # o texto que a pessoa recebeu, sem dono aparente: o aviso de
+            # movimentação, com o nome dela e o processo.
+            ficam, bloco = [], []
+            for linha in linhas + ["=== "]:
+                if linha.startswith("=== ") and bloco:
+                    if not any(dela(l) for l in bloco):
+                        ficam += bloco
+                    bloco = []
+                bloco.append(linha)
+        else:
+            ficam = [linha for linha in linhas if not dela(linha)]
         if len(ficam) != len(linhas):
             saiu += len(linhas) - len(ficam)
             tmp = caminho.with_suffix(caminho.suffix + ".parcial")

@@ -43,6 +43,10 @@ ARQUIVO = "trocas_de_email.jsonl"
 
 PEDIDA, APROVADA, RECUSADA, RETIRADA = (
     "pedida", "aprovada", "recusada", "retirada")
+#: O dono do e-mail de antes foi avisado deste pedido. Não muda o pedido:
+#: só registra que a mensagem saiu, para não sair duas vezes e para quem
+#: decide ver que ela saiu.
+DONO_AVISADO = "dono_avisado"
 
 
 @dataclass
@@ -51,6 +55,10 @@ class Estado:
     pendentes: dict[str, dict] = field(default_factory=dict)
     #: (cpf, e-mail recusado em minúsculas)
     recusadas: set[tuple[str, str]] = field(default_factory=set)
+    #: (cpf, e-mail pedido em minúsculas) de que o dono JÁ foi avisado, em
+    #: qualquer momento. Sobrevive ao pedido ser retirado: senão, alternar
+    #: duas planilhas mandaria um e-mail ao filiado a cada volta.
+    donos_avisados: set[tuple[str, str]] = field(default_factory=set)
 
     def foi_recusada(self, cpf: str, para: str) -> bool:
         return (cpf, para.strip().casefold()) in self.recusadas
@@ -89,9 +97,16 @@ def estado(pasta_entidade: pathlib.Path) -> Estado:
             continue
         cpf = validacao.so_digitos(str(r.get("cpf", "")))
         evento = r.get("evento")
+        para = str(r.get("para", "")).strip().casefold()
         if evento == PEDIDA:
             e.pendentes[cpf] = {k: r.get(k, "") for k in
                                 ("de", "para", "quando", "enviado_por")}
+            e.pendentes[cpf]["dono_avisado"] = (cpf, para) in e.donos_avisados
+        elif evento == DONO_AVISADO:
+            e.donos_avisados.add((cpf, para))
+            pedido = e.pendentes.get(cpf)
+            if pedido and str(pedido.get("para", "")).strip().casefold() == para:
+                pedido["dono_avisado"] = True
         elif evento in (APROVADA, RETIRADA):
             e.pendentes.pop(cpf, None)
         elif evento == RECUSADA:
@@ -230,6 +245,84 @@ def mensagem_para_quem_opera(pasta_entidade: pathlib.Path, *, apelido: str,
     assunto = (f"[PROTOCOL] {len(pendentes)} pedido(s) de acesso esperando "
                f"em {apelido}")
     return assunto, "\n".join(linhas) + "\n"
+
+
+def mascarar(email: str) -> str:
+    """`invasor@exemplo.org` -> `in•••@exemplo.org`.
+
+    O bastante para a dona reconhecer um endereço que é dela, e pouco para
+    quem só herdou a caixa antiga ficar sabendo o endereço novo.
+    """
+    local, arroba, dominio = email.partition("@")
+    return f"{local[:2] if len(local) > 2 else local[:1]}•••{arroba}{dominio}"
+
+
+def mensagem_para_o_dono(nome_da_entidade: str, para: str) -> tuple[str, str]:
+    """(assunto, corpo) do aviso a quem HOJE recebe o código de acesso.
+
+    QUEM FALA É O SINDICATO — a Regra Zero deste repositório —, e a
+    mensagem é do tamanho do que a pessoa precisa decidir: pedi isto, ou
+    não pedi?
+
+    SEM LINK, de propósito. Um e-mail sobre acesso que pede para clicar é
+    o molde exato do golpe que este aviso existe para atrapalhar; se o
+    nosso não tem link nunca, o falso que tiver fica estranho.
+
+    O ENDEREÇO NOVO VAI MASCARADO. A troca costuma ser pedida justamente
+    porque a caixa antiga não é mais da pessoa — e quem a lê hoje não tem
+    de ficar sabendo o e-mail novo dela.
+    """
+    assunto = f"Pediram a troca do e-mail do seu acesso — {nome_da_entidade}"
+    corpo = (
+        f"{nome_da_entidade}\n\n"
+        "Chegou um pedido para trocar o e-mail do seu acesso ao portal.\n\n"
+        "  E-mail de hoje:  este em que você está lendo\n"
+        f"  E-mail pedido:   {mascarar(para)}\n\n"
+        "A troca AINDA NÃO VALE. Ela é conferida antes de valer, e até lá o "
+        "seu código de acesso continua chegando neste e-mail.\n\n"
+        "Se você pediu para atualizar o seu e-mail, não precisa fazer "
+        "nada.\n\n"
+        f"Se você NÃO pediu, avise {nome_da_entidade}: alguém pode estar "
+        "tentando entrar no seu lugar.\n\n"
+        "Esta mensagem não pede resposta, código nem senha, e não tem "
+        "link.\n"
+    )
+    return assunto, corpo
+
+
+def avisar_donos(pasta_entidade: pathlib.Path, *, nome: str,
+                 correio) -> tuple[int, int]:
+    """Avisa quem hoje recebe o código de que pediram a troca. Devolve
+    (quantos avisos saíram, quantos falharam).
+
+    PARA O ENDEREÇO DE HOJE, lido do portão agora — é o único que
+    comprovadamente é da pessoa. Nunca para o endereço pedido: se o pedido
+    é indevido, esse é o de quem o fez.
+
+    UMA VEZ POR (pessoa, endereço pedido), para sempre. Depois que saiu,
+    fica registrado, e nem o lembrete diário nem a planilha reenviada
+    repetem. O que falhou NÃO é registrado — e por isso é tentado de novo
+    na próxima chamada, que é o que o lembrete diário faz.
+
+    Só troca: a entrada segurada não tem e-mail de antes a quem avisar.
+    """
+    sairam = falharam = 0
+    for cpf, pedido in sorted(estado(pasta_entidade).pendentes.items()):
+        if not pedido.get("de") or pedido.get("dono_avisado"):
+            continue
+        hoje = destino_atual(pasta_entidade, cpf)
+        if not hoje:
+            continue        # saiu do acesso: não há mais o que trocar
+        try:
+            correio.enviar_mensagem(
+                hoje, *mensagem_para_o_dono(nome, pedido["para"]))
+        except Exception:  # noqa: BLE001
+            falharam += 1
+            continue
+        _anexar(pasta_entidade, {"evento": DONO_AVISADO, "quando": _agora(),
+                                 "cpf": cpf, "para": pedido["para"]})
+        sairam += 1
+    return sairam, falharam
 
 
 def avisar_quem_opera(pasta_entidade: pathlib.Path, *, apelido: str,
