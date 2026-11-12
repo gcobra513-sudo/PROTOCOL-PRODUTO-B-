@@ -4921,6 +4921,48 @@ def teste_apagar_tira_a_pessoa_do_rol_guardado():
     print("  ok     apagar a pedido tira a pessoa do rol guardado")
 
 
+def teste_o_guardado_fala_da_pessoa_e_a_tela_fala_com_ela():
+    """T7, do lado da prova. A frase passou a ter duas redações — e o
+    veredicto GUARDADO tem de continuar com a de terceira pessoa: é o que
+    advogado e sindicato leem, e "você já executou este título", ali,
+    acusaria quem está lendo. A tela do filiado mostra a outra."""
+    import re
+    import subprocess
+
+    from servidor import banco
+
+    entidade = "demo-publicos"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    t = subprocess.run(
+        [sys.executable, str(RAIZ / "ferramentas" / "reavaliar_oportunidades.py"),
+         "--entidade", entidade, "--raiz", str(raiz), "--banco", URL],
+        capture_output=True, text=True,
+        env={**os.environ, "PROTOCOL_DATABASE_URL": URL},
+    )
+    checa(t.returncode == 0, f"reavaliar saiu {t.returncode}: {t.stderr[:300]}")
+    guardadas = [m for g in banco.oportunidades_de(URL, entidade, A)
+                 for m in g["motivos"]]
+    checa(len(guardadas) >= 3, f"poucos motivos guardados: {guardadas}")
+    for frase in guardadas:
+        checa(not re.search(r"\bvocê\b|\bseus?\b|\bsuas?\b", frase,
+                            re.IGNORECASE),
+              f"o veredicto GUARDADO fala com o leitor: {frase!r}")
+    checa(any("esta pessoa" in f for f in guardadas),
+          f"o guardado perdeu as frases sobre a pessoa: {guardadas}")
+    corpo = cliente.get(
+        "/api/minhas-acoes",
+        headers={"Authorization": f"Bearer {_token(cliente, A, entidade)}"},
+    ).json()
+    da_tela = [m for o in corpo["oportunidades"] for m in o["motivos"]]
+    checa(len(da_tela) == len(guardadas),
+          f"a tela e o guardado têm quantidades diferentes de motivos: "
+          f"{len(da_tela)} e {len(guardadas)}")
+    checa(not any("esta pessoa" in f for f in da_tela),
+          f"a tela do filiado mostra a frase do guardado: {da_tela}")
+    print("  ok     no guardado, terceira pessoa; na tela do filiado, com ele")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -5047,6 +5089,7 @@ TESTES = [
     teste_confirmar_outro_rol_e_recusado,
     teste_apagamento_no_meio_do_rol_nao_ressuscita,
     teste_apagar_tira_a_pessoa_do_rol_guardado,
+    teste_o_guardado_fala_da_pessoa_e_a_tela_fala_com_ela,
 ]
 
 

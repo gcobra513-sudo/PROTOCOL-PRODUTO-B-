@@ -38,6 +38,7 @@ from dataclasses import dataclass
 
 from . import entendimentos as ent
 from . import pendencia
+from .dito import ambos, dito, exigir, nao_homologado
 
 PARTICIPA = "PARTICIPA"
 NAO_PARTICIPA = "NAO_PARTICIPA"
@@ -112,6 +113,11 @@ class Participacao:
         af, mf = (int(x) for x in self.fim.split("-"))
         return (af - ai) * 12 + (mf - mi) + 1
 
+    def __post_init__(self) -> None:
+        # Nenhum motivo sai daqui com um leitor só: ver `nucleo/dito.py`.
+        for motivo in self.motivos:
+            exigir(motivo, "Participacao.motivos")
+
 
 def _competencia(valor: str) -> tuple[int, int] | None:
     m = re.match(r"^(\d{4})-(0[1-9]|1[0-2])$", str(valor or "").strip())
@@ -146,10 +152,7 @@ def cruzar(
         # MESMO TEXTO de `motor._homologacao`, de propósito: as duas
         # conferências são cinto e suspensório, e com textos diferentes a
         # pessoa lia a mesma pendência duas vezes, com duas redações.
-        motivos.append(
-            f"{rotulo}: ainda não homologado — o motor prepara, quem assina "
-            f"é gente"
-        )
+        motivos.append(nao_homologado(rotulo))
         return Participacao(acao.id, rotulo, INDETERMINADO, falta=tuple(falta),
                             motivos=tuple(motivos))
 
@@ -173,18 +176,32 @@ def cruzar(
                             "o cargo, que é o que define a categoria")
         )
         motivos.append(
-            f"o cargo {filiado.cargo!r} não foi reconhecido. Pode ser a mesma "
-            f"carreira escrita de outro jeito — e recusar por causa disso "
-            f"seria tirar direito por grafia"
+            dito(
+                f"o cargo {filiado.cargo!r} não foi reconhecido. Pode ser a "
+                f"mesma carreira escrita de outro jeito — e recusar por causa "
+                f"disso seria tirar direito por grafia",
+                f"o cargo que você informou ({filiado.cargo}) não foi "
+                f"reconhecido. Pode ser a mesma carreira escrita de outro "
+                f"jeito, e ninguém perde direito por grafia: o sindicato "
+                f"confere",
+            )
             if filiado.cargo.strip() else
-            "a pessoa não informou o cargo, e é ele que define a categoria"
+            dito(
+                "a pessoa não informou o cargo, e é ele que define a categoria",
+                "você não informou o cargo, e é ele que define a categoria",
+            )
         )
     elif da_pessoa != da_acao:
         return Participacao(
             acao.id, rotulo, NAO_PARTICIPA,
             motivos=(
-                f"esta ação alcança a categoria {acao.categoria!r}, e o cargo "
-                f"informado é de outra carreira ({filiado.cargo})",
+                dito(
+                    f"esta ação alcança a categoria {acao.categoria!r}, e o "
+                    f"cargo informado é de outra carreira ({filiado.cargo})",
+                    f"esta ação alcança a categoria {acao.categoria!r}, e o "
+                    f"cargo que você informou é de outra carreira "
+                    f"({filiado.cargo})",
+                ),
             ),
         )
 
@@ -194,7 +211,8 @@ def cruzar(
     if not (inicio_acao and fim_acao):
         falta.append(pendencia.Falta(
             pendencia.CONFERENCIA, f"o período coberto por {rotulo}"))
-        motivos.append(f"{rotulo}: a ação não declara o período que cobre")
+        motivos.append(
+            ambos(f"{rotulo}: a ação não declara o período que cobre"))
         return Participacao(acao.id, rotulo, INDETERMINADO,
                             motivos=tuple(motivos), falta=tuple(falta))
 
@@ -202,10 +220,12 @@ def cruzar(
     if desde is None:
         falta.append(pendencia.Falta(
             pendencia.VOCE, "os comprovantes de contribuição ao sindicato"))
-        motivos.append(
+        motivos.append(dito(
             "não se sabe desde quando esta pessoa é filiada, e é isso que "
-            "decide de quais ações ela faz parte"
-        )
+            "decide de quais ações ela faz parte",
+            "não sabemos desde quando vai a sua filiação, e é isso que "
+            "decide de quais ações você faz parte",
+        ))
         return Participacao(acao.id, rotulo, INDETERMINADO,
                             motivos=tuple(motivos), falta=tuple(falta))
 
@@ -221,9 +241,15 @@ def cruzar(
         return Participacao(
             acao.id, rotulo, NAO_PARTICIPA,
             motivos=(
-                f"a filiação ({_texto(desde)} a {_texto(ate)}) não tem mês em "
-                f"comum com o período da ação ({acao.periodo_inicio} a "
-                f"{acao.periodo_fim}): {quando}",
+                dito(
+                    f"a filiação ({_texto(desde)} a {_texto(ate)}) não tem "
+                    f"mês em comum com o período da ação "
+                    f"({acao.periodo_inicio} a {acao.periodo_fim}): {quando}",
+                    f"a sua filiação ({_texto(desde)} a {_texto(ate)}) não "
+                    f"tem mês em comum com o período da ação "
+                    f"({acao.periodo_inicio} a {acao.periodo_fim}): você "
+                    f"{quando}",
+                ),
             ),
         )
 
@@ -235,24 +261,32 @@ def cruzar(
                 acao.id, rotulo, NAO_PARTICIPA,
                 inicio=_texto(comum_inicio), fim=_texto(comum_fim),
                 motivos=(
-                    "esta ação tem rol de substituídos e esta pessoa não "
-                    "consta dele",
+                    dito(
+                        "esta ação tem rol de substituídos e esta pessoa não "
+                        "consta dele",
+                        "esta ação tem rol de substituídos e o seu nome não "
+                        "consta desse rol",
+                    ),
                 ),
             )
         if no_rol is None:
             falta.append(pendencia.Falta(
                 pendencia.CONFERENCIA, f"o rol de substituídos de {rotulo}"))
-            motivos.append(
+            motivos.append(dito(
                 f"{rotulo} tem rol de substituídos, e não se sabe se esta "
-                f"pessoa consta dele"
-            )
+                f"pessoa consta dele",
+                f"{rotulo} tem rol de substituídos, e ainda não sabemos se o "
+                f"seu nome consta desse rol",
+            ))
 
     estado = INDETERMINADO if falta else PARTICIPA
     if estado == PARTICIPA:
-        motivos.append(
+        motivos.append(dito(
             f"filiada de {_texto(desde)} a {_texto(ate)}, e a ação cobre "
-            f"{acao.periodo_inicio} a {acao.periodo_fim}"
-        )
+            f"{acao.periodo_inicio} a {acao.periodo_fim}",
+            f"a sua filiação vai de {_texto(desde)} a {_texto(ate)}, e a "
+            f"ação cobre {acao.periodo_inicio} a {acao.periodo_fim}",
+        ))
     return Participacao(
         acao.id, rotulo, estado,
         inicio=_texto(comum_inicio), fim=_texto(comum_fim),

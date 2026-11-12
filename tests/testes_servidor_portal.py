@@ -1836,6 +1836,67 @@ def teste_gestor_ve_o_panorama_da_propria_base():
     print(f"  ok     {corpo['manchete']}")
 
 
+def teste_cada_leitor_le_a_frase_escrita_para_ele():
+    """T7. O filiado abria "Minhas ações" e lia "esta pessoa consta do
+    rol" — a frase do veredicto guardado, na tela de quem ela descreve. E o
+    gestor lia, no painel, "O que depende de você" sobre uma pendência que é
+    do filiado. Cada leitor passa a ler o texto escrito para ele.
+
+    Este teste não confere a redação — isso é de `testes_dois_publicos.py`.
+    Confere que cada ROTA entrega o texto do leitor DELA.
+    """
+    import re
+
+    terceira = re.compile(r"\besta pessoa\b|\ba pessoa\b|\bdela\b|\bdele\b",
+                          re.IGNORECASE)
+    c = Cenario()
+    c.escrever_rol("demo-teste", [(CPF, "fulano@exemplo.org"),
+                                  (OUTRO_CPF, "gestor@exemplo.org")])
+    c.escrever_gestores("demo-teste", [(OUTRO_CPF, "gestor@exemplo.org")])
+    # Sem responder "já executei?" e "já tenho ação própria?": é o caso com
+    # mais frases sobre a pessoa.
+    c.cadastrar(CPF, ja_executou="", tem_acao_propria="")
+    filiado = {"Authorization": f"Bearer {c.token(CPF)}"}
+
+    corpo = c.cliente.get("/api/minhas-acoes", headers=filiado).json()
+    frases = [m for a in corpo["acoes"] for m in a["motivos"]]
+    frases += [m for o in corpo["oportunidades"]
+               for m in (*o["motivos"], *o["notas"])]
+    checa(len(frases) >= 5, f"poucas frases para conferir: {frases}")
+    for frase in frases:
+        checa(terceira.search(frase) is None,
+              f"a tela do FILIADO fala dele em terceira pessoa: {frase!r}")
+    # AS AÇÕES TAMBÉM (um mutante sobreviveu aqui: só as oportunidades eram
+    # conferidas). Nada homologado, o motivo de cada ação é a homologação —
+    # e a redação do guardado fala em "o motor", que o filiado não conhece.
+    das_acoes = [m for a in corpo["acoes"] for m in a["motivos"]]
+    checa(das_acoes and not any("o motor prepara" in m for m in das_acoes),
+          f"as AÇÕES mostram ao filiado a frase do guardado: {das_acoes}")
+    checa(any(re.search(r"\bvocê\b|\bseu\b|\bsua\b", f) for f in frases),
+          f"nenhuma frase fala com o filiado: {frases}")
+
+    r = c.cliente.post("/api/atendimento", headers=filiado,
+                       json={"pergunta": "O que eu posso fazer hoje?"})
+    dito = " ".join(r.json().get("resposta", []))
+    checa(r.status_code == 200 and terceira.search(dito) is None,
+          f"o ATENDIMENTO fala do filiado em terceira pessoa: {dito[:300]!r}")
+
+    painel = c.cliente.get(
+        "/api/entidade/demo-teste/panorama",
+        headers={"Authorization": f"Bearer {c.token(OUTRO_CPF)}"}).json()
+    donos = {g["quem"]: g for g in painel["gargalos"]}
+    checa("VOCE" in donos, f"o cenário não tem pendência do filiado: {donos}")
+    for g in painel["gargalos"]:
+        checa(not re.search(r"\bvocê\b", g["titulo"] + " " + g["explicacao"],
+                            re.IGNORECASE),
+              f"o PAINEL chama o gestor de você: {g['titulo']!r} / "
+              f"{g['explicacao']!r}")
+    if "VOCE" in donos:
+        checa("filiado" in donos["VOCE"]["titulo"].lower(),
+              f"a pendência do filiado, no painel: {donos['VOCE']['titulo']!r}")
+    print("  ok     o filiado lê com ele, o gestor lê sobre o filiado")
+
+
 def teste_os_gargalos_vem_do_maior_para_o_menor_com_dono():
     from nucleo import pendencia
 
@@ -1932,6 +1993,7 @@ TESTES.extend([
     teste_panorama_exige_token_de_gestor,
     teste_panorama_nao_atravessa_entidade,
     teste_gestor_ve_o_panorama_da_propria_base,
+    teste_cada_leitor_le_a_frase_escrita_para_ele,
     teste_os_gargalos_vem_do_maior_para_o_menor_com_dono,
     teste_o_panorama_so_mostra_gente_da_propria_entidade,
     teste_entidade_sem_categoria_tem_panorama_vazio_e_nao_erro,

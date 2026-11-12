@@ -46,7 +46,7 @@ from fastapi.responses import JSONResponse, Response
 from nucleo import atendimento
 from nucleo import cadastro as conta
 from nucleo import entendimentos, leitura, motor, panorama
-from nucleo import participacao, pendencia
+from nucleo import dito, participacao, pendencia
 
 from . import documentos_do_sindicato as lote
 from . import (
@@ -1077,7 +1077,10 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     "inicio": p.inicio,
                     "fim": p.fim,
                     "meses": p.meses,
-                    "motivos": list(p.motivos),
+                    # A FRASE DO FILIADO, não a do veredicto guardado: aqui
+                    # quem lê é a própria pessoa, e "esta pessoa consta do
+                    # rol" lê como dossiê sobre outra (`nucleo/dito.py`).
+                    "motivos": [dito.para_voce(m) for m in p.motivos],
                 }
                 for p in acoes
             ],
@@ -1091,8 +1094,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     "periodo_inicio": o.periodo_inicio,
                     "periodo_fim": o.periodo_fim,
                     "meses": o.meses,
-                    "motivos": list(o.motivos),
-                    "notas": list(o.notas),
+                    "motivos": [dito.para_voce(m) for m in o.motivos],
+                    "notas": [dito.para_voce(n) for n in o.notas],
                     "fonte": o.fonte,
                     "falta": [
                         {"quem": f.quem, "o_que": f.o_que} for f in o.falta
@@ -1268,8 +1271,10 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "gargalos": [
                 {
                     "quem": g.quem,
-                    "titulo": pendencia.TITULOS[g.quem],
-                    "explicacao": pendencia.EXPLICACOES[g.quem],
+                    # Quem lê o painel é o GESTOR: o título do filiado
+                    # ("O que depende de você") diria que a tarefa é dele.
+                    "titulo": pendencia.TITULOS_DO_SINDICATO[g.quem],
+                    "explicacao": pendencia.EXPLICACOES_DO_SINDICATO[g.quem],
                     "o_que": g.o_que,
                     "pessoas": g.pessoas,
                     "exemplos": list(g.exemplos),
