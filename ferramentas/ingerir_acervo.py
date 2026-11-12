@@ -122,20 +122,9 @@ def main() -> int:
     # chama: tirar quem pediu para sair, recalcular o retrato sobre o que
     # sobra, gravar o arquivo e projetar no banco. Dois caminhos para a
     # mesma coisa divergem; o que esta ferramenta tem de seu é imprimir.
-    from servidor import acesso, ingestao
+    from servidor import ingestao
 
-    # O SEGREDO VEM DO AMBIENTE, não de `config.carregar()`: aquela função
-    # exige SMTP configurado, e uma ferramenta de ingestão não tem nada a
-    # ver com entregar e-mail.
-    segredo = os.environ.get("PROTOCOL_SEGREDO", "").strip()
-
-    def marcador_de(cpf: str) -> str:
-        if not segredo:
-            raise RuntimeError(
-                "PROTOCOL_SEGREDO não está definida, e sem ela não dá para "
-                "reconhecer o marcador de quem foi apagado"
-            )
-        return acesso.marcador_de_cpf(segredo, cpf)
+    marcador_de = ingestao.marcador_pelo_ambiente()
 
     try:
         pessoas, apagadas = ingestao.sem_apagados(

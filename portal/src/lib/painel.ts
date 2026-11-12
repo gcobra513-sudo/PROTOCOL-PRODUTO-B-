@@ -417,6 +417,14 @@ export function resumoDoAcesso(
             "com o e-mail desta planilha.",
     );
   }
+  if (a.novos_aguardando > 0) {
+    const n = a.novos_aguardando;
+    linhas.push(
+      `${pessoas(n)} ${n === 1 ? "nova veio" : "novas vieram"} com um e-mail que outra pessoa ` +
+        `também usa, e por isso NÃO ${n === 1 ? "entra" : "entram"} ainda: quem opera o serviço ` +
+        "confere antes. Com um e-mail só dela na planilha, cada uma entra na hora.",
+    );
+  }
   if (a.trocas_aguardando > 0) {
     linhas.push(
       `${pessoas(a.trocas_aguardando)} que já ${a.trocas_aguardando === 1 ? "entra" : "entram"} no portal ` +

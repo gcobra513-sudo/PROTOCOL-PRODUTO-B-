@@ -1665,11 +1665,24 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         }
         if not _conferir_confirmacao(confirmar, soma):
             return resposta
-        gravados = ingestao.gravar_documentos(ent, cfg.raiz, r,
-                                              cfg.banco_url)
+        try:
+            feito = ingestao.gravar_documentos(
+                ent, cfg.raiz, r, cfg.banco_url,
+                marcador_de=portao.marcar_cpf)
+        except ingestao.IngestaoRecusada as e:
+            log.error("DOCUMENTOS recusados ent=%s: %s", ent.apelido, e)
+            raise _problema(
+                503,
+                "não conseguimos conferir quem pediu apagamento, e sem isso "
+                "os documentos poderiam recriar quem pediu para sair. Nada "
+                "foi gravado: tente de novo.",
+            ) from None
         log.info("documentos do sindicato ent=%s gravados=%d sobraram=%d",
-                 ent.apelido, gravados, len(r.sobraram))
-        return {**resposta, "gravado": True}
+                 ent.apelido, feito["gravados"], len(r.sobraram))
+        # O QUE FOI GRAVADO, não o que a prévia casou: quem pediu para sair
+        # entre uma coisa e outra não entra, nem na conta.
+        return {**resposta, "casaram": feito["gravados"],
+                "pessoas": feito["pessoas"], "gravado": True}
 
     @app.post("/api/entidade/{apelido}/documentos-do-sindicato")
     async def enviar_documentos_do_sindicato(
@@ -2002,27 +2015,37 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             raise _problema(422, "leitura não registrada",
                             problemas=problemas)
 
-        registro = conferencia.registrar(
-            ent.pasta(cfg.raiz), entidade=ent.apelido, cpf=linha["cpf"],
-            documento=linha["sha256"], tipo=linha["tipo"],
-            resultado=resultado, fatos=fatos, observacao=observacao,
-            quem=sessao.cpf_hash,
-        )
-        _auditar(ent, "registrar_leitura", quem_hash=sessao.cpf_hash,
-                 alvo_hash=portao.marcar_cpf(linha["cpf"]))
-        try:
-            banco.projetar_leituras(cfg.banco_url, ent.apelido, [registro])
-        except Exception:  # noqa: BLE001
-            log.exception(
-                "PROJEÇÃO da leitura falhou ent=%s — a leitura está em %s; "
-                "refaça com banco.projetar_leituras",
-                ent.apelido, conferencia.ARQUIVO,
+        # COM O APAGAMENTO PARADO, E O DOCUMENTO CONFERIDO DE NOVO. O gestor
+        # abriu a fila, leu o PDF e digitou — minutos. Medido em 12/11/2026:
+        # se a pessoa fosse apagada a pedido nesse intervalo, a leitura era
+        # gravada assim mesmo, com o CPF dela e o que a sentença dela diz,
+        # em `leituras.jsonl`. O documento apagado SAI da fila; então
+        # procurá-lo de novo, dentro da trava, é a conferência — e devolve
+        # o mesmo 404 de um documento que nunca existiu.
+        with deposito.travada(ent.pasta(cfg.raiz),
+                              deposito.TRAVA_DO_APAGAMENTO):
+            linha = _documento_da_fila(ent, doc_id)
+            registro = conferencia.registrar(
+                ent.pasta(cfg.raiz), entidade=ent.apelido, cpf=linha["cpf"],
+                documento=linha["sha256"], tipo=linha["tipo"],
+                resultado=resultado, fatos=fatos, observacao=observacao,
+                quem=sessao.cpf_hash,
             )
-            raise _problema(
-                503,
-                "a leitura foi registrada, mas ainda não aparece no painel. "
-                "Não registre de novo: avise quem opera o servidor.",
-            ) from None
+            _auditar(ent, "registrar_leitura", quem_hash=sessao.cpf_hash,
+                     alvo_hash=portao.marcar_cpf(linha["cpf"]))
+            try:
+                banco.projetar_leituras(cfg.banco_url, ent.apelido, [registro])
+            except Exception:  # noqa: BLE001
+                log.exception(
+                    "PROJEÇÃO da leitura falhou ent=%s — a leitura está em %s; "
+                    "refaça com banco.projetar_leituras",
+                    ent.apelido, conferencia.ARQUIVO,
+                )
+                raise _problema(
+                    503,
+                    "a leitura foi registrada, mas ainda não aparece no painel. "
+                    "Não registre de novo: avise quem opera o servidor.",
+                ) from None
         log.info("leitura humana ent=%s tipo=%s resultado=%s",
                  ent.apelido, linha["tipo"], resultado)
         return {"resultado": resultado, "tipo": linha["tipo"],
@@ -2187,58 +2210,79 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         if faltas:
             raise _problema(422, "pacote incompleto", problemas=faltas)
 
-        anterior = deposito.ja_cadastrado(ent, cfg.raiz, limpa["cpf"])
-        recibo = deposito.depositar(ent, cfg.raiz, limpa, recebidos,
-                                    aguardando_leitura=tuple(aguardando))
-        # Um token, um envio.
-        portao.gastar_sessao(token)
-
-        # ESPELHA NO BANCO, DEPOIS DO DIÁRIO. A ordem é a mesma do depósito e
-        # pelo mesmo motivo: o diário é a autoridade. Se o banco falhar, o
-        # envio já está gravado e `banco.reconstruir` o recupera — por isso
-        # a falha aqui vira log e não 500: a pessoa não perde o cadastro por
-        # causa de um banco fora do ar, e nada se perdeu de fato.
+        # COM O APAGAMENTO PARADO, E A SESSÃO CONFERIDA DE NOVO.
         #
-        # E OS ACHADOS SÃO EXTRAÍDOS AQUI, UMA VEZ. Antes, a leitura do PDF
-        # acontecia a cada carregamento da tela do filiado, e nunca para o
-        # painel do sindicato — ler a base inteira a cada pedido é consulta
-        # de minutos para responder uma página.
-        if cfg.tem_banco:
+        # A sessão foi conferida lá em cima, e desde então os arquivos
+        # subiram — segundos, num pacote grande. Medido em 12/11/2026: um
+        # apagamento a pedido que caísse nesse intervalo era desfeito aqui,
+        # e no pior lugar: o DIÁRIO, que é a autoridade. Sobravam 7
+        # vestígios, e `banco.reconstruir` traria a pessoa de volta para
+        # sempre.
+        #
+        # O apagamento REVOGA a sessão. Então conferi-la de novo, dentro da
+        # trava que ele segura, basta — e não depende do banco estar no ar,
+        # que é o que este caminho nunca pôde exigir (o cadastro tem de
+        # entrar com o banco fora). A trava vai até o fim do ESPELHO: solta
+        # antes dele, o apagamento caberia entre o diário e o banco.
+        with deposito.travada(ent.pasta(cfg.raiz),
+                              deposito.TRAVA_DO_APAGAMENTO):
             try:
-                # SÓ O QUE CHEGOU, não o diário inteiro.
-                #
-                # Esta linha passava `deposito.ler_diario(...)` — TODOS os
-                # registros. `reconstruir` é a função de RECUPERAÇÃO: ela
-                # existe para refazer a projeção a partir do diário todo, e
-                # estava sendo usada como escrita incremental de um envio.
-                # Como o diário é append-only e nunca é podado, o pedido do
-                # filiado número N custava O(N), e a campanha inteira O(N²).
-                #
-                # Medido: 279 comandos SQL num diário de 12 registros, 21 por
-                # registro já existente. Na escala que a arquitetura nomeia,
-                # 4.812 filiados, são ~101 mil comandos numa transação só —
-                # contra um banco pela rede, minutos de transação aberta por
-                # cadastro. A ironia é que o comentário logo abaixo já dizia
-                # que ler a base inteira a cada pedido é consulta de minutos
-                # para responder uma página.
-                #
-                # A recuperação pelo diário inteiro continua existindo, e
-                # tem teste próprio — ela só deixou de rodar aqui.
-                banco.reconstruir(cfg.banco_url, ent.apelido,
-                                  [recibo.registro],
-                                  consentimento_novo=True)
-                for nome, corpo in recebidos.items():
-                    banco.guardar_achados(
-                        cfg.banco_url, ent.apelido, limpa["cpf"],
-                        hashlib.sha256(corpo).hexdigest(),
-                        documentos.ler_pdf(corpo),
+                portao.abrir_sessao(token)
+            except acesso.SessaoInvalida as e:
+                raise _problema(401, str(e)) from None
+
+            anterior = deposito.ja_cadastrado(ent, cfg.raiz, limpa["cpf"])
+            recibo = deposito.depositar(ent, cfg.raiz, limpa, recebidos,
+                                        aguardando_leitura=tuple(aguardando))
+            # Um token, um envio.
+            portao.gastar_sessao(token)
+
+            # ESPELHA NO BANCO, DEPOIS DO DIÁRIO. A ordem é a mesma do depósito e
+            # pelo mesmo motivo: o diário é a autoridade. Se o banco falhar, o
+            # envio já está gravado e `banco.reconstruir` o recupera — por isso
+            # a falha aqui vira log e não 500: a pessoa não perde o cadastro por
+            # causa de um banco fora do ar, e nada se perdeu de fato.
+            #
+            # E OS ACHADOS SÃO EXTRAÍDOS AQUI, UMA VEZ. Antes, a leitura do PDF
+            # acontecia a cada carregamento da tela do filiado, e nunca para o
+            # painel do sindicato — ler a base inteira a cada pedido é consulta
+            # de minutos para responder uma página.
+            if cfg.tem_banco:
+                try:
+                    # SÓ O QUE CHEGOU, não o diário inteiro.
+                    #
+                    # Esta linha passava `deposito.ler_diario(...)` — TODOS os
+                    # registros. `reconstruir` é a função de RECUPERAÇÃO: ela
+                    # existe para refazer a projeção a partir do diário todo, e
+                    # estava sendo usada como escrita incremental de um envio.
+                    # Como o diário é append-only e nunca é podado, o pedido do
+                    # filiado número N custava O(N), e a campanha inteira O(N²).
+                    #
+                    # Medido: 279 comandos SQL num diário de 12 registros, 21 por
+                    # registro já existente. Na escala que a arquitetura nomeia,
+                    # 4.812 filiados, são ~101 mil comandos numa transação só —
+                    # contra um banco pela rede, minutos de transação aberta por
+                    # cadastro. A ironia é que o comentário logo abaixo já dizia
+                    # que ler a base inteira a cada pedido é consulta de minutos
+                    # para responder uma página.
+                    #
+                    # A recuperação pelo diário inteiro continua existindo, e
+                    # tem teste próprio — ela só deixou de rodar aqui.
+                    banco.reconstruir(cfg.banco_url, ent.apelido,
+                                      [recibo.registro],
+                                      consentimento_novo=True)
+                    for nome, corpo in recebidos.items():
+                        banco.guardar_achados(
+                            cfg.banco_url, ent.apelido, limpa["cpf"],
+                            hashlib.sha256(corpo).hexdigest(),
+                            documentos.ler_pdf(corpo),
+                        )
+                except Exception:  # noqa: BLE001
+                    log.exception(
+                        "ESPELHO falhou para ent=%s protocolo=%s — o diário está "
+                        "gravado; refaça com banco.reconstruir",
+                        ent.apelido, recibo.protocolo,
                     )
-            except Exception:  # noqa: BLE001
-                log.exception(
-                    "ESPELHO falhou para ent=%s protocolo=%s — o diário está "
-                    "gravado; refaça com banco.reconstruir",
-                    ent.apelido, recibo.protocolo,
-                )
 
         log.info(
             "cadastro gravado ent=%s protocolo=%s arquivos=%d substituiu=%s",

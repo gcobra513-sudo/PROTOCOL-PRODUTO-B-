@@ -3,7 +3,8 @@
 As trocas de e-mail que a planilha do sindicato pediu, e a decisão sobre elas.
 
 A planilha que o gestor envia põe gente NOVA no acesso na hora. O que ela não
-faz é trocar o e-mail de quem já entra: isso fica pedido, e só vale depois
+faz é trocar o e-mail de quem já entra, nem pôr no acesso gente nova com um
+e-mail que outra pessoa usa: as duas coisas ficam pedidas, e só valem depois
 que alguém AQUI confere — por telefone, por e-mail ao endereço antigo, pelo
 que o contrato com o sindicato combinar. O motivo está em `servidor/trocas.py`:
 se a troca valesse sozinha, uma conta de gestor comprometida viraria todas as
@@ -56,14 +57,22 @@ def main() -> int:
         if not pendentes:
             print("nenhuma troca de e-mail esperando")
             return 0
-        print(f"{len(pendentes)} troca(s) de e-mail esperando em "
-              f"{ent.apelido}:\n")
+        print(f"{len(pendentes)} pedido(s) esperando em {ent.apelido}:\n")
         for cpf, pedido in sorted(pendentes.items()):
             # O e-mail de HOJE, lido do portão agora — não o que valia
             # quando a planilha chegou.
-            hoje = trocas.destino_atual(pasta, cpf) or "(fora do acesso)"
-            print(f"  {cpf}  {hoje}  ->  {pedido['para']}"
+            hoje = trocas.destino_atual(pasta, cpf)
+            if hoje:
+                print(f"  {cpf}  troca: {hoje}  ->  {pedido['para']}"
+                      f"   (pedida em {pedido['quando']})")
+                continue
+            # ENTRADA NOVA segurada: o e-mail é de mais alguém. Quem
+            # decide precisa ver de quem.
+            outros = trocas.outros_com(pasta, cpf, pedido["para"])
+            print(f"  {cpf}  entrada nova com {pedido['para']}"
                   f"   (pedida em {pedido['quando']})")
+            print(f"               mesmo e-mail de: "
+                  f"{', '.join(outros) or '(ninguém mais, hoje)'}")
         return 0
 
     if not args.cpfs:
@@ -74,7 +83,8 @@ def main() -> int:
         try:
             if args.acao == "aprovar":
                 feito = trocas.aprovar(pasta, cpf)
-                print(f"aprovada: {cpf}  {feito['de']}  ->  {feito['para']}")
+                print(f"aprovada: {cpf}  "
+                      f"{feito['de'] or '(entrada nova)'}  ->  {feito['para']}")
             else:
                 feito = trocas.recusar(pasta, cpf)
                 print(f"recusada: {cpf}  (continua como estava; "

@@ -132,7 +132,8 @@ A planilha confirmada também decide **quem consegue entrar no portal**
 
 | quem | o que a planilha faz |
 |---|---|
-| **novo no acesso**, com e-mail que sirva | entra na hora: o código vai para o e-mail da planilha |
+| **novo no acesso**, com e-mail que sirva **e só dele** | entra na hora: o código vai para o e-mail da planilha |
+| novo, com um e-mail que **outra pessoa usa** | **não entra.** A entrada fica *pedida*, no mesmo arquivo, até quem opera conferir |
 | **já entra**, e a planilha traz outro e-mail | **nada muda.** A troca fica *pedida* em `trocas_de_email.jsonl`, e o código continua indo para o e-mail de antes |
 | já entra, e não está na planilha | continua entrando. A planilha **não tira** ninguém |
 | novo, sem e-mail que sirva | entra na base, não no acesso |
@@ -147,7 +148,18 @@ o CPF de um gestor não vira "novo" por não estar em `filiados.csv`. E a
 planilha não tira ninguém porque tirar e recolocar seria a porta dos fundos
 da mesma troca.
 
-**Quem decide a troca é quem opera o servidor**, depois de conferir por fora:
+**Um e-mail, uma pessoa — para quem é novo.** "Outra pessoa usa" quer dizer:
+o e-mail já é de alguém no portão (filiado ou gestor), ou de outra pessoa
+nova da mesma planilha, ou de uma entrada que ainda espera. Olhar só para
+dentro da planilha não bastaria: uma pessoa por envio, e cada uma seria a
+única do arquivo dela. Quando duas novas dividem o endereço, **nenhuma**
+entra — escolher a dona seria resolver a divergência sozinho. Casal que
+divide e-mail cai aqui e depende de aprovação; quem volta na planilha com
+um e-mail só dela entra na hora, e o pedido some.
+
+**Quem decide a troca e a entrada segurada é quem opera o servidor**, depois
+de conferir por fora. `listar` mostra, para cada entrada segurada, de quem
+mais é o e-mail:
 
 ```bash
 python3 ferramentas/trocas_de_email.py --raiz dados_portal --entidade sind-df listar
@@ -171,8 +183,25 @@ sabendo**; ninguém é avisado por e-mail.
 função: rodada por nós, ela também só *pede* a troca.
 
 **O que a trava NÃO cobre** (T27 em `CHECKPOINTS.md`): para quem ainda não
-está no acesso, vale o primeiro e-mail que a planilha trouxer. Uma conta de
-gestor comprometida pode pôr o próprio endereço em quem ainda não entrou.
+está no acesso, vale o primeiro e-mail **único** que a planilha trouxer. A
+regra pega o endereço repetido, não a intenção: quem controla um domínio
+inteiro escreve um endereço diferente por pessoa.
+
+### Quem grava dado de pessoa não atravessa o apagamento
+
+O apagamento a pedido e tudo o que grava dado de uma pessoa — a planilha,
+os documentos do sindicato, o cadastro do filiado, a leitura do gestor —
+seguram a mesma trava (`.apagamento.trava`, na pasta da entidade), e cada
+gravação **confere de novo, na hora de gravar**, se a pessoa ainda pode ser
+gravada. Antes, um apagamento que chegasse no meio de uma dessas operações
+era desfeito por ela. Para medir de novo:
+
+```bash
+PROTOCOL_DATABASE_URL='postgresql://...' python3 docs/medicoes/2026-11-12-apagamento-no-meio.py
+```
+
+As três tarefas agendadas (coletar, avisar, reavaliar) **não** seguram essa
+trava — T28 em `CHECKPOINTS.md`.
 
 ## Nome por nome, e a planilha da base
 
