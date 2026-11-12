@@ -2127,7 +2127,44 @@ def teste_o_aviso_ao_dono_nunca_vai_para_o_endereco_pedido():
     print("  ok     sem e-mail no portão, o aviso ao dono não vai a lugar nenhum")
 
 
+def teste_a_caixa_e_o_dominio_de_um_endereco():
+    """As duas perguntas que a regra de entrada faz a um endereço: em que
+    CAIXA ele cai, e de que DONO é o domínio.
+
+    Os dois erram para o lado de JUNTAR. Juntar demais segura uma entrada
+    que alguém confere; separar demais deixa uma caixa receber o código de
+    várias pessoas.
+    """
+    secao("a caixa e o domínio de um endereço")
+    for a, b in (
+        ("joana+boleto@exemplo.invalid", "joana@exemplo.invalid"),
+        ("Joana@Exemplo.Invalid", "joana@exemplo.invalid"),
+        # No Gmail o ponto não distingue caixa, e googlemail é o mesmo.
+        ("j.o.ana+x@GoogleMail.com", "joana@gmail.com"),
+    ):
+        checa(rol.caixa(a) == rol.caixa(b), f"{a} e {b} são a mesma caixa")
+    # Fora do Gmail o ponto DISTINGUE: juntar aqui seria inventar regra.
+    checa(rol.caixa("a.b@exemplo.invalid") != rol.caixa("ab@exemplo.invalid"),
+          "o ponto foi ignorado fora do Gmail")
+    for endereco, dominio in (
+        ("x@mail.exemplo.com", "exemplo.com"),
+        ("x@a.b.exemplo.com.br", "exemplo.com.br"),
+        ("x@rfb.gov.br", "rfb.gov.br"),
+        ("x@Exemplo.ORG.BR", "exemplo.org.br"),
+        # Categoria que não está na lista: junta pela categoria inteira.
+        ("x@loja.floripa.br", "floripa.br"),
+    ):
+        checa(rol.dominio_registravel(endereco) == dominio,
+              f"{endereco}: {rol.dominio_registravel(endereco)!r}, "
+              f"esperava {dominio!r}")
+    checa("gmail.com" in rol.PROVEDORES_COMUNS
+          and "exemplo.invalid" not in rol.PROVEDORES_COMUNS,
+          "a lista de provedores comuns está errada")
+    print("  ok     +etiqueta e ponto do Gmail juntam; subdomínio junta")
+
+
 TESTES.extend([
+    teste_a_caixa_e_o_dominio_de_um_endereco,
     teste_o_aviso_ao_dono_nunca_vai_para_o_endereco_pedido,
     teste_o_lembrete_diario_de_pedido_que_espera,
     teste_o_lembrete_e_tarefa_do_agendador,

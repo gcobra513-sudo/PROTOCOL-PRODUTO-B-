@@ -139,6 +139,17 @@ def _semear(raiz: pathlib.Path) -> None:
             w = csv.writer(fh)
             w.writerow(["cpf", "email"])
             w.writerows(linhas)
+    # O DOMÍNIO DO SINDICATO, CONFIADO POR QUEM OPERA. Todos os cadastros
+    # do ensaio estão em `exemplo.invalid`, como os filiados de um sindicato
+    # de verdade estão no domínio da repartição — e, fora dos provedores
+    # comuns, um domínio só recebe três pessoas sem conferência. Sem esta
+    # linha a pessoa da planilha ficaria esperando (foi o que o ensaio
+    # mostrou quando a regra entrou). É o passo que nós damos uma vez por
+    # sindicato: `ferramentas/trocas_de_email.py ... confiar <domínio>`.
+    from servidor import trocas
+
+    (pasta / trocas.ARQUIVO_DE_DOMINIOS).write_text("exemplo.invalid\n",
+                                                    encoding="utf-8")
 
 
 def _pdf_de_scanner() -> bytes:

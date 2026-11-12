@@ -135,6 +135,7 @@ A planilha confirmada também decide **quem consegue entrar no portal**
 |---|---|
 | **novo no acesso**, com e-mail que sirva **e só dele** | entra na hora: o código vai para o e-mail da planilha |
 | novo, com um e-mail que **outra pessoa usa** | **não entra.** A entrada fica *pedida*, no mesmo arquivo, até quem opera conferir |
+| novo, num **domínio fora dos provedores comuns** que já passou de 3 pessoas | **não entra.** Pedida do mesmo jeito, com o motivo |
 | **já entra**, e a planilha traz outro e-mail | **nada muda.** A troca fica *pedida* em `trocas_de_email.jsonl`, e o código continua indo para o e-mail de antes |
 | já entra, e não está na planilha | continua entrando. A planilha **não tira** ninguém |
 | novo, sem e-mail que sirva | entra na base, não no acesso |
@@ -157,6 +158,37 @@ dentro da planilha não bastaria: uma pessoa por envio, e cada uma seria a
 entra — escolher a dona seria resolver a divergência sozinho. Casal que
 divide e-mail cai aqui e depende de aprovação; quem volta na planilha com
 um e-mail só dela entra na hora, e o pedido some.
+
+**"O mesmo e-mail" é a mesma CAIXA, não o mesmo texto.** `joana+1@x` e
+`joana+2@x` caem no mesmo lugar (o que vem depois do `+` é etiqueta), e no
+Gmail o ponto também não distingue. Comparando o texto, uma caixa só
+recebia o código de quantas pessoas novas se quisesse, sem comprar domínio
+nem criar conta (`rol.caixa`).
+
+**E um domínio fora dos provedores comuns tem limite.** Quem controla um
+domínio escreve um endereço diferente por pessoa, todos na mesma caixa.
+Então, fora de `rol.PROVEDORES_COMUNS` (Gmail, Outlook, UOL…), um domínio
+só recebe **3** pessoas no acesso sem conferência
+(`rol.LIMITE_POR_DOMINIO`); passou disso, **nenhuma** das novas daquele
+domínio entra. A conta inclui quem já entra e quem espera, e é pelo domínio
+registrável — `a.exemplo.com.br` e `b.exemplo.com.br` são do mesmo dono —,
+para que nem uma pessoa por envio nem um subdomínio por pessoa contornem.
+
+O domínio da repartição ou da cooperativa tem centenas de filiados e é
+legítimo. Quem diz isso é quem opera, **uma vez por sindicato**:
+
+```bash
+python3 ferramentas/trocas_de_email.py --raiz dados_portal --entidade sind-df confiar reparticao.gov.br
+```
+
+Isso grava o domínio em `<entidade>/dominios_confiados.txt`, põe no acesso
+quem esperava **por causa do domínio** (quem divide a mesma caixa continua
+esperando) e faz as próximas planilhas não segurarem mais ninguém dali.
+`listar` mostra o comando pronto para cada domínio que está segurando gente.
+
+Três coisas que são botão ou heurística, e não medição: o **3**; a lista de
+provedores comuns, escrita à mão; e o corte do domínio registrável, feito
+sem a lista pública de sufixos. As três erram para o lado de SEGURAR.
 
 **Quem decide a troca e a entrada segurada é quem opera o servidor**, depois
 de conferir por fora. `listar` mostra, para cada entrada segurada, de quem
@@ -214,10 +246,11 @@ O texto da mensagem está em `servidor/trocas.py`, `mensagem_para_o_dono`.
 `ferramentas/ingerir_acervo.py` segue a mesma regra, porque chama a mesma
 função: rodada por nós, ela também só *pede* a troca.
 
-**O que a trava NÃO cobre** (T27 em `CHECKPOINTS.md`): para quem ainda não
-está no acesso, vale o primeiro e-mail **único** que a planilha trouxer. A
-regra pega o endereço repetido, não a intenção: quem controla um domínio
-inteiro escreve um endereço diferente por pessoa.
+**O que a trava NÃO cobre** (T27 em `CHECKPOINTS.md`): muitos domínios,
+poucas pessoas em cada. Tomar N contas de gente nova passa a custar N/3
+domínios registrados — deixa de ser grátis, não deixa de ser possível. E
+contas criadas uma a uma num provedor comum passam: ali cada endereço é uma
+conta que alguém teve de abrir.
 
 ### Quem grava dado de pessoa não atravessa o apagamento
 
@@ -400,6 +433,7 @@ dados_portal/
     filiados.csv                     o rol: quem entra, e para onde vai o código
     gestores.csv                     quem abre o painel — posto por quem opera
     trocas_de_email.jsonl            trocas de e-mail pedidas pela planilha
+    dominios_confiados.txt           domínios que quem opera confiou para este sindicato
     recebidos.jsonl                  diário append-only: a verdade
     entrega/
       manifesto.csv                  derivado do diário, 1 linha por CPF

@@ -503,6 +503,27 @@ mostraram, e que valem mais que a contagem:
   de propósito: o aviso ao dono não depende da nossa caixa.
 
 
+**12/11 — o domínio inteiro.** A regra do e-mail repetido comparava texto,
+e por isso o jeito mais barato de contorná-la nem era o domínio próprio:
+era `joana+1@`, `joana+2@`, a mesma caixa com etiquetas. Medido antes da
+correção: três endereços assim entravam como três pessoas, e o código das
+três ia para uma caixa só. Passou a contar a caixa (`rol.caixa`).
+
+Para o domínio próprio, o limite: fora dos provedores comuns, 3 pessoas por
+domínio registrável sem conferência, contando quem já entra e quem espera.
+Medido: uma pessoa por envio não passa, um subdomínio por pessoa não passa,
+e confiar no domínio libera só quem esperava por causa dele — este último
+só ficou provado depois que um mutante sobreviveu e mostrou que nada
+testava o contrário.
+
+O que isto custa, e é de propósito: o sindicato cujos filiados usam o
+e-mail da repartição tem a primeira planilha quase toda segurada, até
+alguém nosso confiar no domínio. É uma decisão, um comando, uma vez.
+
+O que continua aberto está dito em T27: muitos domínios com poucas pessoas,
+e contas abertas uma a uma. E três números aqui não são medição — o 3, a
+lista de provedores e o corte do domínio.
+
 ### Uma observação para o dia em que houver planilha real (soma ao item 9)
 
 CPF que começa com zero, guardado no Excel como NÚMERO, perde o zero:

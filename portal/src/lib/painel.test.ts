@@ -391,7 +391,8 @@ describe("a prévia da planilha, antes de o gestor confirmar", () => {
 
 describe("o que a planilha muda em quem consegue entrar (T26)", () => {
   const ACESSO: api.AcessoPelaPlanilha = {
-    novos: 40, novos_aguardando: 4, trocas_aguardando: 3,
+    novos: 40, novos_aguardando: 4, novos_por_dominio: 6,
+    trocas_aguardando: 3,
     trocas_recusadas: 1, sem_email: 5, divergentes: 2, fora_da_planilha: 7,
   };
 
@@ -421,6 +422,17 @@ describe("o que a planilha muda em quem consegue entrar (T26)", () => {
     expect(linhas).not.toContain("atualizad");
   });
 
+  it("domínio concentrado: NÃO entraram, sem ensinar o limite", () => {
+    // O gestor precisa saber que essas pessoas esperam e por quê. O número
+    // do limite fica fora da tela: é a única coisa que só serve a quem
+    // quer ficar logo abaixo dele.
+    const linhas = resumoDoAcesso(ACESSO, true).join("\n").toLowerCase();
+    expect(linhas).toContain("6 pessoas");
+    expect(linhas).toContain("domínio");
+    expect(linhas).toContain("não entram");
+    expect(linhas).not.toMatch(/mais de \d|até \d|limite de \d/);
+  });
+
   it("diz ao gestor que a pessoa é AVISADA do pedido de troca", () => {
     // O gestor precisa saber que o filiado vai receber um e-mail: é ele
     // quem atende o telefone quando alguém perguntar "que troca é essa?".
@@ -442,7 +454,8 @@ describe("o que a planilha muda em quem consegue entrar (T26)", () => {
   });
 
   it("não fala do que não aconteceu, e aguenta servidor antigo", () => {
-    const nada = { novos: 0, novos_aguardando: 0, trocas_aguardando: 0,
+    const nada = { novos: 0, novos_aguardando: 0, novos_por_dominio: 0,
+                   trocas_aguardando: 0,
                    trocas_recusadas: 0,
                    sem_email: 0, divergentes: 0, fora_da_planilha: 0 };
     expect(resumoDoAcesso(nada, true)).toEqual([]);

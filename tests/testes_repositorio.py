@@ -45,6 +45,7 @@ ESCRITOS = {
     "demo-a/acervo.jsonl": "a planilha inteira do sindicato",
     "demo-a/leituras.jsonl": "o que a sentença de cada pessoa diz",
     "demo-a/trocas_de_email.jsonl": "CPF e e-mails de troca pedida",
+    "demo-a/dominios_confiados.txt": "os domínios de e-mail do sindicato",
     "demo-a/entrega/manifesto.csv": "quem entregou o quê",
     "demo-a/entrega/recebidos.jsonl": "o diário de cadastros",
     "demo-a/entrega/00000000000/sentenca.pdf": "a sentença de uma pessoa",
@@ -213,7 +214,8 @@ def t_so_quem_opera_troca_o_email_de_quem_ja_entra():
     (`trocas.aprovar`), e `aprovar` tem um (a ferramenta).
     """
     onde: dict[str, list[str]] = {"rol.trocar_email(": [],
-                                  "trocas.aprovar(": []}
+                                  "trocas.aprovar(": [],
+                                  "trocas.confiar_dominio(": []}
     for pasta in ("nucleo", "servidor", "ferramentas"):
         for caminho in sorted((RAIZ / pasta).rglob("*.py")):
             for n, linha in enumerate(
@@ -228,6 +230,13 @@ def t_so_quem_opera_troca_o_email_de_quem_ja_entra():
     checa(onde["rol.trocar_email("] == ["servidor/trocas.py"],
           f"`rol.trocar_email` tem de ter UM chamador, `trocas.aprovar`: "
           f"{onde['rol.trocar_email(']}")
+    # CONFIAR NUM DOMÍNIO libera, de uma vez, todo mundo que esperava por
+    # causa dele. Numa rota, seria a mesma sessão de gestor que mandou a
+    # planilha se autorizando.
+    checa(onde["trocas.confiar_dominio("]
+          == ["ferramentas/trocas_de_email.py"],
+          f"`trocas.confiar_dominio` só pode ser chamada pela ferramenta "
+          f"de quem opera: {onde['trocas.confiar_dominio(']}")
     checa(onde["trocas.aprovar("] == ["ferramentas/trocas_de_email.py"],
           f"`trocas.aprovar` só pode ser chamada pela ferramenta de quem "
           f"opera, nunca por rota: {onde['trocas.aprovar(']}")

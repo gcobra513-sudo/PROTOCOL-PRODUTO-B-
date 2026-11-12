@@ -14,6 +14,13 @@ contas.
     python3 ferramentas/trocas_de_email.py --entidade demo-sindicato aprovar 11144477735
     python3 ferramentas/trocas_de_email.py --entidade demo-sindicato recusar 11144477735
 
+    python3 ferramentas/trocas_de_email.py --entidade demo-sindicato confiar reparticao.gov.br
+
+`confiar` é para o domínio da repartição ou da cooperativa: fora dos
+provedores comuns, um domínio só recebe três pessoas novas sem conferência,
+e as demais esperam. Confiar vale para ESTE sindicato, libera quem esperava
+por causa do domínio, e as próximas planilhas não seguram mais ninguém dali.
+
 `aprovar` e `recusar` aceitam vários CPFs. A recusa fica guardada: a mesma
 planilha, reenviada, não recria o pedido.
 
@@ -29,7 +36,7 @@ import sys
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
-from servidor import entidades, trocas  # noqa: E402
+from servidor import entidades, rol, trocas  # noqa: E402
 
 
 def main() -> int:
@@ -39,8 +46,10 @@ def main() -> int:
     p.add_argument("--entidade", required=True, help="apelido da entidade")
     p.add_argument("--raiz", default="dados",
                    help="raiz dos dados (padrão: dados)")
-    p.add_argument("acao", choices=("listar", "aprovar", "recusar"))
-    p.add_argument("cpfs", nargs="*", help="CPFs a decidir")
+    p.add_argument("acao",
+                   choices=("listar", "aprovar", "recusar", "confiar"))
+    p.add_argument("cpfs", nargs="*",
+                   help="CPFs a decidir — ou, em `confiar`, os domínios")
     args = p.parse_args()
 
     raiz = pathlib.Path(args.raiz)
@@ -58,6 +67,7 @@ def main() -> int:
             print("nenhuma troca de e-mail esperando")
             return 0
         print(f"{len(pendentes)} pedido(s) esperando em {ent.apelido}:\n")
+        por_dominio: dict[str, list[str]] = {}
         for cpf, pedido in sorted(pendentes.items()):
             # O e-mail de HOJE, lido do portão agora — não o que valia
             # quando a planilha chegou.
@@ -73,11 +83,38 @@ def main() -> int:
                 continue
             # ENTRADA NOVA segurada: o e-mail é de mais alguém. Quem
             # decide precisa ver de quem.
-            outros = trocas.outros_com(pasta, cpf, pedido["para"])
             print(f"  {cpf}  entrada nova com {pedido['para']}"
                   f"   (pedida em {pedido['quando']})")
+            if pedido.get("motivo") == trocas.DOMINIO:
+                dominio = rol.dominio_registravel(pedido["para"])
+                por_dominio.setdefault(dominio, []).append(cpf)
+                print(f"               segurada pelo domínio {dominio}")
+                continue
+            outros = trocas.outros_com(pasta, cpf, pedido["para"])
             print(f"               mesmo e-mail de: "
                   f"{', '.join(outros) or '(ninguém mais, hoje)'}")
+        for dominio, cpfs in sorted(por_dominio.items()):
+            # O QUE DECIDIR sobre um domínio: se é o da repartição, confiar
+            # uma vez libera todos; se ninguém o reconhece, é o sinal.
+            print(f"\n  domínio {dominio}: {len(cpfs)} esperando. Se é "
+                  f"legítimo para este sindicato:\n"
+                  f"    python3 ferramentas/trocas_de_email.py --raiz "
+                  f"{raiz} --entidade {ent.apelido} confiar {dominio}")
+        return 0
+
+    if args.acao == "confiar":
+        if not args.cpfs:
+            print("confiar: diga o domínio", file=sys.stderr)
+            return 2
+        for dominio in args.cpfs:
+            try:
+                confiado, liberados = trocas.confiar_dominio(pasta, dominio)
+            except ValueError as e:
+                print(f"{e}: nada foi feito", file=sys.stderr)
+                return 2
+            print(f"confiado: {confiado}, para {ent.apelido}. "
+                  f"{len(liberados)} pessoa(s) que esperavam por ele "
+                  f"entraram no acesso.")
         return 0
 
     if not args.cpfs:

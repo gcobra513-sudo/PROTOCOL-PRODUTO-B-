@@ -41,6 +41,14 @@ from . import deposito, rol, validacao
 
 ARQUIVO = "trocas_de_email.jsonl"
 
+#: Os domínios que quem opera disse serem legítimos para ESTE sindicato —
+#: o da repartição, o da cooperativa. Um por linha. Neles o limite de
+#: `rol.LIMITE_POR_DOMINIO` não se aplica.
+ARQUIVO_DE_DOMINIOS = "dominios_confiados.txt"
+
+#: Por que uma ENTRADA nova foi segurada.
+REPETIDO, DOMINIO = "repetido", "dominio"
+
 PEDIDA, APROVADA, RECUSADA, RETIRADA = (
     "pedida", "aprovada", "recusada", "retirada")
 #: O dono do e-mail de antes foi avisado deste pedido. Não muda o pedido:
@@ -100,7 +108,8 @@ def estado(pasta_entidade: pathlib.Path) -> Estado:
         para = str(r.get("para", "")).strip().casefold()
         if evento == PEDIDA:
             e.pendentes[cpf] = {k: r.get(k, "") for k in
-                                ("de", "para", "quando", "enviado_por")}
+                                ("de", "para", "quando", "enviado_por",
+                                 "motivo")}
             e.pendentes[cpf]["dono_avisado"] = (cpf, para) in e.donos_avisados
         elif evento == DONO_AVISADO:
             e.donos_avisados.add((cpf, para))
@@ -116,12 +125,56 @@ def estado(pasta_entidade: pathlib.Path) -> Estado:
 
 
 def pedir(pasta_entidade: pathlib.Path, *, cpf: str, de: str, para: str,
-          quem: str = "") -> None:
+          quem: str = "", motivo: str = "") -> None:
+    """`motivo` só existe na ENTRADA segurada (`de` vazio): é o que quem
+    decide precisa saber — o e-mail é de outra pessoa, ou o domínio está
+    concentrado? São perguntas diferentes, com respostas diferentes."""
     _anexar(pasta_entidade, {
         "evento": PEDIDA, "quando": _agora(),
         "cpf": validacao.so_digitos(cpf), "de": de, "para": para,
-        "enviado_por": quem,
+        "enviado_por": quem, "motivo": motivo,
     })
+
+
+def dominios_confiados(pasta_entidade: pathlib.Path) -> set[str]:
+    caminho = pasta_entidade / ARQUIVO_DE_DOMINIOS
+    if not caminho.is_file():
+        return set()
+    return {linha.strip().casefold()
+            for linha in caminho.read_text(encoding="utf-8").splitlines()
+            if linha.strip() and not linha.lstrip().startswith("#")}
+
+
+def confiar_dominio(pasta_entidade: pathlib.Path,
+                    dominio: str) -> tuple[str, list[str]]:
+    """Quem opera diz que este domínio é legítimo PARA ESTE SINDICATO.
+    Devolve (o domínio que ficou confiado, os CPFs que entraram por isso).
+
+    Confia no domínio REGISTRÁVEL: pedir `sub.reparticao.gov.br` confia em
+    `reparticao.gov.br`, e a ferramenta diz qual foi — confiar num
+    subdomínio e achar que confiou só nele seria confiar sem saber em quê.
+
+    LIBERA QUEM ESPERAVA POR CAUSA DELE, e só por causa dele: a entrada
+    segurada por e-mail repetido continua esperando, porque confiar no
+    domínio não diz de quem é a caixa.
+
+    NÃO É CHAMADA POR ROTA NENHUMA (`tests/testes_repositorio.py` confere):
+    numa rota, a sessão de gestor que mandou a planilha se autorizaria.
+    """
+    alvo = rol.dominio_registravel("x@" + dominio.strip().lstrip("@"))
+    if not rol.email_serve("x@" + alvo):
+        raise ValueError(f"{dominio!r} não é um domínio de e-mail")
+    if alvo not in dominios_confiados(pasta_entidade):
+        pasta_entidade.mkdir(parents=True, exist_ok=True)
+        deposito.anexar_com_fsync(pasta_entidade / ARQUIVO_DE_DOMINIOS,
+                                  alvo + "\n")
+    liberados: list[str] = []
+    for cpf, pedido in sorted(estado(pasta_entidade).pendentes.items()):
+        if (not pedido.get("de") and pedido.get("motivo") == DOMINIO
+                and rol.dominio_registravel(pedido["para"]) == alvo):
+            aprovar(pasta_entidade, cpf)
+            liberados.append(cpf)
+    return alvo, liberados
 
 
 def retirar(pasta_entidade: pathlib.Path, cpf: str) -> None:
@@ -226,8 +279,8 @@ def mensagem_para_quem_opera(pasta_entidade: pathlib.Path, *, apelido: str,
         linhas.append(f"  {de_troca} troca(s) de e-mail de quem já entra "
                       f"no portal")
     if entradas:
-        linhas.append(f"  {entradas} entrada(s) nova(s) com um e-mail que "
-                      f"outra pessoa usa")
+        linhas.append(f"  {entradas} entrada(s) nova(s) segurada(s): e-mail "
+                      f"que outra pessoa usa, ou domínio concentrado")
     if desde:
         linhas.append(f"O mais antigo espera desde {desde}.")
     linhas += [

@@ -4181,7 +4181,11 @@ def teste_pedido_de_troca_avisa_quem_opera():
           "a MESMA planilha, sem pedido novo, avisou de novo")
     _confirmar_planilha(cliente, entidade, _planilha(
         [(E_PLAN, "SOZINHA (CADASTRO DE EXEMPLO)", "sozinha@exemplo.invalid"),
-         (F_PLAN, "MAIS UMA (CADASTRO DE EXEMPLO)", "maisuma@exemplo.invalid")]))
+         # Em OUTRO domínio de exemplo: este teste já tem três pessoas em
+         # `exemplo.invalid`, e a quarta seria segurada pelo limite por
+         # domínio — que é outro teste, não este.
+         (F_PLAN, "MAIS UMA (CADASTRO DE EXEMPLO)",
+          "maisuma@outro-exemplo.invalid")]))
     checa(len(_avisos_a_quem_opera(raiz)) == 1,
           "planilha que só traz gente nova, sem pedido, avisou")
     # SÓ uma entrada segurada, sem troca nenhuma: também é pedido, e também
@@ -4402,6 +4406,149 @@ def teste_apagar_leva_o_aviso_que_o_dono_recebeu():
     print("  ok     o apagamento leva a mensagem inteira, não só o cabeçalho")
 
 
+# ---------------------------------- o domínio inteiro (T27, o resto)
+
+def _novas(dominio: str, n: int, a_partir_de: int = 8200,
+           local: str = "pessoa") -> list[tuple[str, str, str]]:
+    """`n` pessoas novas, cada uma com um endereço SÓ DELA em `dominio`."""
+    return [(_cpf_sintetico(a_partir_de + i),
+             f"NOVA {a_partir_de + i} (CADASTRO DE EXEMPLO)",
+             f"{local}{i}@{dominio}") for i in range(n)]
+
+
+def teste_apelido_do_mesmo_endereco_nao_e_outra_caixa():
+    """A regra do e-mail repetido comparava o TEXTO do endereço. Então
+    `joana+1@…` e `joana+2@…` eram dois e-mails — e são a mesma caixa: o
+    que vem depois do `+` é etiqueta, e a mensagem chega no mesmo lugar.
+    Era o jeito mais barato de receber o código de várias pessoas novas:
+    nenhum domínio para comprar, nenhuma conta para criar."""
+    from servidor import trocas
+
+    secao("o domínio inteiro")
+    entidade = "demo-dom-1"
+    cliente, ent, raiz = _servidor(entidade)
+    feito = _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "UMA (CADASTRO DE EXEMPLO)", "joana+1@exemplo.invalid"),
+        (D_PLAN, "OUTRA (CADASTRO DE EXEMPLO)", "joana+2@exemplo.invalid"),
+        (E_PLAN, "TERCEIRA (CADASTRO DE EXEMPLO)", "Joana@Exemplo.invalid"),
+    ]))
+    checa((feito["acesso"]["novos"], feito["acesso"]["novos_aguardando"])
+          == (0, 3),
+          f"apelidos da mesma caixa entraram como e-mails diferentes: "
+          f"{feito['acesso']}")
+    for cpf in (C_PLAN, D_PLAN, E_PLAN):
+        checa(_destino_do_codigo(cliente, raiz, entidade, cpf) is None,
+              "UMA CAIXA RECEBEU O CÓDIGO DE VÁRIAS PESSOAS, por apelido")
+    checa(all(p.get("motivo") == "repetido" for p in
+              trocas.estado(ent.pasta(raiz)).pendentes.values()),
+          f"o pedido não diz POR QUE foi segurado: "
+          f"{trocas.estado(ent.pasta(raiz)).pendentes}")
+    print("  ok     joana+1 e joana+2 são a mesma caixa: nenhuma entra")
+
+
+def teste_dominio_concentrado_segura_a_entrada():
+    """Um endereço diferente por pessoa passa pela regra do e-mail repetido
+    — e quem controla um domínio escreve quantos endereços quiser, todos
+    caindo na mesma caixa. Então um domínio FORA dos provedores comuns só
+    recebe gente nova até um limite; passou disso, as novas esperam por
+    quem opera.
+
+    O limite conta o que JÁ ESTÁ no acesso e o que espera, não só a
+    planilha — uma pessoa por envio não contorna. E conta o domínio
+    REGISTRÁVEL: `a.raro.invalid` e `b.raro.invalid` são do mesmo dono.
+    """
+    from servidor import rol, trocas
+
+    entidade = "demo-dom-2"
+    cliente, ent, raiz = _servidor(entidade)
+    limite = rol.LIMITE_POR_DOMINIO
+
+    # Até o limite, entra: domínio pequeno é gente de verdade.
+    dentro = _novas("pequeno.invalid", limite, 8200)
+    feito = _confirmar_planilha(cliente, entidade, _planilha(dentro))
+    checa(feito["acesso"]["novos"] == limite
+          and feito["acesso"].get("novos_por_dominio") == 0,
+          f"domínio com {limite} pessoas foi segurado: {feito['acesso']}")
+    # Mais uma, NUM ENVIO SÓ DELA: o domínio já está cheio.
+    mais_uma = _novas("pequeno.invalid", 1, 8210, local="outra")
+    feito = _confirmar_planilha(cliente, entidade, _planilha(mais_uma))
+    checa((feito["acesso"]["novos"], feito["acesso"]["novos_por_dominio"])
+          == (0, 1),
+          f"UMA PESSOA POR ENVIO passou do limite do domínio: "
+          f"{feito['acesso']}")
+    checa(_destino_do_codigo(cliente, raiz, entidade, mais_uma[0][0])
+          is None, "a pessoa além do limite recebeu código")
+    checa(_destino_do_codigo(cliente, raiz, entidade, dentro[0][0])
+          == dentro[0][2], "quem já tinha entrado perdeu o acesso")
+
+    # De uma vez, acima do limite: NENHUMA entra — escolher quais seria
+    # decidir sozinho.
+    muitas = _novas("raro.invalid", limite + 1, 8220)
+    feito = _confirmar_planilha(cliente, entidade, _planilha(muitas))
+    checa((feito["acesso"]["novos"], feito["acesso"]["novos_por_dominio"])
+          == (0, limite + 1),
+          f"domínio concentrado entrou: {feito['acesso']}")
+    # Subdomínios diferentes, MESMO dono.
+    subs = [(_cpf_sintetico(8240 + i), f"SUB {i} (CADASTRO DE EXEMPLO)",
+             f"caixa@s{i}.oculto.invalid") for i in range(limite + 1)]
+    feito = _confirmar_planilha(cliente, entidade, _planilha(subs))
+    checa(feito["acesso"]["novos"] == 0
+          and feito["acesso"]["novos_por_dominio"] == limite + 1,
+          f"UM SUBDOMÍNIO POR PESSOA contornou o limite: {feito['acesso']}")
+    motivos = {p.get("motivo") for p in
+               trocas.estado(ent.pasta(raiz)).pendentes.values()}
+    checa(motivos == {"dominio"},
+          f"o pedido não diz que foi segurado pelo domínio: {motivos}")
+    print(f"  ok     domínio fora dos comuns: até {limite} entram; além, esperam")
+
+
+def teste_dominio_confiado_por_quem_opera_libera():
+    """O domínio da repartição tem centenas de filiados, e é legítimo.
+    Quem diz isso é quem opera, UMA vez por sindicato: o domínio passa a
+    ser confiado, quem esperava por causa dele entra, e as próximas
+    planilhas não seguram mais ninguém dali."""
+    from servidor import rol
+
+    entidade = "demo-dom-3"
+    cliente, ent, raiz = _servidor(entidade)
+    limite = rol.LIMITE_POR_DOMINIO
+    muitas = _novas("reparticao.invalid", limite + 2, 8260)
+    # Duas pessoas no MESMO endereço daquele domínio: seguradas por outro
+    # motivo, e confiar no domínio não pode soltá-las — confiar no domínio
+    # não diz de quem é a caixa.
+    dupla = [(_cpf_sintetico(8290 + i), f"DUPLA {i} (CADASTRO DE EXEMPLO)",
+              "balcao@reparticao.invalid") for i in range(2)]
+    feito = _confirmar_planilha(cliente, entidade,
+                                _planilha(muitas + dupla))
+    checa((feito["acesso"]["novos_por_dominio"],
+           feito["acesso"]["novos_aguardando"]) == (limite + 2, 2),
+          f"o cenário não montou: {feito['acesso']}")
+
+    r = _ferramenta_de_trocas(raiz, entidade, "listar")
+    checa("reparticao.invalid" in r.stdout and "domínio" in r.stdout,
+          f"listar não mostra o domínio que segurou: {r.stdout}")
+    r = _ferramenta_de_trocas(raiz, entidade, "confiar", "reparticao.invalid")
+    checa(r.returncode == 0 and str(limite + 2) in r.stdout,
+          f"confiar no domínio falhou: {r.stdout} {r.stderr}")
+    for cpf, _nome, email in muitas:
+        checa(_destino_do_codigo(cliente, raiz, entidade, cpf) == email,
+              "quem esperava pelo domínio não entrou depois de confiado")
+    for cpf, _nome, _email in dupla:
+        checa(_destino_do_codigo(cliente, raiz, entidade, cpf) is None,
+              "CONFIAR NO DOMÍNIO SOLTOU QUEM DIVIDE A MESMA CAIXA")
+    mais = _novas("sub.reparticao.invalid", 2, 8280, local="depois")
+    feito = _confirmar_planilha(cliente, entidade, _planilha(mais))
+    checa((feito["acesso"]["novos"], feito["acesso"]["novos_por_dominio"])
+          == (2, 0),
+          f"o domínio confiado continua segurando: {feito['acesso']}")
+    # A confiança é DESTE sindicato.
+    cliente2, ent2, raiz2 = _servidor("demo-dom-4")
+    feito = _confirmar_planilha(cliente2, "demo-dom-4", _planilha(muitas))
+    checa(feito["acesso"]["novos_por_dominio"] == limite + 2,
+          f"a confiança de um sindicato valeu para outro: {feito['acesso']}")
+    print("  ok     domínio confiado libera quem esperava, só naquele sindicato")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -4516,6 +4663,9 @@ TESTES = [
     teste_o_dono_do_email_de_antes_e_avisado_do_pedido_de_troca,
     teste_aviso_ao_dono_que_falha_e_tentado_de_novo,
     teste_apagar_leva_o_aviso_que_o_dono_recebeu,
+    teste_apelido_do_mesmo_endereco_nao_e_outra_caixa,
+    teste_dominio_concentrado_segura_a_entrada,
+    teste_dominio_confiado_por_quem_opera_libera,
 ]
 
 
