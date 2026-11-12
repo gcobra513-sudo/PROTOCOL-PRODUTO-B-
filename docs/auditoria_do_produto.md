@@ -569,3 +569,44 @@ não fecha" — a pessoa entra como inalcançável. Cerca de um em cada dez CPFs
 começa com zero. O leitor não completa o zero sozinho, e isso é deliberado
 (não adivinha); mas é o primeiro lugar para olhar quando uma planilha real
 trouxer inalcançáveis demais.
+
+### 12/11 — a porta do rol (item 1, a parte que era código)
+
+O item 1 dizia: nenhum caminho grava se a pessoa consta do rol. A porta
+agora existe — o sindicato envia o rol de cada ação pelo painel
+(`servidor/substituidos.py`). Medido de novo
+(`docs/medicoes/2026-11-12-o-rol-pela-porta.py`), com tudo homologado em
+memória e o rol passando pelo mesmo miolo da rota:
+
+```
+0) ANTES do rol:                         FALTA  [CONFERENCIA] o rol de substituídos
+A) no rol, com sentença própria lida:    PODE   (nota: rol ENVIADO pelo sindicato, não conferido contra os autos)
+B) FORA de um rol declarado completo:    FALTA  [TRIBUNAL] o julgamento do STJ, Tema 1.302
+C) entrou na base DEPOIS do envio:       FALTA  [CONFERENCIA] o rol de substituídos
+D) no rol, SEM sentença própria:         FALTA  [VOCE] a sentença e a certidão de trânsito
+E) o caso A com o catálogo em disco:     FALTA  [CONFERENCIA] a homologação
+```
+
+É a primeira vez que o produto chega a `PODE` por um caminho que existe. O
+que isso NÃO quer dizer:
+
+- **Em disco nada está homologado** (caso E), e homologar é ato de advogado.
+- **O caso D é a segunda trava do item 1, intacta:** quem está no rol de uma
+  coletiva transitada e não tem cópia da sentença continua em `FALTA`. É a
+  maioria da base de um sindicato. Só o jurídico decide se o título entra
+  uma vez, pela ação.
+- **A resposta é declarada.** O arquivo vem de um gestor e ninguém o
+  comparou com os autos. O motor diz isso em nota, em toda resposta que saiu
+  do rol. Junto com a leitura digitada (T25), passa a ser possível chegar a
+  `PODE` só com o que o sindicato declarou, mais a homologação da ação.
+
+O que quase passou, e foi achado relendo esta auditoria: o CPF que começa
+com zero e perde o zero no Excel (a observação logo acima). No rol, essa
+linha não é reconhecida — e numa lista declarada completa a pessoa dela, que
+ESTÁ no rol, seria dada como fora. Corrigido antes de publicar: com uma
+linha ilegível que seja, a declaração de "completa" não vale e ninguém é
+dado como fora.
+
+Três limites que só um rol de verdade resolve: rol só com nome e matrícula
+não entra (casar por nome é adivinhar), rol em imagem não entra, e ação que
+não tem rol não tem como ser declarada.

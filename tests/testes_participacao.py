@@ -218,6 +218,27 @@ def teste_acao_sem_rol_nao_pergunta_pelo_rol():
     print("  ok     ação sem rol não pede rol")
 
 
+
+def teste_o_rol_e_o_da_acao_e_nao_um_so_para_todas():
+    """Numa ação que EXIGE rol, constar do rol de OUTRA ação não responde.
+
+    `no_rol` era um fato só. Com duas coletivas no catálogo, o rol de uma
+    tirava a outra do INDETERMINADO sem ninguém ter enviado o rol dela.
+    """
+    de_outra = filiado(rol_das_acoes=(("OUTRA-2010", True),))
+    p = participacao.cruzar(de_outra, gifa(exige_rol=True), acervo(), hoje=HOJE)
+    checa(p.estado == participacao.INDETERMINADO,
+          f"o rol de outra ação decidiu esta: {p.estado}")
+    desta = filiado(rol_das_acoes=(("GIFA-2006", True),))
+    p = participacao.cruzar(desta, gifa(exige_rol=True), acervo(), hoje=HOJE)
+    checa(p.estado == participacao.PARTICIPA, f"{p.estado}: {p.motivos}")
+    fora = filiado(no_rol=True, rol_das_acoes=(("GIFA-2006", False),))
+    p = participacao.cruzar(fora, gifa(exige_rol=True), acervo(), hoje=HOJE)
+    checa(p.estado == participacao.NAO_PARTICIPA,
+          f"a resposta geral venceu a da ação: {p.estado}")
+    print("  ok     o rol que conta é o da própria ação")
+
+
 # ------------------------------------------------------------ homologação
 
 def teste_acao_nao_homologada_nao_decide_nada():
@@ -267,6 +288,7 @@ TESTES.extend([
     teste_sem_cargo_e_indeterminado,
     teste_acao_que_exige_rol_e_pessoa_fora_dele,
     teste_acao_que_exige_rol_sem_saber_e_indeterminado,
+    teste_o_rol_e_o_da_acao_e_nao_um_so_para_todas,
     teste_acao_sem_rol_nao_pergunta_pelo_rol,
     teste_acao_nao_homologada_nao_decide_nada,
     teste_participacoes_percorre_o_catalogo,

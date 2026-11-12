@@ -65,6 +65,8 @@ CPF_GESTOR = "529.982.247-25"
 NOME_FILIADO = "FULANA DE TAL (CADASTRO DE EXEMPLO)"
 #: Quem entra pela PLANILHA do sindicato, e nunca passou pelo portal.
 CPF_DA_PLANILHA = "390.533.447-05"
+#: No rol da coletiva e FORA da base do sindicato: conta, e não fica guardado.
+CPF_DE_FORA_DO_ROL = "168.995.350-09"
 NOME_DA_PLANILHA = "BELTRANO DE TAL (CADASTRO DE EXEMPLO)"
 #: Quem JÁ entra no portal e aparece na planilha com OUTRO e-mail. É a
 #: trava de T26: a troca fica pedida, e o código continua indo para o de
@@ -126,7 +128,12 @@ def _semear(raiz: pathlib.Path) -> None:
 
     from servidor import entidades
 
-    ent = entidades.Cadastro(raiz).criar(APELIDO, "Sindicato de Demonstração")
+    # COM CATEGORIA CONTRATADA: sem ela não há ação coletiva a cruzar, e o
+    # cartão do rol de substituídos — a porta que faltava (T19) — nem
+    # aparece no painel para ser ensaiado.
+    ent = entidades.Cadastro(raiz).criar(
+        APELIDO, "Sindicato de Demonstração",
+        categorias=("auditor-fiscal-receita-federal",))
     pasta = ent.pasta(raiz)
     pasta.mkdir(parents=True, exist_ok=True)
     for nome, linhas in (
@@ -303,6 +310,12 @@ def main() -> int:
         _semear(raiz)
         documentos = _pdfs(raiz / "pdfs")
         _planilha_xlsx(raiz / "pdfs" / "base-do-sindicato.xlsx")
+        # O ROL de uma coletiva: a filiada do ensaio, e alguém que NÃO é
+        # desta base — que é o caso de verdade, e não pode ficar guardado.
+        (raiz / "pdfs" / "rol-da-coletiva.csv").write_text(
+            f"CPF;Nome\r\n{CPF_FILIADO};{NOME_FILIADO}\r\n"
+            f"{CPF_DE_FORA_DO_ROL};PESSOA DE FORA DA BASE (FICTÍCIA)\r\n",
+            encoding="utf-8")
         print(f"  {sum(len(d[1]) for d in documentos)} documentos: 3 PDFs com "
               f"texto, 1 de scanner, 1 foto")
 
@@ -365,6 +378,7 @@ def main() -> int:
             "planilha": {"caminho": str(raiz / "pdfs" / "base-do-sindicato.xlsx"),
                          "nome": NOME_DA_PLANILHA,
                          "cpf": CPF_DA_PLANILHA},
+            "rol": {"caminho": str(raiz / "pdfs" / "rol-da-coletiva.csv")},
             "fazerPainel": bool(banco_url),
             # O computador da sede: duas pessoas no MESMO navegador.
             "sede": {
@@ -435,6 +449,7 @@ def main() -> int:
                 falhas += _conferir_a_lista(da_fila.get("lista"))
                 falhas += _conferir_a_planilha(raiz, da_fila.get("planilha"),
                                                da_fila.get("lista"))
+                falhas += _conferir_o_rol(raiz, da_fila.get("rol"))
 
         if banco_url and not falhas:
             print("  dirigindo o Chromium — o gestor…")
@@ -684,6 +699,36 @@ def _conferir_a_planilha(raiz: pathlib.Path, enviada, lista) -> list[str]:
             "quem entrou pela planilha .xlsx não está na base que o gestor "
             "baixou — ou o CPF guardado como número chegou torto"
         )
+    return problemas
+
+
+def _conferir_o_rol(raiz: pathlib.Path, da_tela) -> list[str]:
+    """O rol de substituídos que o gestor enviou PELA TELA, conferido no
+    disco. A caixa "é o rol inteiro" ficou desmarcada, como ela nasce: então
+    a tela não pode ter dito "fora do rol" de ninguém, e quem não é da base
+    não pode ter ficado guardado."""
+    from servidor import entidades, substituidos, validacao
+
+    if not da_tela or not da_tela.get("gravou"):
+        return ["o gestor não conseguiu enviar o rol de substituídos pelo painel"]
+    problemas: list[str] = []
+    previa = da_tela.get("previa") or ""
+    if "consta desta lista" not in previa:
+        problemas.append("a prévia do rol não disse quantos da base constam")
+    if "não ficam guardados" not in previa:
+        problemas.append("a prévia do rol não disse que o CPF de quem não é "
+                         "da base não fica guardado")
+    if "fora do rol" in previa.replace("aparecer como fora do rol. Desmarcado", ""):
+        problemas.append("lista PARCIAL, e a tela falou em gente fora do rol")
+    if "Rol enviado em" not in (da_tela.get("depois") or ""):
+        problemas.append("depois de gravar, o painel não mostra o rol que vale")
+    pasta = entidades.Cadastro(raiz).resolver(APELIDO).pasta(raiz)
+    respostas = substituidos.de_cpf(pasta, CPF_FILIADO)
+    if not respostas or not all(consta for _, consta in respostas):
+        problemas.append(f"o rol gravado não responde pela filiada: {respostas}")
+    guardado = (pasta / substituidos.ARQUIVO).read_text(encoding="utf-8")
+    if validacao.so_digitos(CPF_DE_FORA_DO_ROL) in guardado:
+        problemas.append("o CPF de quem não é da base ficou guardado no rol")
     return problemas
 
 

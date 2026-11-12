@@ -189,6 +189,8 @@ def fatos_do_cadastro(
     linha: dict,
     entregues: tuple[str, ...],
     lidos: dict[str, str] | None = None,
+    *,
+    rol: tuple[tuple[str, bool], ...],
 ) -> motor.Fatos:
     """Os fatos de UMA pessoa, para o motor. É o ÚNICO construtor: a tela do
     filiado, o painel do sindicato e o veredicto guardado passam por aqui.
@@ -208,6 +210,12 @@ def fatos_do_cadastro(
     `lidos=None` quer dizer NINGUÉM OLHOU os documentos, e `{}` quer dizer
     olharam e não havia fato. Para o título os dois dão `None` — mas quem
     chama precisa da diferença para dizer se o panorama leu ou não.
+
+    `rol` é o que os róis enviados pelo sindicato dizem desta pessoa:
+    `((ação, consta?), ...)`, de `servidor.substituidos`. NÃO TEM PADRÃO, de
+    propósito: com padrão, a superfície que esquecesse de passá-lo
+    continuaria cobrando um rol já enviado, calada — o mesmo defeito que
+    `lidos` já causou uma vez. Quem não tem rol passa `()` e escreve isso.
     """
     return motor.Fatos(
         cpf=conta.so_digitos(linha.get("cpf") or ""),
@@ -224,6 +232,7 @@ def fatos_do_cadastro(
             linha.get("tem_acao_propria") or ""
         ),
         documentos_entregues=entregues,
+        rol_das_acoes=tuple(rol),
     )
 
 
@@ -275,6 +284,7 @@ def por_pessoa(
     registros,
     catalogo: ent.Catalogo,
     lidos_por_cpf: dict[str, dict[str, str]] | None = None,
+    rol_por_cpf: dict[str, tuple[tuple[str, bool], ...]] | None = None,
 ) -> list[Avaliada]:
     """Cada pessoa da base, avaliada. Ordenada pelo nome, depois pelo CPF.
 
@@ -287,13 +297,17 @@ def por_pessoa(
         # `None` no mapa inteiro = ninguém olhou documento nenhum. Com o
         # mapa em mãos, quem não aparece nele foi olhado e não tinha fato.
         lidos = None if lidos_por_cpf is None else lidos_por_cpf.get(cpf, {})
-        fatos = fatos_do_cadastro(linha, envio["entregues"], lidos)
+        # Quem não aparece no mapa não tem resposta de rol nenhum — e isso
+        # é diferente de "não consta".
+        fatos = fatos_do_cadastro(linha, envio["entregues"], lidos,
+                                  rol=(rol_por_cpf or {}).get(cpf, ()))
         quem = part.Filiado(
             cpf=fatos.cpf,
             cargo=fatos.cargo,
             situacao=fatos.situacao,
             filiado_desde=fatos.filiado_desde,
             filiado_ate=fatos.filiado_ate,
+            rol_das_acoes=fatos.rol_das_acoes,
         )
         saida.append(Avaliada(
             cpf=cpf,
@@ -312,6 +326,7 @@ def montar(
     catalogo: ent.Catalogo,
     exemplos: int = EXEMPLOS_PADRAO,
     lidos_por_cpf: dict[str, dict[str, str]] | None = None,
+    rol_por_cpf: dict[str, tuple[tuple[str, bool], ...]] | None = None,
 ) -> Panorama:
     """O panorama desta entidade, a partir do diário e do catálogo dela.
 
@@ -319,7 +334,7 @@ def montar(
     categorias que a entidade contratou — `entendimentos.VAZIO` quando ela
     não declarou nenhuma, e aí não há ação a cruzar, que é o certo.
     """
-    pessoas = por_pessoa(registros, catalogo, lidos_por_cpf)
+    pessoas = por_pessoa(registros, catalogo, lidos_por_cpf, rol_por_cpf)
 
     contagem: dict[str, list[int]] = {a.id: [0, 0, 0] for a in catalogo.acoes}
     meses: dict[str, int] = {a.id: 0 for a in catalogo.acoes}

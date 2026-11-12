@@ -78,8 +78,13 @@ class Fatos:
     #: dela — e, no painel do sindicato, isso vira um número falso dito a um
     #: diretor. Quem já entregou está esperando leitura, não providência.
     documentos_entregues: tuple[str, ...] = ()
-    #: Consta do rol de substituídos da ação coletiva?
+    #: Consta do rol de substituídos? É a resposta SEM AÇÃO, e só vale
+    #: quando não há resposta para a ação em `rol_das_acoes`.
     no_rol: bool | None = None
+    #: (id da ação, consta do rol DELA?) — o que saiu dos róis que o
+    #: SINDICATO enviou (`servidor/substituidos.py`). O rol é documento de
+    #: uma ação; `no_rol`, sozinho, respondia por todas.
+    rol_das_acoes: tuple[tuple[str, bool], ...] = ()
     #: Já executou este título antes, por nós ou por terceiro?
     ja_executou: bool | None = None
     #: `ja_executou` veio de base conferida, ou da resposta da própria
@@ -218,8 +223,10 @@ def _avaliar_executar(
         filiado_desde=fatos.filiado_desde,
         filiado_ate=fatos.filiado_ate,
         no_rol=fatos.no_rol,
+        rol_das_acoes=fatos.rol_das_acoes,
     )
     faz_parte = part.cruzar(quem, acao, catalogo)
+    no_rol = quem.consta_do_rol(acao.id)
 
     if faz_parte.estado == part.NAO_PARTICIPA:
         # Resposta, não lacuna: não adianta perguntar o resto.
@@ -284,7 +291,16 @@ def _avaliar_executar(
         e for e in catalogo.por_efeito("legitimidade_fora_do_rol_indeterminada")
         if e.esta_homologado and e.pendente
     ]
-    if fatos.no_rol is False:
+    if no_rol is not None and any(a == acao.id for a, _ in fatos.rol_das_acoes):
+        # DE ONDE VEIO A RESPOSTA. O rol entrou por um arquivo que o
+        # sindicato enviou, e ninguém o conferiu contra os autos. A resposta
+        # conta — e quem assina lê que ela é declarada, pela mesma razão do
+        # "não executei" dito pela própria pessoa.
+        j.nota(
+            f"a resposta sobre o rol de {acao.rotulo} veio de um arquivo "
+            f"ENVIADO pelo sindicato, não conferido contra os autos"
+        )
+    if no_rol is False:
         if pendentes:
             tema = pendentes[0]
             suspensao = (
@@ -307,7 +323,7 @@ def _avaliar_executar(
                 "coletiva, e há decisões extinguindo execução por "
                 "ilegitimidade nesse caso"
             )
-    elif fatos.no_rol is None:
+    elif no_rol is None:
         j.falta_saber(
             pendencia.CONFERENCIA,
             "o rol de substituídos da ação coletiva",

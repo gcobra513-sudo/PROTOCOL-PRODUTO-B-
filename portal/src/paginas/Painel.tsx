@@ -33,6 +33,7 @@ import { MailX, UserCheck, UserX, Users } from "lucide-react";
 import {
   Aviso,
   Botao,
+  Caixa,
   Campo,
   Cartao,
   Destaque,
@@ -54,6 +55,8 @@ import {
   primeiroAcionavel,
   resumoDaFilaDeLeitura,
   resumoDaPlanilha,
+  resumoDoEnvioDoRol,
+  resumoDoRolVigente,
   resumoDoAcesso,
   resumoDasMudancas,
   resumoDoApagamento,
@@ -1061,6 +1064,205 @@ function EnviarBase({
   );
 }
 
+/** O ROL DE SUBSTITUÍDOS de cada ação coletiva.
+ *
+ *  É o que faltava para o sistema responder: ele pergunta se a pessoa
+ *  consta do rol da ação, e ninguém respondia. Quem tem a lista é o
+ *  sindicato, que ajuizou.
+ *
+ *  A CAIXA "É O ROL INTEIRO" COMEÇA DESMARCADA, e isso é a decisão desta
+ *  tela: marcada, quem não está na lista passa a aparecer como FORA do rol,
+ *  que é resposta com consequência. Tem de ser um ato, não um padrão.
+ */
+function RolDeSubstituidos({
+  entidade,
+  token,
+  onMudou,
+}: {
+  entidade: string;
+  token: string;
+  onMudou: () => void;
+}) {
+  const [acoes, setAcoes] = useState<api.AcaoComRol[] | null>(null);
+  const [acao, setAcao] = useState("");
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [completo, setCompleto] = useState(false);
+  const [previa, setPrevia] = useState<api.PreviaDoRol | null>(null);
+  const [indo, setIndo] = useState(false);
+  const [erro, setErro] = useState("");
+  const [versao, setVersao] = useState(0);
+
+  useEffect(() => {
+    void api
+      .verRois(entidade, token)
+      .then((lista) => {
+        setAcoes(lista);
+        setAcao((atual) => atual || (lista[0]?.acao ?? ""));
+      })
+      .catch((e) =>
+        setErro(e instanceof Error ? e.message : "não foi possível abrir"),
+      );
+  }, [entidade, token, versao]);
+
+  async function fazer(passo: () => Promise<void>) {
+    setIndo(true);
+    setErro("");
+    try {
+      await passo();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "não foi possível enviar");
+    } finally {
+      setIndo(false);
+    }
+  }
+
+  const conferir = () =>
+    fazer(async () => {
+      if (arquivo && acao) {
+        setPrevia(await api.enviarRol(entidade, token, acao, arquivo, completo));
+      }
+    });
+  const gravar = () =>
+    fazer(async () => {
+      if (!arquivo || !previa) return;
+      setPrevia(
+        await api.enviarRol(
+          entidade, token, acao, arquivo, completo, previa.sha256,
+        ),
+      );
+      setVersao((v) => v + 1);
+      onMudou();
+    });
+  const retirar = (qual: string) =>
+    fazer(async () => {
+      await api.retirarRol(entidade, token, qual);
+      setPrevia(null);
+      setVersao((v) => v + 1);
+      onMudou();
+    });
+
+  if (acoes !== null && acoes.length === 0) return null;
+
+  return (
+    <Cartao
+      titulo="Rol de substituídos"
+      explicacao="A lista de quem o sindicato substituiu em cada ação coletiva. Sem ela, não dá para dizer quem pode executar. Nada é gravado antes de você conferir."
+    >
+      {(acoes ?? []).map((a) => (
+        <div key={a.acao} className="rounded-lg border border-borda bg-carta p-4">
+          <p className="text-[15px] font-medium text-tinta">{a.rotulo}</p>
+          {a.rol ? (
+            <div className="mt-2 space-y-1">
+              {resumoDoRolVigente(a.rol).map((linha) => (
+                <p key={linha} className="text-sm text-tinta/80">
+                  {linha}
+                </p>
+              ))}
+              <Botao
+                tipo="discreto"
+                tamanho="pequeno"
+                disabled={indo}
+                onClick={() => void retirar(a.acao)}
+              >
+                Retirar este rol
+              </Botao>
+            </div>
+          ) : (
+            <p className="mt-1 text-sm text-tinta/70">
+              O rol desta ação ainda não foi enviado.
+            </p>
+          )}
+        </div>
+      ))}
+
+      <div className="space-y-3 rounded-lg border border-borda bg-carta p-4">
+        {(acoes ?? []).length > 1 ? (
+          <label className="block text-[15px] font-medium text-tinta">
+            De qual ação é este rol
+            <select
+              value={acao}
+              onChange={(e) => {
+                setAcao(e.target.value);
+                setPrevia(null);
+              }}
+              className="mt-2 block h-11 w-full rounded-lg border border-borda bg-carta px-3 text-[15px] font-normal"
+            >
+              {(acoes ?? []).map((a) => (
+                <option key={a.acao} value={a.acao}>
+                  {a.rotulo}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className="block text-[15px] font-medium text-tinta">
+          O arquivo do rol (planilha com coluna de CPF, ou PDF com texto)
+          <input
+            type="file"
+            accept=".xlsx,.csv,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="mt-2 block text-sm font-normal"
+            onChange={(e) => {
+              setArquivo(e.target.files?.[0] ?? null);
+              setPrevia(null);
+            }}
+          />
+        </label>
+        <p className="text-sm text-tinta/60">
+          Cada pessoa é reconhecida pelo CPF. Rol só com nome não entra:
+          casar por nome seria adivinhar.
+        </p>
+        <Caixa
+          rotulo="Esta lista é o rol inteiro desta ação"
+          marcado={completo}
+          onChange={(v) => {
+            setCompleto(v);
+            setPrevia(null);
+          }}
+          detalhe="Marque só se for a lista completa. Marcado, quem é da sua base e não está nela passa a aparecer como fora do rol. Desmarcado, quem não está na lista fica sem resposta."
+        />
+        {previa ? (
+          <div className="space-y-2">
+            {previa.gravado ? (
+              <Aviso tom="bom">Rol gravado para {previa.rotulo}.</Aviso>
+            ) : (
+              <Aviso tom="neutro">
+                <strong>Confira antes de gravar.</strong> Nada foi gravado
+                ainda.
+              </Aviso>
+            )}
+            {resumoDoEnvioDoRol(previa).map((linha) => (
+              <p key={linha} className="text-sm text-tinta/80">
+                {linha}
+              </p>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-3">
+          {!previa ? (
+            <Botao
+              tamanho="pequeno"
+              disabled={!arquivo || !acao || indo}
+              onClick={() => void conferir()}
+            >
+              {indo ? "Lendo…" : "Conferir o rol"}
+            </Botao>
+          ) : !previa.gravado ? (
+            <Botao
+              tamanho="pequeno"
+              disabled={indo}
+              onClick={() => void gravar()}
+            >
+              {indo ? "Gravando…" : "Confirmar e gravar o rol"}
+            </Botao>
+          ) : null}
+        </div>
+      </div>
+
+      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
+    </Cartao>
+  );
+}
+
 export function Painel({ entidade }: { entidade: string }) {
   const [token, setToken] = useState("");
   const [dados, setDados] = useState<api.PainelDoGestor | null>(null);
@@ -1269,6 +1471,12 @@ export function Painel({ entidade }: { entidade: string }) {
       <NomePorNome entidade={entidade} token={token} versao={versaoDaFila} />
 
       <EnviarBase
+        entidade={entidade}
+        token={token}
+        onMudou={() => setVersaoDaFila((v) => v + 1)}
+      />
+
+      <RolDeSubstituidos
         entidade={entidade}
         token={token}
         onMudou={() => setVersaoDaFila((v) => v + 1)}

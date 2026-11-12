@@ -640,6 +640,111 @@ export function enviarDocumentosDoSindicato(
   );
 }
 
+/** O que um envio de rol de substituídos muda — só contagens. */
+export interface PreviaDoRol {
+  acao: string;
+  rotulo: string;
+  sha256: string;
+  /** A lista VALE como completa: foi declarada assim e lida inteira. */
+  completo: boolean;
+  /** O que o gestor declarou. Com linha ilegível, a declaração não vale. */
+  declarado_completo: boolean;
+  constam: number;
+  /** Só é maior que zero em lista declarada completa. */
+  nao_constam: number;
+  /** Da base, fora de uma lista parcial: continuam sem resposta. */
+  sem_resposta: number;
+  /** CPFs da lista que não são desta base: contados, não guardados. */
+  fora_da_base: number;
+  invalidas: number;
+  gravado: boolean;
+}
+
+/** O rol que vale hoje para uma ação. `sem_resposta` é contado contra a
+ *  base de AGORA: inclui quem entrou depois do envio. */
+export interface RolVigente {
+  enviado_em: string;
+  arquivo: string;
+  completo: boolean;
+  declarado_completo: boolean;
+  constam: number;
+  nao_constam: number;
+  sem_resposta: number;
+  fora_da_base: number;
+  invalidas: number;
+}
+
+export interface AcaoComRol {
+  acao: string;
+  rotulo: string;
+  rol: RolVigente | null;
+}
+
+function rolEm(apelido: string, resto = ""): string {
+  return `${BASE}/api/entidade/${encodeURIComponent(apelido)}/rol-de-substituidos${resto}`;
+}
+
+/** O rol de substituídos de UMA ação coletiva — planilha com coluna de CPF,
+ *  ou PDF com texto. As mesmas duas etapas da planilha de filiados.
+ *
+ *  `completo` vai junto nas DUAS etapas, e o servidor recusa a confirmação
+ *  se ele mudar: é a declaração que põe gente fora do rol. */
+export function enviarRol(
+  apelido: string,
+  token: string,
+  acao: string,
+  arquivo: File,
+  completo: boolean,
+  confirmar = "",
+): Promise<PreviaDoRol> {
+  const corpo = new FormData();
+  corpo.append("arquivo", arquivo);
+  corpo.append("acao", acao);
+  corpo.append("completo", completo ? "sim" : "");
+  corpo.append("confirmar", confirmar);
+  return enviarFormulario(
+    rolEm(apelido), token, corpo, "não foi possível enviar o rol",
+  );
+}
+
+export async function verRois(
+  apelido: string,
+  token: string,
+): Promise<AcaoComRol[]> {
+  const r = await fetch(rolEm(apelido), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const dados = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      dados?.detail?.erro ?? "não foi possível abrir os róis", r.status,
+    );
+  }
+  return (dados.acoes ?? []) as AcaoComRol[];
+}
+
+export async function retirarRol(
+  apelido: string,
+  token: string,
+  acao: string,
+): Promise<boolean> {
+  const r = await fetch(rolEm(apelido, "/retirar"), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ acao }),
+  });
+  const dados = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      dados?.detail?.erro ?? "não foi possível retirar o rol", r.status,
+    );
+  }
+  return Boolean(dados.retirado);
+}
+
 /** Uma pessoa na lista "nome por nome" do gestor. O CPF vem MASCARADO: o
  *  inteiro só sai na exportação, que é pedida de propósito e registrada. */
 export interface PessoaNaLista {

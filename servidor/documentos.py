@@ -100,6 +100,7 @@ def fatos_para_o_motor(
     ja_executou: bool | None = None,
     tem_acao_propria: bool | None = None,
     documentos_entregues: tuple[str, ...] = (),
+    rol_das_acoes: tuple[tuple[str, bool], ...] = (),
 ) -> motor.Fatos:
     """Junta o que os documentos disseram com o que não está neles.
 
@@ -123,7 +124,8 @@ def fatos_para_o_motor(
     # DESTA função é o que vem de fora dos documentos e do cadastro: os
     # argumentos explícitos, quando dados, vencem.
     fatos = panorama.fatos_do_cadastro(
-        cadastro or {}, tuple(documentos_entregues), fatos_lidos
+        cadastro or {}, tuple(documentos_entregues), fatos_lidos,
+        rol=tuple(rol_das_acoes),
     )
     por_fora = {
         nome: valor for nome, valor in (

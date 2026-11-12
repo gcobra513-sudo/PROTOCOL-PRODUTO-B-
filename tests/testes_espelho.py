@@ -4641,6 +4641,286 @@ def teste_o_atendimento_so_fala_de_quem_perguntou():
     print("  ok     só responde a quem tem sessão, sobre ela, e não guarda a pergunta")
 
 
+# ------------------------------- o rol de substituídos entra pelo painel
+
+ROL_FALTA = "o rol de substituídos da ação coletiva"
+
+
+def _rol_csv(*cpfs: str) -> bytes:
+    linhas = ["CPF;Nome"] + [f"{c};PESSOA DE EXEMPLO (FICTÍCIA)" for c in cpfs]
+    return ("\r\n".join(linhas) + "\r\n").encode("latin-1")
+
+
+def _enviar_rol(cliente, entidade: str, corpo: bytes, *, acao="GIFA-2006",
+                completo: bool = True, confirmar: str = "",
+                cabecalho: dict | None = None, nome: str = "rol.csv"):
+    return cliente.post(
+        f"/api/entidade/{entidade}/rol-de-substituidos",
+        data={"acao": acao, "completo": "sim" if completo else "",
+              "confirmar": confirmar},
+        files={"arquivo": (nome, corpo, "text/csv")},
+        headers=cabecalho if cabecalho is not None
+        else _gestor(cliente, entidade),
+    )
+
+
+def _confirmar_rol(cliente, entidade: str, corpo: bytes, **kw) -> dict:
+    previa = _enviar_rol(cliente, entidade, corpo, **kw).json()
+    return _enviar_rol(cliente, entidade, corpo,
+                       confirmar=previa["sha256"], **kw).json()
+
+
+def _executar_gifa(cliente, cpf: str, entidade: str):
+    return _faltas_do_filiado(cliente, cpf, entidade)[("executar", "GIFA-2006")]
+
+
+def teste_o_gestor_envia_o_rol_e_as_superficies_mudam_juntas():
+    """A auditoria de 10/11/2026, item 1: NENHUM caminho gravava se a
+    pessoa consta do rol, e por isso nada chegava a `PODE`. A porta é esta.
+
+    Em duas etapas, como a planilha: a prévia conta e não grava. Depois de
+    confirmada, a pendência do rol some para o filiado, para o painel, para
+    a lista nome por nome e para o veredicto guardado — as QUATRO, juntas.
+    Uma superfície esquecida é o defeito das três superfícies de novo.
+    """
+    import subprocess
+
+    from servidor import banco
+
+    secao("o rol de substituídos entra pelo painel")
+    entidade = "demo-rol-1"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    _, antes = _executar_gifa(cliente, A, entidade)
+    checa(ROL_FALTA in antes, f"sem rol e a falta não aparece: {antes}")
+
+    previa = _enviar_rol(cliente, entidade, _rol_csv(A, C_PLAN))
+    checa(previa.status_code == 200, f"{previa.status_code} {previa.text[:300]}")
+    p = previa.json()
+    checa((p.get("gravado"), p.get("constam"), p.get("nao_constam"),
+           p.get("fora_da_base")) == (False, 1, 0, 1), f"a prévia: {p}")
+    checa(ROL_FALTA in _executar_gifa(cliente, A, entidade)[1],
+          "A PRÉVIA GRAVOU: a resposta mudou sem o gestor confirmar")
+
+    feito = _enviar_rol(cliente, entidade, _rol_csv(A, C_PLAN),
+                        confirmar=p["sha256"]).json()
+    checa(feito.get("gravado") is True, f"{feito}")
+    checa(C_PLAN.encode() not in b"".join(
+              f.read_bytes() for f in raiz.rglob("*") if f.is_file()),
+          "o CPF de quem não é da base ficou guardado")
+
+    # 1. O filiado.
+    veredicto, faltas = _executar_gifa(cliente, A, entidade)
+    checa(ROL_FALTA not in faltas, f"o filiado ainda vê a falta do rol: {faltas}")
+    checa(veredicto == "FALTA" and any("homologação" in f for f in faltas),
+          f"nada está homologado em disco, e a resposta devia continuar "
+          f"FALTA por isso: {veredicto} {faltas}")
+    do_filiado = _faltas_do_filiado(cliente, A, entidade)
+
+    # 2. O painel.
+    painel = cliente.get(f"/api/entidade/{entidade}/panorama",
+                         headers=_gestor(cliente, entidade)).json()
+    checa(ROL_FALTA not in {g["o_que"] for g in painel["gargalos"]},
+          "o painel ainda cobra o rol que o sindicato acabou de enviar")
+
+    # 3. A lista nome por nome.
+    pessoa = cliente.get(f"/api/entidade/{entidade}/pessoas",
+                         headers=_gestor(cliente, entidade)).json()["pessoas"][0]
+    da_lista = {(o["trilha"], o["referencia"]):
+                (o["veredicto"], sorted(f["o_que"] for f in o["falta"]))
+                for o in pessoa["oportunidades"]}
+    checa(da_lista == do_filiado,
+          f"a lista e o filiado discordam depois do rol:\n    {da_lista}\n"
+          f"    {do_filiado}")
+
+    # 4. O veredicto guardado, pela ferramenta de verdade.
+    t = subprocess.run(
+        [sys.executable, str(RAIZ / "ferramentas" / "reavaliar_oportunidades.py"),
+         "--entidade", entidade, "--raiz", str(raiz), "--banco", URL],
+        capture_output=True, text=True,
+        env={**os.environ, "PROTOCOL_DATABASE_URL": URL},
+    )
+    checa(t.returncode == 0, f"reavaliar saiu {t.returncode}: {t.stderr[:300]}")
+    guardado = {(g["trilha"], g["referencia"]):
+                (g["veredicto"], sorted(f["o_que"] for f in g["falta"]))
+                for g in banco.oportunidades_de(URL, entidade, A)}
+    checa(guardado == do_filiado,
+          f"o veredicto GUARDADO não usou o rol:\n    {guardado}\n"
+          f"    {do_filiado}")
+    print("  ok     prévia não grava; confirmado, as quatro superfícies mudam")
+
+
+def teste_o_painel_mostra_o_rol_de_cada_acao():
+    """O gestor precisa ver, por ação, se o rol já entrou e quanta gente
+    ficou sem resposta — é esse número que diz que vale enviar de novo."""
+    entidade = "demo-rol-2"
+    cliente, ent, raiz = _servidor(entidade)
+    _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "NO ROL (CADASTRO DE EXEMPLO)", "c@exemplo.invalid"),
+        (D_PLAN, "FORA DO ROL (CADASTRO DE EXEMPLO)", "d@exemplo.invalid"),
+    ]))
+    ver = lambda: cliente.get(  # noqa: E731
+        f"/api/entidade/{entidade}/rol-de-substituidos",
+        headers=_gestor(cliente, entidade))
+    r = ver()
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    acoes = {a["acao"]: a for a in r.json()["acoes"]}
+    checa("GIFA-2006" in acoes and acoes["GIFA-2006"]["rol"] is None
+          and acoes["GIFA-2006"]["rotulo"],
+          f"sem rol enviado: {acoes}")
+
+    _confirmar_rol(cliente, entidade, _rol_csv(C_PLAN), completo=True)
+    rol = {a["acao"]: a for a in ver().json()["acoes"]}["GIFA-2006"]["rol"]
+    checa(rol and (rol["constam"], rol["nao_constam"], rol["completo"])
+          == (1, 1, True), f"o resumo do rol: {rol}")
+    checa(C_PLAN not in ver().text and D_PLAN not in ver().text,
+          "o resumo do rol devolveu CPF: é contagem, não lista")
+
+    # Retirar desfaz: a ação volta a não ter rol.
+    r = cliente.post(f"/api/entidade/{entidade}/rol-de-substituidos/retirar",
+                     json={"acao": "GIFA-2006"},
+                     headers=_gestor(cliente, entidade))
+    checa(r.status_code == 200 and r.json().get("retirado") is True,
+          f"{r.status_code} {r.text[:200]}")
+    checa({a["acao"]: a for a in ver().json()["acoes"]}["GIFA-2006"]["rol"]
+          is None, "o rol retirado continua valendo")
+    print("  ok     o estado do rol por ação, em contagens; e dá para retirar")
+
+
+def teste_lista_parcial_nao_poe_ninguem_fora_do_rol():
+    """Sem a declaração de lista completa, quem não aparece nela continua
+    sem resposta. "Fora do rol" tem consequência — e não sai de ausência
+    numa lista que ninguém disse ser inteira."""
+    entidade = "demo-rol-3"
+    cliente, ent, raiz = _servidor(entidade)
+    _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "NA LISTA (CADASTRO DE EXEMPLO)", "c@exemplo.invalid"),
+        (D_PLAN, "FORA DA LISTA (CADASTRO DE EXEMPLO)", "d@exemplo.invalid"),
+    ]))
+    feito = _confirmar_rol(cliente, entidade, _rol_csv(C_PLAN), completo=False)
+    checa((feito.get("constam"), feito.get("nao_constam"),
+           feito.get("sem_resposta")) == (1, 0, 1), f"{feito}")
+    painel = cliente.get(f"/api/entidade/{entidade}/panorama",
+                         headers=_gestor(cliente, entidade)).json()
+    presos = {g["o_que"]: g["pessoas"] for g in painel["gargalos"]}
+    checa(presos.get(ROL_FALTA) == 1,
+          f"quem ficou fora da lista PARCIAL devia continuar esperando o "
+          f"rol (1 pessoa): {presos}")
+    print("  ok     lista parcial: quem não está nela continua esperando")
+
+
+def teste_rol_so_de_acao_do_catalogo_e_so_para_gestor():
+    entidade = "demo-rol-4"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    from servidor import substituidos
+
+    r = _enviar_rol(cliente, entidade, _rol_csv(A), acao="NAO-EXISTE-2099")
+    checa(r.status_code == 422, f"ação fora do catálogo: {r.status_code}")
+    r = _enviar_rol(cliente, entidade, _rol_csv(A), cabecalho={})
+    checa(r.status_code == 401, f"sem sessão: {r.status_code}")
+    filiado = {"Authorization": f"Bearer {_token(cliente, A, entidade)}"}
+    r = _enviar_rol(cliente, entidade, _rol_csv(A), cabecalho=filiado)
+    checa(r.status_code == 403, f"filiado enviando rol: {r.status_code}")
+    r = cliente.get(f"/api/entidade/{entidade}/rol-de-substituidos",
+                    headers=filiado)
+    checa(r.status_code == 403, f"filiado lendo o rol: {r.status_code}")
+    r = cliente.post(f"/api/entidade/{entidade}/rol-de-substituidos/retirar",
+                     json={"acao": "GIFA-2006"}, headers=filiado)
+    checa(r.status_code == 403, f"filiado retirando o rol: {r.status_code}")
+    r = _enviar_rol(cliente, entidade, b"Nome;Matricula\r\nX;1\r\n")
+    checa(r.status_code == 422 and "CPF" in r.text,
+          f"rol sem CPF: {r.status_code} {r.text[:200]}")
+    checa(not (ent.pasta(raiz) / substituidos.ARQUIVO).exists(),
+          "alguma das recusas gravou")
+    print("  ok     só ação do catálogo da entidade, só gestor, só com CPF")
+
+
+def teste_confirmar_outro_rol_e_recusado():
+    """A confirmação vale para O QUE FOI CONFERIDO: o arquivo, a ação e a
+    declaração de lista completa. Trocar qualquer um dos três entre a prévia
+    e a gravação é confirmar o que o gestor não viu — e a declaração de
+    "completa" é justamente a que põe gente FORA do rol."""
+    entidade = "demo-rol-5"
+    cliente, ent, raiz = _servidor(entidade)
+    _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "UM (CADASTRO DE EXEMPLO)", "c@exemplo.invalid"),
+        (D_PLAN, "DOIS (CADASTRO DE EXEMPLO)", "d@exemplo.invalid"),
+    ]))
+    from servidor import substituidos
+
+    sha = _enviar_rol(cliente, entidade, _rol_csv(C_PLAN),
+                      completo=False).json()["sha256"]
+    r = _enviar_rol(cliente, entidade, _rol_csv(D_PLAN), completo=False,
+                    confirmar=sha)
+    checa(r.status_code == 409, f"outro arquivo: {r.status_code}")
+    r = _enviar_rol(cliente, entidade, _rol_csv(C_PLAN), completo=True,
+                    confirmar=sha)
+    checa(r.status_code == 409,
+          f"a prévia era de lista PARCIAL e a gravação veio como completa: "
+          f"{r.status_code}")
+    checa(not (ent.pasta(raiz) / substituidos.ARQUIVO).exists(),
+          "gravou com a confirmação errada")
+    print("  ok     confirmar outro arquivo, ou outra declaração: 409")
+
+
+def teste_apagamento_no_meio_do_rol_nao_ressuscita():
+    """A mesma corrida das outras portas (T28): a prévia cruza o rol com a
+    base, a pessoa pede para sair, e a gravação — feita com o cruzamento de
+    antes — guardaria o CPF dela de novo, com uma afirmação sobre ela."""
+    from servidor import substituidos
+
+    entidade = "demo-rol-6"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "SAI NO MEIO (CADASTRO DE EXEMPLO)", "meio@exemplo.invalid"),
+        (D_PLAN, "FICA (CADASTRO DE EXEMPLO)", "fica@exemplo.invalid"),
+    ]))
+    corpo = _rol_csv(C_PLAN, D_PLAN)
+    sha = _enviar_rol(cliente, entidade, corpo).json()["sha256"]
+    r, apagou = _com_apagamento_no_meio(
+        substituidos, "enviar", cliente, entidade, C_PLAN, gestor,
+        lambda: _enviar_rol(cliente, entidade, corpo, confirmar=sha))
+    checa(apagou == [(200, [])], f"o apagamento do meio não rodou: {apagou}")
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    checa(_sobras_no_disco(raiz, C_PLAN) == [],
+          f"QUEM PEDIU PARA SAIR NO MEIO DO ROL FOI GUARDADO: "
+          f"{_sobras_no_disco(raiz, C_PLAN)}")
+    checa(substituidos.de_cpf(ent.pasta(raiz), D_PLAN)
+          == (("GIFA-2006", True),)
+          and r.json().get("constam") == 1,
+          f"quem fica não entrou, ou a resposta conta quem não gravou: "
+          f"{r.json()}")
+    print("  ok     apagamento no meio do envio do rol: não volta")
+
+
+def teste_apagar_tira_a_pessoa_do_rol_guardado():
+    """O rol guardado tem o CPF dela e uma afirmação sobre ela. Apagar a
+    pedido leva isso junto — e a medição do apagamento tem de voltar vazia."""
+    from servidor import substituidos
+
+    entidade = "demo-rol-7"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "SAI (CADASTRO DE EXEMPLO)", "sai@exemplo.invalid"),
+        (D_PLAN, "FICA (CADASTRO DE EXEMPLO)", "fica@exemplo.invalid"),
+    ]))
+    _confirmar_rol(cliente, entidade, _rol_csv(D_PLAN), completo=True)
+    checa(substituidos.de_cpf(ent.pasta(raiz), C_PLAN)
+          == (("GIFA-2006", False),), "o preparo do teste não gravou C")
+    r = _apagar(cliente, entidade, {"cpf": C_PLAN, "motivo": "pedido do "
+                "titular", "pedido_por": "g"}, gestor)
+    checa(r.status_code == 200 and r.json().get("vestigios") == [],
+          f"{r.status_code} {r.text[:300]}")
+    checa(_sobras_no_disco(raiz, C_PLAN) == [],
+          f"sobrou no disco: {_sobras_no_disco(raiz, C_PLAN)}")
+    checa(substituidos.de_cpf(ent.pasta(raiz), D_PLAN)
+          == (("GIFA-2006", True),), "quem fica perdeu a resposta")
+    print("  ok     apagar a pedido tira a pessoa do rol guardado")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -4760,6 +5040,13 @@ TESTES = [
     teste_dominio_confiado_por_quem_opera_libera,
     teste_o_atendimento_responde_com_o_que_as_telas_dizem,
     teste_o_atendimento_so_fala_de_quem_perguntou,
+    teste_o_gestor_envia_o_rol_e_as_superficies_mudam_juntas,
+    teste_o_painel_mostra_o_rol_de_cada_acao,
+    teste_lista_parcial_nao_poe_ninguem_fora_do_rol,
+    teste_rol_so_de_acao_do_catalogo_e_so_para_gestor,
+    teste_confirmar_outro_rol_e_recusado,
+    teste_apagamento_no_meio_do_rol_nao_ressuscita,
+    teste_apagar_tira_a_pessoa_do_rol_guardado,
 ]
 
 

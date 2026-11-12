@@ -21,6 +21,8 @@ import type {
   MudancaDeVeredicto,
   PessoaNaLista,
   PreviaDaPlanilha,
+  PreviaDoRol,
+  RolVigente,
   ResultadoDoApagamento,
 } from "./envio";
 
@@ -467,6 +469,100 @@ export function resumoDoAcesso(
       `${pessoas(a.fora_da_planilha)} ${a.fora_da_planilha === 1 ? "entra" : "entram"} no portal e não ` +
         `${a.fora_da_planilha === 1 ? "está" : "estão"} nesta planilha. ${a.fora_da_planilha === 1 ? "Continua" : "Continuam"} entrando: ` +
         "a planilha não tira ninguém do acesso.",
+    );
+  }
+  return linhas;
+}
+
+/** O que um envio de rol muda, em frases — o que o gestor lê ANTES de
+ *  confirmar.
+ *
+ *  A PRIMEIRA LINHA É UM ALARME quando ninguém da base está na lista: é o
+ *  sinal mais claro de arquivo errado, e numa lista declarada completa
+ *  confirmar assim poria a base inteira fora do rol.
+ *
+ *  E "fora do rol" SÓ APARECE em lista completa. Na parcial, quem não está
+ *  nela fica sem resposta — dizer outra coisa aqui faria o gestor acreditar
+ *  numa resposta que o sistema não deu.
+ */
+export function resumoDoEnvioDoRol(p: PreviaDoRol): string[] {
+  const linhas: string[] = [];
+  if (p.constam === 0) {
+    linhas.push(
+      "Ninguém da sua base está nesta lista. Confira se é o arquivo certo " +
+        "e se é o rol desta ação.",
+    );
+  } else {
+    linhas.push(
+      `${pessoas(p.constam)} da sua base ` +
+        `${p.constam === 1 ? "consta" : "constam"} desta lista.`,
+    );
+  }
+  if (p.completo && p.nao_constam > 0) {
+    linhas.push(
+      `${pessoas(p.nao_constam)} da sua base não ` +
+        `${p.nao_constam === 1 ? "está" : "estão"} na lista e ` +
+        `${p.nao_constam === 1 ? "passa" : "passam"} a aparecer como fora do ` +
+        "rol desta ação — porque você declarou que a lista é o rol inteiro.",
+    );
+  }
+  // DECLARADA COMPLETA E NÃO VALEU. Sem esta frase o gestor marca a caixa,
+  // lê "sem resposta" e conclui que o sistema ignorou o que ele disse.
+  const naoValeu = p.declarado_completo && !p.completo;
+  if (naoValeu) {
+    linhas.push(
+      `${p.invalidas} linha(s) do arquivo não trazem CPF válido — o caso ` +
+        "mais comum é o CPF que começa com zero e perdeu o zero no Excel. " +
+        "Enquanto houver linha que não deu para ler, ninguém é dado como " +
+        "fora: quem não foi reconhecido pode ser justamente uma delas. " +
+        "Corrija o arquivo e envie de novo.",
+    );
+  }
+  if (!p.completo && p.sem_resposta > 0) {
+    linhas.push(
+      `${pessoas(p.sem_resposta)} da sua base não ` +
+        `${p.sem_resposta === 1 ? "foi reconhecida" : "foram reconhecidas"} ` +
+        `na lista e ${p.sem_resposta === 1 ? "continua" : "continuam"} sem ` +
+        "resposta" +
+        (naoValeu ? "." : ": a lista não foi declarada completa."),
+    );
+  }
+  if (p.fora_da_base > 0) {
+    linhas.push(
+      `${p.fora_da_base} CPF(s) da lista não são da sua base e não ficam ` +
+        "guardados.",
+    );
+  }
+  if (p.invalidas > 0 && !naoValeu) {
+    linhas.push(
+      `${p.invalidas} linha(s) do arquivo não trazem CPF válido e ficaram ` +
+        "de fora — confira o arquivo.",
+    );
+  }
+  return linhas;
+}
+
+/** O rol que vale hoje para uma ação. A data sai como se lê aqui
+ *  (dd/mm/aaaa), tirada do texto e não de `Date`: o fuso do navegador
+ *  mudaria o dia de um envio feito perto da meia-noite. */
+export function resumoDoRolVigente(r: RolVigente): string[] {
+  const [ano, mes, dia] = r.enviado_em.slice(0, 10).split("-");
+  const linhas = [
+    `Rol enviado em ${dia}/${mes}/${ano} (${r.arquivo}), ` +
+      `${r.completo ? "declarado completo" : r.declarado_completo ? "declarado completo, mas com linhas que não deu para ler" : "como lista parcial"}.`,
+    `${pessoas(r.constam)} da base ${r.constam === 1 ? "consta" : "constam"}` +
+      (r.completo
+        ? `; ${pessoas(r.nao_constam)} não ${r.nao_constam === 1 ? "consta" : "constam"}.`
+        : "."),
+  ];
+  if (r.sem_resposta > 0) {
+    linhas.push(
+      `${pessoas(r.sem_resposta)} da base ` +
+        `${r.sem_resposta === 1 ? "está" : "estão"} sem resposta — ` +
+        (r.completo
+          ? "entraram na base depois do envio. "
+          : "não estão na lista, ou entraram depois do envio. ") +
+        "Envie o rol de novo para incluí-las.",
     );
   }
   return linhas;
