@@ -644,6 +644,21 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             )
         return JSONResponse(resposta, status_code=202)
 
+    @app.post("/api/acesso/sair")
+    def sair(pedido: Request) -> dict:
+        """Encerra a sessão NO SERVIDOR. É o botão "Sair" do portal, que
+        existe por causa do computador da sede: uma pessoa depois da outra,
+        no mesmo navegador.
+
+        A RESPOSTA É SEMPRE A MESMA — token válido, vencido, inventado ou
+        ausente. Uma rota que respondesse diferente serviria para testar
+        token.
+        """
+        bruto = pedido.headers.get("authorization") or ""
+        token = bruto[7:] if bruto.lower().startswith("bearer ") else bruto
+        portao.encerrar_sessao(token)
+        return {"saiu": True}
+
     @app.post("/api/acesso/conferir")
     def conferir_codigo(corpo: dict) -> dict:
         ent = _entidade(str(corpo.get("entidade", "")))
@@ -2352,7 +2367,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         arquivos: Annotated[list[UploadFile], Form()],
     ) -> dict:
         try:
-            sessao = portao.abrir_sessao(token)
+            sessao = portao.abrir_sessao(token, para_enviar=True)
         except acesso.SessaoInvalida as e:
             raise _problema(401, str(e)) from None
 
@@ -2454,7 +2469,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         with deposito.travada(ent.pasta(cfg.raiz),
                               deposito.TRAVA_DO_APAGAMENTO):
             try:
-                portao.abrir_sessao(token)
+                portao.abrir_sessao(token, para_enviar=True)
             except acesso.SessaoInvalida as e:
                 raise _problema(401, str(e)) from None
 

@@ -128,6 +128,20 @@ export async function conferirCodigo(
   return { token: d.token, nome: d.nome ?? "" };
 }
 
+/** "Sair": encerra a sessão NO SERVIDOR. Nunca levanta — quem está saindo
+ *  não tem o que fazer com um erro, e a tela esquece o token de todo jeito. */
+export async function sair(token: string): Promise<void> {
+  if (!DECLARADA || !token) return;
+  try {
+    await fetch(`${BASE}/api/acesso/sair`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Sem rede: a sessão vence sozinha no servidor.
+  }
+}
+
 export interface Recibo {
   protocolo: string;
   recebido_em: string;

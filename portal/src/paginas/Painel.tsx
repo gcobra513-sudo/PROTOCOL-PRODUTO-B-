@@ -63,6 +63,7 @@ import {
   rotuloDoDispositivo,
 } from "../lib/painel";
 import { conferirCpf, formatarCpf } from "../lib/validacao";
+import { sessaoMorreu } from "../lib/sessao";
 import { Portao } from "./Portao";
 
 function Numero({
@@ -1263,8 +1264,22 @@ function RolDeSubstituidos({
   );
 }
 
-export function Painel({ entidade }: { entidade: string }) {
-  const [token, setToken] = useState("");
+export function Painel({
+  entidade,
+  token,
+  onToken,
+  onSessaoMorta,
+  onSair,
+}: {
+  entidade: string;
+  /** A sessão é do `App`, e vale em todas as áreas: vazio = ninguém entrou. */
+  token: string;
+  onToken: (token: string, cpf: string) => void;
+  /** O servidor não aceita mais esta sessão: a tela volta ao portão. */
+  onSessaoMorta: () => void;
+  /** Sair, para entrar com outro CPF — quem não é gestor chega até aqui. */
+  onSair: () => void;
+}) {
   const [dados, setDados] = useState<api.PainelDoGestor | null>(null);
   const [panorama, setPanorama] = useState<api.Panorama | null>(null);
   const [erroPanorama, setErroPanorama] = useState("");
@@ -1291,9 +1306,10 @@ export function Painel({ entidade }: { entidade: string }) {
     void api
       .verCompletude(entidade, token)
       .then(setDados)
-      .catch((e) =>
-        setErro(e instanceof Error ? e.message : "não foi possível abrir"),
-      );
+      .catch((e) => {
+        if (sessaoMorreu(e)) onSessaoMorta();
+        else setErro(e instanceof Error ? e.message : "não foi possível abrir");
+      });
   }, [entidade, token]);
 
   if (!token) {
@@ -1302,7 +1318,7 @@ export function Painel({ entidade }: { entidade: string }) {
         entidade={entidade}
         titulo="Painel do sindicato"
         explicacao="Para gestores. O código vai para o e-mail cadastrado — não há senha."
-        onToken={setToken}
+        onToken={onToken}
       />
     );
   }
@@ -1311,6 +1327,12 @@ export function Painel({ entidade }: { entidade: string }) {
     return (
       <Cartao titulo="Painel do sindicato">
         <Aviso tom="alerta">{erro}</Aviso>
+        {/* A SESSÃO É UMA SÓ PARA TODAS AS ÁREAS. Quem entrou como filiado
+            e abriu o painel chega aqui com a sessão dele — e precisa de um
+            jeito de entrar com o CPF de gestor sem fechar a página. */}
+        <Botao tipo="secundario" onClick={onSair}>
+          Sair e entrar com outro CPF
+        </Botao>
       </Cartao>
     );
   }

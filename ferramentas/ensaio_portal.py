@@ -428,12 +428,18 @@ def main() -> int:
                 if CPF_FILIADO in conversa or "111.444.777-35" in conversa:
                     falhas.append("o atendimento respondeu com dado de OUTRA "
                                   "pessoa")
+                falhas += _conferir_a_sessao(da_entrada.get("sessao"))
 
         print("  dirigindo o Chromium — o filiado…")
         dados = _dirigir(cfg, "cadastro", falhas)
         protocolo = dados.get("protocolo", "")
         if protocolo:
             falhas += _conferir_o_disco(raiz, protocolo)
+            if not dados.get("acoesSemNovoCodigo"):
+                falhas.append(
+                    "depois de enviar o cadastro, ver as próprias ações pediu "
+                    "outro código (ou a sessão foi recusada)"
+                )
             if not dados.get("avisouImagem"):
                 falhas.append(
                     "a tela do recibo não avisou que dois documentos "
@@ -699,6 +705,40 @@ def _conferir_a_planilha(raiz: pathlib.Path, enviada, lista) -> list[str]:
             "quem entrou pela planilha .xlsx não está na base que o gestor "
             "baixou — ou o CPF guardado como número chegou torto"
         )
+    return problemas
+
+
+def _conferir_a_sessao(da_tela) -> list[str]:
+    """UMA sessão para todas as áreas, e uma porta que fecha.
+
+    Medido antes da correção: quatro visitas, quatro códigos, contra um
+    limite de três por hora. E "Sair" tem de matar a sessão no SERVIDOR —
+    a tela esquecer o token não impede ninguém de usá-lo.
+    """
+    if not da_tela:
+        return ["o ensaio da sessão entre as áreas não rodou"]
+    problemas: list[str] = []
+    if da_tela.get("pediuDeNovo"):
+        problemas.append("trocar de área pediu CPF e código de novo em: "
+                         + ", ".join(da_tela["pediuDeNovo"]))
+    if da_tela.get("codigos") not in (1, 2):
+        # 1 da primeira pessoa; 2 quando a segunda já entrou, na mesma aba.
+        problemas.append(f"três áreas deviam custar 1 código por pessoa, "
+                         f"custaram {da_tela.get('codigos')}")
+    if da_tela.get("segundaViuAPrimeira") is not False:
+        problemas.append("a segunda pessoa, na mesma aba, encontrou a "
+                         "conversa de atendimento da primeira")
+    if not da_tela.get("fechouParada") or not da_tela.get("portaoDepoisDeParada"):
+        problemas.append("a tela parada por mais de vinte minutos não "
+                         "encerrou a sessão sozinha")
+    if not da_tela.get("saiuNaTela"):
+        problemas.append("clicar em Sair não levou a tela de volta ao portão")
+    if not da_tela.get("temToken"):
+        problemas.append("o ensaio não capturou o token, e sem ele não dá "
+                         "para provar que Sair o matou")
+    elif da_tela.get("depoisDeSair") != 401:
+        problemas.append(f"depois de Sair, o token antigo ainda é aceito "
+                         f"pelo servidor (respondeu {da_tela.get('depoisDeSair')})")
     return problemas
 
 

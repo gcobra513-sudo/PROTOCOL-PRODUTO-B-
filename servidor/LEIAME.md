@@ -285,6 +285,24 @@ PROTOCOL_DATABASE_URL='postgresql://...' python3 docs/medicoes/2026-11-12-apagam
 tribunal; o coletivo continua enquanto sobrar um filiado nele. O NÚMERO do
 processo continua na tabela `processo` — T29 em `CHECKPOINTS.md`.
 
+## A sessão: uma para todas as áreas, e uma porta que fecha
+
+O código confirmado vira uma sessão de quatro horas. Ela vale para todas as
+áreas do filiado e, se o CPF for de gestor, para o painel.
+
+```
+POST /api/acesso/sair      encerra a sessão no servidor
+```
+
+- **o que se gasta no envio do cadastro é o ENVIO, não a sessão.** Quem
+  enviou continua lendo — ações, processos, atendimento — até a sessão
+  vencer. Enviar de novo pede outro código (`abrir_sessao(para_enviar=True)`);
+- **Sair apaga a sessão no servidor.** A resposta é a mesma para token
+  válido, vencido ou inventado: a rota não serve para testar token;
+- **o portal não guarda a sessão no navegador.** Ela vive na memória da
+  página, e a tela parada por 20 minutos a encerra sozinha. O porquê é o
+  computador da sede: `portal/src/lib/sessao.ts` e T23/T32.
+
 ## O atendimento ao filiado
 
 ```

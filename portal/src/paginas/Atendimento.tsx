@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Aviso, Botao, Cartao, cn } from "../componentes/ui";
 import * as api from "../lib/envio";
+import { sessaoMorreu } from "../lib/sessao";
 import { Portao } from "./Portao";
 
 interface Fala {
@@ -34,8 +35,19 @@ const SUGESTOES_INICIAIS = [
   "O que falta eu fazer?",
 ];
 
-export function Atendimento({ entidade }: { entidade: string }) {
-  const [token, setToken] = useState("");
+export function Atendimento({
+  entidade,
+  token,
+  onToken,
+  onSessaoMorta,
+}: {
+  entidade: string;
+  /** A sessão é do `App`, e vale em todas as áreas: vazio = ninguém entrou. */
+  token: string;
+  onToken: (token: string, cpf: string) => void;
+  /** O servidor não aceita mais esta sessão: a tela volta ao portão. */
+  onSessaoMorta: () => void;
+}) {
   const [falas, setFalas] = useState<Fala[]>([ABERTURA]);
   const [sugestoes, setSugestoes] = useState<string[]>(SUGESTOES_INICIAIS);
   const [texto, setTexto] = useState("");
@@ -53,7 +65,7 @@ export function Atendimento({ entidade }: { entidade: string }) {
         entidade={entidade}
         titulo="Atendimento"
         explicacao="Pergunte pelos seus processos, pelos seus documentos e pelo que falta. Para responder sobre você, precisamos confirmar que é você."
-        onToken={setToken}
+        onToken={onToken}
       />
     );
   }
@@ -70,7 +82,8 @@ export function Atendimento({ entidade }: { entidade: string }) {
       setFalas((f) => [...f, { de: "atendimento", texto: r.resposta }]);
       if (r.sugestoes.length) setSugestoes(r.sugestoes);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : "o atendimento não respondeu");
+      if (sessaoMorreu(e)) onSessaoMorta();
+      else setErro(e instanceof Error ? e.message : "o atendimento não respondeu");
     } finally {
       setEsperando(false);
     }

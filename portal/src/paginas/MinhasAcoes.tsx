@@ -24,6 +24,7 @@
 import { useEffect, useState } from "react";
 
 import { Aviso, Cartao } from "../componentes/ui";
+import { sessaoMorreu } from "../lib/sessao";
 import { Portao } from "./Portao";
 import * as api from "../lib/envio";
 import {
@@ -212,8 +213,19 @@ function Trilha({
   );
 }
 
-export function MinhasAcoes({ entidade }: { entidade: string }) {
-  const [token, setToken] = useState("");
+export function MinhasAcoes({
+  entidade,
+  token,
+  onToken,
+  onSessaoMorta,
+}: {
+  entidade: string;
+  /** A sessão é do `App`, e vale em todas as áreas: vazio = ninguém entrou. */
+  token: string;
+  onToken: (token: string, cpf: string) => void;
+  /** O servidor não aceita mais esta sessão: a tela volta ao portão. */
+  onSessaoMorta: () => void;
+}) {
   const [dados, setDados] = useState<api.MinhasAcoes | null>(null);
   const [erro, setErro] = useState("");
 
@@ -222,9 +234,10 @@ export function MinhasAcoes({ entidade }: { entidade: string }) {
     void api
       .minhasAcoes(token)
       .then(setDados)
-      .catch((e) =>
-        setErro(e instanceof Error ? e.message : "não foi possível consultar"),
-      );
+      .catch((e) => {
+        if (sessaoMorreu(e)) onSessaoMorta();
+        else setErro(e instanceof Error ? e.message : "não foi possível consultar");
+      });
   }, [token]);
 
   if (!token) {
@@ -233,7 +246,7 @@ export function MinhasAcoes({ entidade }: { entidade: string }) {
         entidade={entidade}
         titulo="Minhas ações"
         explicacao="Veja de quais ações você faz parte e o que cabe em cada uma. Sem senha: o código vai para o e-mail que o seu sindicato tem em cadastro."
-        onToken={setToken}
+        onToken={onToken}
       />
     );
   }

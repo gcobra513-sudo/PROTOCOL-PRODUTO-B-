@@ -15,7 +15,7 @@
  * para a semana que vem. Perder os anexos ao recarregar é o preço, e a tela
  * diz isso.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Casca } from "./componentes/Casca";
 import { Privacidade } from "./componentes/Privacidade";
@@ -39,6 +39,7 @@ import * as armazenamento from "./lib/armazenamento";
 import { enderecoDaArea } from "./lib/entrada";
 import * as api from "./lib/envio";
 import { baixar, reciboJson } from "./lib/exportar";
+import { cliqueQueNavega, paradoDemais } from "./lib/sessao";
 import {
   DOCUMENTOS,
   RASCUNHO_VAZIO,
@@ -128,7 +129,23 @@ function pendencias(
  *  endereço — e ninguém digita. */
 export function App() {
   const apelido = useMemo(() => api.entidadeDoLink(), []);
-  const tela = useMemo(() => api.telaDoLink(), []);
+  // A ÁREA É ESTADO, não endereço lido uma vez: trocar de área não recarrega
+  // a página. Recarregava — e a sessão, que só existe na memória, ia embora
+  // a cada clique no menu.
+  const [tela, setTela] = useState<api.Tela>(() => api.telaDoLink());
+  useEffect(() => {
+    const voltou = () => setTela(api.telaDoLink());
+    window.addEventListener("popstate", voltou);
+    return () => window.removeEventListener("popstate", voltou);
+  }, []);
+  const irPara = useCallback(
+    (qual: api.Tela) => {
+      window.history.pushState({}, "", enderecoDaArea(qual, apelido));
+      setTela(qual);
+      window.scrollTo(0, 0);
+    },
+    [apelido],
+  );
   const [entidade, setEntidade] = useState<string | undefined>(undefined);
   const [avisoDemo, setAvisoDemo] = useState("");
   const [comecou, setComecou] = useState(false);
@@ -140,6 +157,8 @@ export function App() {
   const [erro, setErro] = useState("");
   const [verPrivacidade, setVerPrivacidade] = useState(false);
   const [conhecido, setConhecido] = useState<api.MeuCadastro | null>(null);
+  // Por que a pessoa foi posta para fora, quando não foi ela que saiu.
+  const [avisoDeSaida, setAvisoDeSaida] = useState("");
 
   // O NOME da entidade vem do SERVIDOR, do apelido que está no link. O
   // apelido não serve como nome: uma página que se apresenta como sendo de
@@ -211,6 +230,75 @@ export function App() {
       .catch(() => setConhecido(null));
   }, [token]);
 
+  // QUEM ENTROU POR OUTRA ÁREA é a mesma pessoa no cadastro. O CPF do portão
+  // passa a ser o do formulário — e se o que estava na memória era de outro
+  // CPF, não vai junto.
+  const entrou = useCallback((novo: string, cpf: string) => {
+    setAvisoDeSaida("");
+    setRascunho((r) => {
+      if (armazenamento.soDigitos(r.identificacao.cpf) === armazenamento.soDigitos(cpf)) {
+        return r;
+      }
+      arquivos.esquecerTudo();
+      return armazenamento.limpoPara(cpf);
+    });
+    setToken(novo);
+  }, []);
+
+  // SAIR. Encerra no servidor e esquece TUDO o que está na memória desta
+  // página — o formulário, os anexos, o recibo. O rascunho guardado no
+  // navegador fica: ele só volta para quem passar pelo portão com o mesmo
+  // CPF (T23), e apagá-lo é outro botão, que diz que apaga.
+  const encerrar = useCallback(
+    (aviso = "") => {
+      if (token) void api.sair(token);
+      arquivos.esquecerTudo();
+      setRascunho(RASCUNHO_VAZIO);
+      setConhecido(null);
+      setRecibo(null);
+      setToken("");
+      setDono("");
+      setEtapa(0);
+      setComecou(false);
+      setErro("");
+      setAvisoDeSaida(aviso);
+    },
+    [token],
+  );
+  const sessaoMorta = useCallback(
+    () => encerrar("A sua sessão terminou. Entre de novo para continuar."),
+    [encerrar],
+  );
+
+  // A TELA PARADA SE FECHA SOZINHA. A sessão vale em todas as áreas, e uma
+  // tela esquecida aberta no computador da sede é a sessão de alguém na mão
+  // do próximo. Durante o envio não conta: subir os documentos numa
+  // conexão lenta é ficar parado sem ter ido embora.
+  const ultimaAtividade = useRef(Date.now());
+  useEffect(() => {
+    if (!token) return;
+    const marcar = () => {
+      ultimaAtividade.current = Date.now();
+    };
+    marcar();
+    const sinais = ["pointerdown", "keydown", "scroll", "touchstart"] as const;
+    for (const s of sinais) window.addEventListener(s, marcar, { passive: true });
+    const relogio = window.setInterval(() => {
+      if (enviando) marcar();
+      else if (paradoDemais(ultimaAtividade.current, Date.now())) {
+        encerrar(
+          "Você ficou um tempo sem mexer e, por segurança, a sessão foi " +
+            "encerrada. Entre de novo para continuar: o que você preencheu " +
+            "volta, mas os documentos anexados precisam ser escolhidos de novo.",
+        );
+      }
+    }, 15_000);
+    return () => {
+      for (const s of sinais) window.removeEventListener(s, marcar);
+      window.clearInterval(relogio);
+    };
+  }, [token, enviando, encerrar]);
+
   const doSindicato = useMemo(
     () => camposDoSindicato(conhecido?.campos ?? {}),
     [conhecido],
@@ -255,6 +343,9 @@ export function App() {
       tela={tela}
       comServidor={api.servidorLigado()}
       link={(qual) => enderecoDaArea(qual, apelido)}
+      onIr={irPara}
+      temSessao={Boolean(token)}
+      onSair={() => encerrar()}
       onPrivacidade={() => setVerPrivacidade(true)}
     >
       <div
@@ -270,10 +361,12 @@ export function App() {
           </Aviso>
         ) : null}
 
+        {avisoDeSaida ? <Aviso tom="neutro">{avisoDeSaida}</Aviso> : null}
+
         {/* O QUE MUDA A CONVERSA: ela não está preenchendo, está conferindo.
             E se já temos documento dela, a tela diz — pedir de novo o que o
             sindicato já mandou é o que faz a pessoa achar que não funciona. */}
-        {conhecido?.conhecido && !recibo ? (
+        {conhecido?.conhecido && !recibo && tela === "cadastro" ? (
           <Aviso tom="bom">
             {/* O texto do servidor já explica tudo. Repetir a mesma ideia
                 em duas frases coladas faz a pessoa parar de ler. */}
@@ -295,13 +388,21 @@ export function App() {
             endereço do portal.
           </Aviso>
         ) : tela === "acoes" ? (
-          <MinhasAcoes entidade={apelido} />
+          // `key={token}`: outra sessão é outra pessoa, e a área recomeça do
+          // zero. Sem isso, o que a anterior viu ficaria na memória da área
+          // e piscaria na tela da próxima até a consulta nova voltar.
+          <MinhasAcoes key={token} entidade={apelido} token={token}
+                       onToken={entrou} onSessaoMorta={sessaoMorta} />
         ) : tela === "processos" ? (
-          <MeusProcessos entidade={apelido} />
+          <MeusProcessos key={token} entidade={apelido} token={token}
+                         onToken={entrou} onSessaoMorta={sessaoMorta} />
         ) : tela === "atendimento" ? (
-          <Atendimento entidade={apelido} />
+          <Atendimento key={token} entidade={apelido} token={token}
+                       onToken={entrou} onSessaoMorta={sessaoMorta} />
         ) : tela === "painel" ? (
-          <Painel entidade={apelido} />
+          <Painel key={token} entidade={apelido} token={token}
+                  onToken={entrou} onSessaoMorta={sessaoMorta}
+                  onSair={() => encerrar()} />
         ) : recibo ? (
           <div className="space-y-5">
             <Aviso tom="bom">
@@ -343,6 +444,14 @@ export function App() {
             {api.servidorLigado() ? (
               <a
                 href={enderecoDaArea("acoes", apelido)}
+                onClick={(e) => {
+                  // POR DENTRO DA PÁGINA: a sessão que enviou o cadastro
+                  // continua valendo para ler, e recarregar a jogaria fora.
+                  if (cliqueQueNavega(e)) {
+                    e.preventDefault();
+                    irPara("acoes");
+                  }
+                }}
                 className="block rounded-md border border-borda bg-carta p-4 text-[15px] font-medium text-tinta underline"
               >
                 Ver de quais ações eu faço parte
@@ -388,13 +497,7 @@ export function App() {
                   className="text-acento underline"
                   onClick={() => {
                     armazenamento.apagar();
-                    arquivos.esquecerTudo();
-                    setRascunho(RASCUNHO_VAZIO);
-                    setConhecido(null);
-                    setToken("");
-                    setDono("");
-                    setEtapa(0);
-                    setComecou(false);
+                    encerrar();
                   }}
                 >
                   Sair e apagar o que preenchi neste computador
@@ -421,7 +524,10 @@ export function App() {
                 }}
                 entidade={apelido}
                 temToken={Boolean(token)}
-                onToken={setToken}
+                onToken={(novo) => {
+                  setAvisoDeSaida("");
+                  setToken(novo);
+                }}
               />
             ) : null}
 

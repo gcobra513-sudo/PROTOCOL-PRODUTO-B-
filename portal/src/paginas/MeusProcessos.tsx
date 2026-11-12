@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 
 import { Aviso, Cartao } from "../componentes/ui";
+import { sessaoMorreu } from "../lib/sessao";
 import { Portao } from "./Portao";
 import * as api from "../lib/envio";
 import { formatarProcesso } from "../lib/validacao";
@@ -31,8 +32,19 @@ function soData(iso: string): string {
   return ano && mes && dia ? `${dia}/${mes}/${ano}` : iso;
 }
 
-export function MeusProcessos({ entidade }: { entidade: string }) {
-  const [token, setToken] = useState("");
+export function MeusProcessos({
+  entidade,
+  token,
+  onToken,
+  onSessaoMorta,
+}: {
+  entidade: string;
+  /** A sessão é do `App`, e vale em todas as áreas: vazio = ninguém entrou. */
+  token: string;
+  onToken: (token: string, cpf: string) => void;
+  /** O servidor não aceita mais esta sessão: a tela volta ao portão. */
+  onSessaoMorta: () => void;
+}) {
   const [dados, setDados] = useState<api.MeusProcessos | null>(null);
   const [erro, setErro] = useState("");
 
@@ -41,9 +53,10 @@ export function MeusProcessos({ entidade }: { entidade: string }) {
     void api
       .meusProcessos(token)
       .then(setDados)
-      .catch((e) =>
-        setErro(e instanceof Error ? e.message : "não foi possível consultar"),
-      );
+      .catch((e) => {
+        if (sessaoMorreu(e)) onSessaoMorta();
+        else setErro(e instanceof Error ? e.message : "não foi possível consultar");
+      });
   }, [token]);
 
   if (!token) {
@@ -52,7 +65,7 @@ export function MeusProcessos({ entidade }: { entidade: string }) {
         entidade={entidade}
         titulo="Meus processos"
         explicacao="Veja o que andou nos processos que você informou. Sem senha: o código vai para o e-mail que o seu sindicato tem em cadastro."
-        onToken={setToken}
+        onToken={onToken}
       />
     );
   }
