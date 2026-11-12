@@ -415,6 +415,7 @@ planilha que ele baixa.
 |---|---|
 | criar a entidade | é o contrato: quem é cliente, e que carreiras contratou |
 | `gestores.csv` — quem é gestor | alguém tem de nomear o primeiro, e gestor não nomeia gestor |
+| | **12/11:** continuam com quem opera, mas deixaram de ser um trecho de Python e um arquivo escrito no editor — `ferramentas/sindicatos.py` cria o sindicato e nomeia o gestor conferindo tudo antes de gravar |
 | aprovar troca de e-mail de quem já entra | é a trava de T26 — ver abaixo |
 
 **A planilha passou a ligar o acesso (T26, decidido e fechado em 10/11).**

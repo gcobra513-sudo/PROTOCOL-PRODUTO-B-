@@ -242,6 +242,49 @@ def t_so_quem_opera_troca_o_email_de_quem_ja_entra():
           f"opera, nunca por rota: {onde['trocas.aprovar(']}")
 
 
+def t_gestor_nao_nomeia_gestor():
+    """Nenhuma ROTA nomeia nem tira gestor, e nenhuma cria sindicato.
+
+    A sessão de gestor vê a base inteira do sindicato. Se ela pudesse nomear
+    outro gestor, uma conta comprometida se multiplicaria sozinha — e é o
+    tipo de botão que parece razoável no painel ("convidar um colega"). Quem
+    nomeia é quem opera o servidor, pela ferramenta, e criar o sindicato é o
+    contrato.
+
+    Conta os chamadores no código de produção, como o teste da troca de
+    e-mail: os testes de comportamento provam o que a ferramenta faz, este
+    prova que não apareceu OUTRO caminho.
+    """
+    onde: dict[str, list[str]] = {"rol.nomear_gestor(": [],
+                                  "rol.destituir_gestor(": [],
+                                  ".criar(": []}
+    for pasta in ("nucleo", "servidor", "ferramentas"):
+        for caminho in sorted((RAIZ / pasta).rglob("*.py")):
+            for linha in caminho.read_text(encoding="utf-8").splitlines():
+                if linha.strip().startswith("#"):
+                    continue
+                for chamada in onde:
+                    if chamada in linha and "def criar(" not in linha:
+                        onde[chamada].append(str(caminho.relative_to(RAIZ)))
+    so_a_ferramenta = ["ferramentas/sindicatos.py"]
+    checa(sorted(set(onde["rol.nomear_gestor("])) == so_a_ferramenta,
+          f"`rol.nomear_gestor` só pode ser chamada pela ferramenta de quem "
+          f"opera: {onde['rol.nomear_gestor(']}")
+    checa(sorted(set(onde["rol.destituir_gestor("])) == so_a_ferramenta,
+          f"`rol.destituir_gestor` só pode ser chamada pela ferramenta de "
+          f"quem opera: {onde['rol.destituir_gestor(']}")
+    # Quem cria entidade: a ferramenta, a semente da demonstração e o
+    # ensaio de navegador. NUNCA o servidor que atende pedidos.
+    checa("servidor/app.py" not in onde[".criar("],
+          "apareceu uma chamada de `.criar(` em servidor/app.py: criar "
+          "sindicato é ato de quem opera, não de rota")
+    checa(sorted(set(onde[".criar("])) == [
+              "ferramentas/ensaio_portal.py", "ferramentas/sindicatos.py",
+              "servidor/semente.py"],
+          f"quem cria entidade mudou — confira se é de propósito: "
+          f"{sorted(set(onde['.criar(']))}")
+
+
 #: módulo que o código importa -> pacote que o `pip` instala, quando os
 #: nomes diferem.
 _PACOTE_DO_MODULO = {
@@ -432,6 +475,8 @@ TESTES = [
      t_ha_um_so_lugar_que_monta_os_fatos_de_uma_pessoa),
     ("só quem opera troca o e-mail de quem já entra",
      t_so_quem_opera_troca_o_email_de_quem_ja_entra),
+    ("gestor não nomeia gestor, e rota não cria sindicato",
+     t_gestor_nao_nomeia_gestor),
     ("o servidor instala tudo o que importa",
      t_o_servidor_instala_tudo_o_que_importa),
     ("o ambiente de exemplo é o que o servidor lê",

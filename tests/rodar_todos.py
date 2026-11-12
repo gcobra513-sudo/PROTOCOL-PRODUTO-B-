@@ -42,6 +42,7 @@ SUITES = [
     "tests/testes_acervo.py",
     "tests/testes_documentos_do_sindicato.py",
     "tests/testes_substituidos.py",
+    "tests/testes_sindicatos.py",
     "tests/testes_completude.py",
     "tests/testes_acompanhamento.py",
     "tests/testes_aviso.py",

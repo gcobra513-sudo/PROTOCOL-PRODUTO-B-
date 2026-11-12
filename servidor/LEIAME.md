@@ -474,21 +474,27 @@ migração contra um banco antigo.
 ## Cadastrar uma entidade
 
 ```bash
-python3 -c "
-import sys; sys.path.insert(0,'.')
-from servidor.entidades import Cadastro
-import pathlib
-print(Cadastro(pathlib.Path('dados_portal')).criar('sind-df', 'Sindicato Tal'))
-"
+python3 ferramentas/sindicatos.py --raiz dados_portal criar sind-df "Sindicato Tal" --categoria auditor-fiscal-receita-federal --gestor 000.000.000-00=gestor@sindicato.exemplo.org
 ```
 
-O link que a entidade distribui ao filiado é
-`https://portal.exemplo.org/?entidade=sind-df`.
+Cria o sindicato, declara as carreiras contratadas e nomeia quem abre o
+painel — ou não cria nada: categoria que não existe no catálogo, CPF que não
+fecha e e-mail que não serve são recusados antes de qualquer gravação.
+`sindicatos.py categorias` mostra as carreiras, e `sindicatos.py listar`
+mostra cada sindicato com o que falta nele.
 
-Para o sindicato começar sozinho falta só dizer quem é gestor —
-`dados_portal/<entidade>/gestores.csv`, mesmo formato do rol abaixo. Com
-isso o gestor entra, envia a planilha pelo painel, e os filiados passam a
-receber código. `filiados.csv` não precisa mais ser posto à mão.
+O link que a entidade distribui ao filiado é
+`https://portal.exemplo.org/?entidade=sind-df`. Daí em diante é com o
+sindicato: o gestor entra, envia a planilha pelo painel, e os filiados
+passam a receber código. `filiados.csv` não precisa ser posto à mão.
+
+**Gestor não nomeia gestor.** `sindicatos.py gestor sind-df nomear CPF EMAIL`
+e `... tirar CPF` são de quem opera o servidor, e nenhuma rota os alcança
+(`testes_repositorio.py`). Nomear não troca o e-mail de quem já entra: isso é
+`trocas_de_email.py`.
+
+Ainda é edição de `entidades.json`: mudar as carreiras de um sindicato que
+já existe, e suspendê-lo (`"ativa": false`).
 
 ## O rol de filiados
 

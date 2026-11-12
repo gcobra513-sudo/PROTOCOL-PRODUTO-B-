@@ -309,9 +309,16 @@ def remover(pasta_entidade: pathlib.Path, cpf: str) -> int:
     `;`, e em latin-1 com frequência — `_carregar` aprendeu isso derrubando
     o portão inteiro uma vez. Só a LINHA sai; o cabeçalho e as outras ficam.
     """
+    return _remover_de(pasta_entidade, cpf, (ARQUIVO, ARQUIVO_GESTORES))
+
+
+def _remover_de(pasta_entidade: pathlib.Path, cpf: str,
+                nomes: tuple[str, ...]) -> int:
+    """O miolo de `remover`, para os arquivos pedidos. Quem chama segura a
+    trava."""
     digitos = so_digitos(cpf)
     sairam = 0
-    for nome in (ARQUIVO, ARQUIVO_GESTORES):
+    for nome in nomes:
         caminho = pasta_entidade / nome
         if not caminho.is_file():
             continue
@@ -416,8 +423,14 @@ def acrescentar(pasta_entidade: pathlib.Path,
         novos.append((digitos, email))
     if not novos:
         return 0
+    return _acrescentar_em(pasta_entidade / ARQUIVO, novos)
 
-    caminho = pasta_entidade / ARQUIVO
+
+def _acrescentar_em(caminho: pathlib.Path,
+                    novos: list[tuple[str, str]]) -> int:
+    """Acrescenta linhas a UM rol, no dialeto dele. Quem chama já conferiu
+    CPF e e-mail, e segura a trava."""
+    pasta_entidade = caminho.parent
     if not caminho.is_file():
         pasta_entidade.mkdir(parents=True, exist_ok=True)
         corpo = "cpf,email\n" + "".join(f"{c},{e}\n" for c, e in novos)
@@ -444,6 +457,67 @@ def acrescentar(pasta_entidade: pathlib.Path,
     _escrever(caminho,
               bruto + "".join(l + fim for l in acrescimo).encode(encoding))
     return len(acrescimo)
+
+
+class GestorDivergente(ValueError):
+    """A pessoa já recebe o código num e-mail DIFERENTE do pedido. Nomear
+    não troca o destino de ninguém: marca e mostra."""
+
+
+@_com_trava
+def nomear_gestor(pasta_entidade: pathlib.Path, cpf: str, email: str) -> str:
+    """Põe esta pessoa em `gestores.csv`. Devolve "nomeado" ou "ja_era".
+
+    NÃO É CHAMADA POR ROTA NENHUMA: gestor não nomeia gestor. Uma sessão de
+    gestor que pudesse nomear outro se multiplicaria sozinha, e a sessão de
+    gestor vê a base inteira do sindicato. Quem chama é a ferramenta de quem
+    opera o servidor (`ferramentas/sindicatos.py`).
+
+    NÃO TROCA O E-MAIL DE NINGUÉM. Se a pessoa já é gestora com outro
+    endereço, ou já é FILIADA com outro endereço, recusa — no segundo caso
+    porque o código iria para o e-mail de filiado (`filiados.csv` vem
+    primeiro no portão), e quem nomeou acreditaria que vai para o que
+    escreveu aqui. A troca tem caminho próprio, com conferência.
+    """
+    digitos = so_digitos(cpf)
+    if not cpf_valido(digitos):
+        raise ValueError("este CPF não fecha o dígito verificador")
+    if not email_serve(email):
+        raise ValueError("este e-mail não pode ser escrito no rol")
+    try:
+        de_filiado = carregar(pasta_entidade).email_de(digitos)
+    except RolAusente:
+        de_filiado = None
+    if de_filiado and not mesmo_email(de_filiado, email):
+        raise GestorDivergente(
+            "este CPF já entra no portal como FILIADO, com outro e-mail, e "
+            "é para lá que o código dele vai. Nomeie com o mesmo e-mail, ou "
+            "faça antes a troca do e-mail (ferramentas/trocas_de_email.py)"
+        )
+    caminho = pasta_entidade / ARQUIVO_GESTORES
+    if caminho.is_file():
+        de_gestor = _carregar(caminho).por_cpf.get(digitos)
+        if de_gestor is not None:
+            if mesmo_email(de_gestor, email):
+                return "ja_era"
+            raise GestorDivergente(
+                "este CPF já é gestor, com outro e-mail. Nomear não faz a "
+                "troca do e-mail de quem já entra: ela tem conferência "
+                "própria (ferramentas/trocas_de_email.py)"
+            )
+    _acrescentar_em(caminho, [(digitos, email)])
+    return "nomeado"
+
+
+@_com_trava
+def destituir_gestor(pasta_entidade: pathlib.Path, cpf: str) -> int:
+    """Tira esta pessoa de `gestores.csv`, e SÓ de lá. Quantas linhas saíram.
+
+    Deixar de ser gestor não é deixar de ser filiado. A sessão que ela tiver
+    aberta deixa de abrir o painel no pedido seguinte: `_gestor_de` relê o
+    arquivo a cada vez.
+    """
+    return _remover_de(pasta_entidade, cpf, (ARQUIVO_GESTORES,))
 
 
 @_com_trava
