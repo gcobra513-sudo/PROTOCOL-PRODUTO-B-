@@ -26,6 +26,7 @@ CÓDIGOS DE SAÍDA, para o agendador:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import pathlib
 import sys
@@ -34,7 +35,9 @@ RAIZ = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
 
 from nucleo import aviso as mod  # noqa: E402
-from servidor import acompanhamento, banco, entidades, remetente  # noqa: E402
+from servidor import (  # noqa: E402
+    acompanhamento, apagamento, banco, entidades, remetente,
+)
 
 
 def _movimentos_do_diario(pasta: pathlib.Path) -> list[mod.Movimento]:
@@ -95,46 +98,58 @@ def main() -> int:
     suprimidos = 0
     falharam: list[str] = []
     sem_destino: list[str] = []
+    sairam = 0
     for d in pessoas:
-        r = mod.preparar(
-            [d], movimentos,
-            ja_avisados=por_pessoa.get(d.cpf, set()),
-            processos_conhecidos=conhecidos,
-            endereco=args.portal,
-        )
-        sem_destino += r.sem_destino
-        # A SUPRESSÃO DA ESTREIA É GRAVADA PRIMEIRO, e independe de envio:
-        # ela não gera e-mail nenhum. Sem isto, o histórico volta amanhã.
-        if not args.seco and r.estreia.get(d.cpf):
-            banco.marcar_avisado(args.banco, ent.apelido, d.cpf,
-                                 r.estreia[d.cpf], motivo="estreia")
-            suprimidos += len(r.estreia[d.cpf])
-        for m in r.avisos:
-            if args.seco:
-                print(f"--- PARA {m.destino} ({m.cpf})")
-                print(m.corpo)
-                enviados += 1
-                continue
-            correio = (
-                remetente.PorSmtp(
-                    os.environ.get("PROTOCOL_SMTP_HOST", ""),
-                    int(os.environ.get("PROTOCOL_SMTP_PORTA", "587")),
-                    os.environ.get("PROTOCOL_SMTP_USUARIO", ""),
-                    os.environ.get("PROTOCOL_SMTP_SENHA", ""),
-                    os.environ.get("PROTOCOL_SMTP_REMETENTE", ""),
-                )
-                if os.environ.get("PROTOCOL_SMTP_HOST")
-                else remetente.ParaArquivo(raiz)
+        # A LISTA FOI LIDA LÁ EM CIMA, e o e-mail sai aqui — minutos depois,
+        # numa base grande. Quem pediu para sair nesse intervalo recebia o
+        # aviso assim mesmo (medido em 12/11/2026), e e-mail não se desfaz.
+        # Então a pessoa é conferida DE NOVO, com o apagamento parado até o
+        # e-mail dela sair e ser marcado.
+        with contextlib.ExitStack() as pilha:
+            if not args.seco:
+                if not pilha.enter_context(apagamento.se_ainda_esta(
+                        args.banco, ent, raiz, d.cpf)):
+                    sairam += 1
+                    continue
+            r = mod.preparar(
+                [d], movimentos,
+                ja_avisados=por_pessoa.get(d.cpf, set()),
+                processos_conhecidos=conhecidos,
+                endereco=args.portal,
             )
-            try:
-                correio.enviar_mensagem(m.destino, m.assunto, m.corpo)
-            except Exception as e:  # noqa: BLE001
-                # NÃO MARCA. Falha de envio tem de ser tentada de novo
-                # amanhã: entre nunca saber e saber duas vezes, saber duas.
-                falharam.append(f"{m.cpf}: {e}")
-                continue
-            banco.marcar_avisado(args.banco, ent.apelido, m.cpf, m.chaves)
-            enviados += 1
+            sem_destino += r.sem_destino
+            # A SUPRESSÃO DA ESTREIA É GRAVADA PRIMEIRO, e independe de envio:
+            # ela não gera e-mail nenhum. Sem isto, o histórico volta amanhã.
+            if not args.seco and r.estreia.get(d.cpf):
+                banco.marcar_avisado(args.banco, ent.apelido, d.cpf,
+                                     r.estreia[d.cpf], motivo="estreia")
+                suprimidos += len(r.estreia[d.cpf])
+            for m in r.avisos:
+                if args.seco:
+                    print(f"--- PARA {m.destino} ({m.cpf})")
+                    print(m.corpo)
+                    enviados += 1
+                    continue
+                correio = (
+                    remetente.PorSmtp(
+                        os.environ.get("PROTOCOL_SMTP_HOST", ""),
+                        int(os.environ.get("PROTOCOL_SMTP_PORTA", "587")),
+                        os.environ.get("PROTOCOL_SMTP_USUARIO", ""),
+                        os.environ.get("PROTOCOL_SMTP_SENHA", ""),
+                        os.environ.get("PROTOCOL_SMTP_REMETENTE", ""),
+                    )
+                    if os.environ.get("PROTOCOL_SMTP_HOST")
+                    else remetente.ParaArquivo(raiz)
+                )
+                try:
+                    correio.enviar_mensagem(m.destino, m.assunto, m.corpo)
+                except Exception as e:  # noqa: BLE001
+                    # NÃO MARCA. Falha de envio tem de ser tentada de novo
+                    # amanhã: entre nunca saber e saber duas vezes, saber duas.
+                    falharam.append(f"{m.cpf}: {e}")
+                    continue
+                banco.marcar_avisado(args.banco, ent.apelido, m.cpf, m.chaves)
+                enviados += 1
 
     # A MOVIMENTAÇÃO VAI PARA O BANCO DEPOIS DE DECIDIR, nunca antes: gravá-la
     # primeiro faria todo processo parecer "já conhecido" e ninguém seria
@@ -143,6 +158,10 @@ def main() -> int:
         banco.guardar_movimentos(args.banco, ent.apelido, movimentos)
 
     print(f"\n  {len(pessoas)} pessoa(s) pediram aviso")
+    if sairam:
+        # QUANTAS, nunca quem: esta saída vai para o log do agendador.
+        print(f"  {sairam} pessoa(s) saíram da base durante a rodada e não "
+              f"foram avisadas")
     print(f"  {enviados} e-mail(s) {'seriam enviados' if args.seco else 'enviados'}")
     if suprimidos:
         print(f"  {suprimidos} movimento(s) de ESTREIA, memorizados sem aviso")
