@@ -359,6 +359,9 @@ def t_o_ambiente_de_exemplo_e_o_que_o_servidor_le():
     preenchido = {k: v or "preenchido-na-maquina" for k, v in
                   definidas.items()}
     preenchido["PROTOCOL_EMAIL_DE_QUEM_OPERA"] = "nos@exemplo.invalid"
+    # Vazio DE PROPÓSITO no exemplo: com o Caddy, quem entrega as páginas é
+    # ele. Preenchido, teria de ser uma pasta de verdade.
+    preenchido["PROTOCOL_PORTAL_ESTATICO"] = ""
     preenchido["PROTOCOL_DATABASE_URL"] = "postgresql://exemplo.invalid/x"
     try:
         cfg = config.carregar(preenchido)

@@ -187,6 +187,55 @@ async function faseSede(navegador, gritos, resultado) {
   }
 }
 
+/** A PORTA DA FRENTE E O ATENDIMENTO.
+ *
+ *  Quem chega sem o link de um sindicato cai na página de entrada. Os
+ *  botões dela têm de FUNCIONAR: código que não existe é dito na tela, e o
+ *  link colado leva ao portal daquele sindicato. Depois, o atendimento: a
+ *  pessoa pergunta e a resposta vem do cadastro DELA. */
+async function faseEntrada(navegador, gritos, resultado) {
+  const contexto = await navegador.newContext({ viewport: { width: 1280, height: 1000 } });
+  try {
+    const p = await contexto.newPage();
+    pagina = p;
+    p.on("pageerror", (e) => gritos.push(`entrada pageerror: ${e.message}`));
+    await p.goto(`${cfg.web}/`, { waitUntil: "networkidle" });
+    await p.getByRole("heading", { name: /Quem foi buscar/ }).waitFor({ timeout: 15000 });
+    const campo = p.getByLabel("Código ou link do seu sindicato");
+    await campo.fill("sindicato-que-nao-existe");
+    await p.getByRole("button", { name: "Sou filiado" }).click();
+    await p.getByText(/Não encontramos um sindicato/).waitFor({ timeout: 15000 });
+    resultado.entrada = { recusouCodigoErrado: true };
+    await campo.fill(`${cfg.web}/?entidade=${cfg.entidade}&tela=acoes`);
+    await Promise.all([
+      p.waitForURL(/entidade=/, { timeout: 15000 }),
+      p.getByRole("button", { name: "Sou filiado" }).click(),
+    ]);
+    await p.getByRole("button", { name: /^Começar$/ }).waitFor({ timeout: 15000 });
+    resultado.entrada.levouAoPortal = p.url().includes(`entidade=${cfg.entidade}`);
+    marco("entrada: código errado é recusado na tela; o link colado leva ao portal");
+
+    await p.goto(`${cfg.web}/?entidade=${cfg.entidade}&tela=atendimento`, { waitUntil: "networkidle" });
+    await entrar(p, cfg.sede.primeira.cpf, "Seu CPF", "Código que chegou no seu e-mail");
+    // Quem pergunta aqui ainda NÃO tem cadastro: a resposta certa é dizer
+    // isso, e o texto exato é do servidor. O que se espera é a resposta
+    // CHEGAR — abertura, pergunta, resposta e o marcador do fim.
+    const conversa = p.getByRole("log");
+    const falas = (n) => p.waitForFunction(
+      (minimo) => document.querySelectorAll('[role="log"] > div').length >= minimo,
+      n, { timeout: 15000 });
+    await p.getByRole("button", { name: "O que falta eu fazer?" }).click();
+    await falas(4);
+    await p.getByLabel("Sua pergunta").fill("quanto eu vou receber?");
+    await p.getByRole("button", { name: "Perguntar" }).click();
+    await conversa.getByText(/Não calculamos valor/).waitFor({ timeout: 15000 });
+    resultado.entrada.atendimento = await conversa.innerText();
+    marco("atendimento: respondeu o que falta, e que não calcula valor");
+  } finally {
+    await contexto.close();
+  }
+}
+
 /** A DONA DO RASCUNHO VOLTA: fechou a aba sem querer, abre de novo no mesmo
  *  navegador, passa pelo portão — e encontra o que tinha digitado. É para
  *  isso que o rascunho existe, e a correção do vazamento não pode custar
@@ -489,7 +538,9 @@ async function main() {
     // confere o que chegou, e só então o painel apaga. Numa chamada só, a
     // conferência do cadastro rodaria depois do apagamento e encontraria
     // tudo vazio — foi o primeiro defeito que este ensaio pegou, e era meu.
-    if (cfg.fase === "sede") {
+    if (cfg.fase === "entrada") {
+      await faseEntrada(navegador, gritos, resultado);
+    } else if (cfg.fase === "sede") {
       await faseSede(navegador, gritos, resultado);
     } else if (cfg.fase === "volta") {
       await faseVolta(navegador, gritos, resultado);

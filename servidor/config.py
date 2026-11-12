@@ -101,6 +101,10 @@ class Config:
     #: tarefa `pedidos` do agendador passa a falhar enquanto houver algum —
     #: que é o jeito de isso aparecer em `/saude`.
     email_de_quem_opera: str = ""
+    #: A pasta do portal compilado, para o servidor entregar as páginas no
+    #: MESMO endereço da API — um webapp num serviço só. Vazio é o padrão:
+    #: aí quem entrega as páginas é o proxy da frente (`implantacao/Caddyfile`).
+    portal_estatico: str = ""
 
     @property
     def tem_banco(self) -> bool:
@@ -226,7 +230,16 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
             "ninguém — ficam só no log, esperando alguém olhar."
         )
 
+    portal_estatico = amb.get("PROTOCOL_PORTAL_ESTATICO", "").strip()
+    if portal_estatico and not (
+            pathlib.Path(portal_estatico) / "index.html").is_file():
+        raise ConfiguracaoInvalida(
+            f"PROTOCOL_PORTAL_ESTATICO={portal_estatico!r} não tem um "
+            f"index.html. É a pasta do portal COMPILADO (`vite build`)."
+        )
+
     cfg = Config(
+        portal_estatico=portal_estatico,
         email_de_quem_opera=email_de_quem_opera,
         agendar=amb.get("PROTOCOL_AGENDAR", "1") != "0",
         portal=amb.get("PROTOCOL_PORTAL", "").strip(),

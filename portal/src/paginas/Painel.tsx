@@ -28,7 +28,17 @@
  */
 import { useEffect, useState } from "react";
 
-import { Aviso, Botao, Campo, Cartao, Escolha } from "../componentes/ui";
+import { MailX, UserCheck, UserX, Users } from "lucide-react";
+
+import {
+  Aviso,
+  Botao,
+  Campo,
+  Cartao,
+  Destaque,
+  Escolha,
+  Mini,
+} from "../componentes/ui";
 import * as api from "../lib/envio";
 import {
   camposDaLeitura,
@@ -1116,6 +1126,37 @@ export function Painel({ entidade }: { entidade: string }) {
 
   return (
     <div className="space-y-6">
+      {/* OS NÚMEROS DA BASE, antes de tudo: é a primeira coisa que a
+          diretoria quer saber, e eles já vinham no retrato — só estavam
+          três cartões abaixo. Os mesmos valores, do mesmo lugar. */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Destaque
+          cor="roxo"
+          icone={<Users className="h-5 w-5" aria-hidden="true" />}
+          valor={r.total}
+          rotulo="filiados no acervo"
+        />
+        <Destaque
+          cor="azul"
+          icone={<MailX className="h-5 w-5" aria-hidden="true" />}
+          valor={r.inalcancaveis}
+          rotulo="você não alcança"
+        />
+        <div className="grid gap-4">
+          <Mini
+            cor="azul"
+            icone={<UserCheck className="h-5 w-5" aria-hidden="true" />}
+            valor={r.cadastrados}
+            rotulo="cadastrados no portal"
+          />
+          <Mini
+            cor="claro"
+            icone={<UserX className="h-5 w-5" aria-hidden="true" />}
+            valor={r.sem_cadastro}
+            rotulo="sem cadastro"
+          />
+        </div>
+      </div>
       {panorama ? <MudouDeVeredicto p={panorama} /> : null}
       {panorama && resumoDaFilaDeLeitura(panorama.aguardando_leitura).mostra ? (
         // A FILA DE LEITURA HUMANA, à vista. Sem isto o servidor contava e
@@ -1159,15 +1200,7 @@ export function Painel({ entidade }: { entidade: string }) {
         </Aviso>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Numero rotulo="filiados no acervo" valor={r.total} />
-        <Numero
-          rotulo="você não alcança"
-          valor={r.inalcancaveis}
-          tom="atencao"
-        />
-        <Numero rotulo="cadastrados no portal" valor={r.cadastrados} />
-        <Numero rotulo="sem cadastro" valor={r.sem_cadastro} />
+      <div className="grid grid-cols-2 gap-3">
         <Numero rotulo="acompanhando processo" valor={r.acompanhando} />
         <Numero rotulo="querem aviso por e-mail" valor={r.querem_aviso} />
       </div>

@@ -51,6 +51,7 @@ padrão é o mesmo que nenhum, com a desvantagem de parecer que existe.
 | `PROTOCOL_EMISSOES_POR_ORIGEM_HORA` | padrão 20. **Suba** se o sindicato atende vários filiados do mesmo computador da sede |
 | `PROTOCOL_PROXIES_CONFIAVEIS` | endereços, separados por vírgula, de quem este servidor aceita `X-Forwarded-For`. **Vazio por padrão, e vazio significa não acreditar no cabeçalho.** Se o servidor fica atrás de proxy reverso e isto não estiver preenchido, a contagem acima vale para todos juntos — e aí o portão fecha para a fila. Se estiver preenchido com o endereço errado, a contagem volta a ser escolhida por quem pede |
 | `PROTOCOL_EMAIL_DE_QUEM_OPERA` | para onde vai o aviso de que a planilha de um sindicato deixou **pedido esperando** (troca de e-mail, entrada com e-mail repetido). Vazio não impede subir: avisa na subida, e a tarefa `pedidos` passa a falhar enquanto houver pedido — é assim que aparece em `/saude`. Endereço torto impede subir |
+| `PROTOCOL_PORTAL_ESTATICO` | a pasta do portal compilado, para o **servidor** entregar as páginas no mesmo endereço da API — um webapp num serviço só. Compile com `VITE_API=/`. Vazio, quem entrega as páginas é o proxy da frente |
 | `PROTOCOL_MODO_ENSAIO` | `1` dispensa segredo e devolve o código na resposta. Nunca com gente de verdade |
 
 ## Apagamento a pedido (LGPD art. 18, VI)
@@ -283,6 +284,42 @@ PROTOCOL_DATABASE_URL='postgresql://...' python3 docs/medicoes/2026-11-12-apagam
 (`vinculo`). O processo de quem pediu para sair deixa de ser consultado no
 tribunal; o coletivo continua enquanto sobrar um filiado nele. O NÚMERO do
 processo continua na tabela `processo` — T29 em `CHECKPOINTS.md`.
+
+## O atendimento ao filiado
+
+```
+POST /api/atendimento        {"pergunta": "em quais processos eu estou?"}
+```
+
+A conversa em que o filiado pergunta o que perguntaria por telefone: em que
+processo estou, mudou alguma coisa, meus documentos chegaram, o que falta, o
+que posso fazer.
+
+**Não é um modelo de linguagem**, e não por falta de tempo: dado de filiado
+não vai para modelo de linguagem (`CLAUDE.md`). O assunto é reconhecido
+pelas palavras, numa lista fechada (`nucleo/atendimento.py`), e a resposta é
+escrita com o que as rotas das telas devolvem — `meus-processos`,
+`minhas-acoes`, `meu-cadastro`. **Ele não apura nada por conta própria**:
+uma segunda apuração seria uma segunda resposta para a mesma pessoa.
+
+- não aceita CPF: responde sobre quem abriu a sessão;
+- "falta informação" é dito como falta; valor, ele diz que não calcula;
+- o que não reconhece, diz que não entendeu — não chuta um assunto;
+- a pergunta **não é guardada nem logada**: é texto livre. O log leva só o
+  assunto reconhecido.
+
+## A página de entrada, e o portal num endereço só
+
+Sem `?entidade=` no endereço, o portal mostra a página de entrada: o que o
+produto é, e um campo para o código (ou o link colado) do sindicato. Não há
+lista de sindicatos para escolher — a lista de clientes não é pública. O
+código é conferido com o servidor antes de sair da página.
+
+Com `PROTOCOL_PORTAL_ESTATICO` o servidor entrega as páginas e a API juntos:
+
+```bash
+cd portal && VITE_API=/ npx vite build --outDir /srv/protocol/portal --emptyOutDir
+```
 
 ## Nome por nome, e a planilha da base
 

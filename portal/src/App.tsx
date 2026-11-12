@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { Casca } from "./componentes/Casca";
 import { Privacidade } from "./componentes/Privacidade";
 import { Progresso } from "./componentes/Progresso";
 import { Aviso, Botao } from "./componentes/ui";
@@ -27,12 +28,15 @@ import { Entrar } from "./etapas/Entrar";
 import { Inicio } from "./etapas/Inicio";
 import { Processos } from "./etapas/Processos";
 import { Voce } from "./etapas/Voce";
+import { Atendimento } from "./paginas/Atendimento";
+import { Landing } from "./paginas/Landing";
 import { MeusProcessos } from "./paginas/MeusProcessos";
 import { MinhasAcoes } from "./paginas/MinhasAcoes";
 import { Painel } from "./paginas/Painel";
 import * as arquivos from "./lib/arquivos";
 import { camposDoSindicato, jaTemos, preencher } from "./lib/conhecido";
 import * as armazenamento from "./lib/armazenamento";
+import { enderecoDaArea } from "./lib/entrada";
 import * as api from "./lib/envio";
 import { baixar, reciboJson } from "./lib/exportar";
 import {
@@ -122,20 +126,6 @@ function pendencias(
 
 /** Os links entre as áreas. Sem eles, cada uma só se alcança digitando o
  *  endereço — e ninguém digita. */
-const AREAS: { tela: api.Tela; rotulo: string }[] = [
-  { tela: "cadastro", rotulo: "Meu cadastro" },
-  { tela: "acoes", rotulo: "Minhas ações" },
-  { tela: "processos", rotulo: "Meus processos" },
-];
-
-function linkDaArea(tela: api.Tela, apelido: string): string {
-  const q = new URLSearchParams();
-  if (apelido) q.set("entidade", apelido);
-  if (tela !== "cadastro") q.set("tela", tela);
-  const busca = q.toString();
-  return busca ? `?${busca}` : "./";
-}
-
 export function App() {
   const apelido = useMemo(() => api.entidadeDoLink(), []);
   const tela = useMemo(() => api.telaDoLink(), []);
@@ -245,38 +235,35 @@ export function App() {
     }
   }
 
-  return (
-    <div className="min-h-screen bg-papel">
-      <header className="border-b border-borda bg-carta">
-        <div className="mx-auto max-w-3xl px-4 py-4 sm:px-6">
-          <p className="text-xs font-semibold uppercase tracking-wide text-alerta">
-            Protótipo — não é o portal oficial
-          </p>
-          <p className="mt-0.5 text-lg font-semibold text-tinta">
-            {entidade ?? "Seus direitos, organizados"}
-          </p>
-          {api.servidorLigado() ? (
-            <nav className="mt-2 flex flex-wrap gap-4 text-sm">
-              {AREAS.map((a) => (
-                <a
-                  key={a.tela}
-                  href={linkDaArea(a.tela, apelido)}
-                  aria-current={a.tela === tela ? "page" : undefined}
-                  className={
-                    a.tela === tela
-                      ? "font-semibold text-tinta"
-                      : "text-acento underline"
-                  }
-                >
-                  {a.rotulo}
-                </a>
-              ))}
-            </nav>
-          ) : null}
-        </div>
-      </header>
+  // SEM SINDICATO NO LINK, a pessoa chegou pela porta da frente: é a página
+  // de entrada, que pergunta de qual sindicato ela é. O cadastro sem
+  // sindicato não leva a lugar nenhum — não há a quem pedir o código.
+  if (!apelido && tela === "cadastro") {
+    return (
+      <>
+        <Landing onPrivacidade={() => setVerPrivacidade(true)} />
+        {verPrivacidade ? (
+          <Privacidade onFechar={() => setVerPrivacidade(false)} />
+        ) : null}
+      </>
+    );
+  }
 
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+  return (
+    <Casca
+      entidade={entidade}
+      tela={tela}
+      comServidor={api.servidorLigado()}
+      link={(qual) => enderecoDaArea(qual, apelido)}
+      onPrivacidade={() => setVerPrivacidade(true)}
+    >
+      <div
+        className={
+          tela === "painel"
+            ? "mx-auto max-w-5xl space-y-6"
+            : "mx-auto max-w-3xl space-y-6"
+        }
+      >
         {avisoDemo ? (
           <Aviso tom="alerta">
             <strong>Demonstração.</strong> {avisoDemo}
@@ -311,6 +298,8 @@ export function App() {
           <MinhasAcoes entidade={apelido} />
         ) : tela === "processos" ? (
           <MeusProcessos entidade={apelido} />
+        ) : tela === "atendimento" ? (
+          <Atendimento entidade={apelido} />
         ) : tela === "painel" ? (
           <Painel entidade={apelido} />
         ) : recibo ? (
@@ -353,7 +342,7 @@ export function App() {
             </div>
             {api.servidorLigado() ? (
               <a
-                href={linkDaArea("acoes", apelido)}
+                href={enderecoDaArea("acoes", apelido)}
                 className="block rounded-md border border-borda bg-carta p-4 text-[15px] font-medium text-tinta underline"
               >
                 Ver de quais ações eu faço parte
@@ -516,20 +505,11 @@ export function App() {
           </>
         )}
 
-        <footer className="pt-4 text-sm">
-          <button
-            type="button"
-            onClick={() => setVerPrivacidade(true)}
-            className="text-acento underline"
-          >
-            Como tratamos os seus dados
-          </button>
-        </footer>
-      </main>
+      </div>
 
       {verPrivacidade ? (
         <Privacidade onFechar={() => setVerPrivacidade(false)} />
       ) : null}
-    </div>
+    </Casca>
   );
 }

@@ -399,6 +399,22 @@ def main() -> int:
                     "\"Sair e apagar\" deixou dado da pessoa na tela ou no "
                     "navegador")
 
+        if not falhas:
+            print("  dirigindo o Chromium — a porta da frente e o atendimento…")
+            da_entrada = (_dirigir(cfg, "entrada", falhas).get("entrada") or {})
+            if not falhas:
+                if not da_entrada.get("recusouCodigoErrado") \
+                        or not da_entrada.get("levouAoPortal"):
+                    falhas.append("a página de entrada não recusou o código "
+                                  "errado, ou não levou ao portal do sindicato")
+                conversa = da_entrada.get("atendimento") or ""
+                if "R$" in conversa or "Não calculamos valor" not in conversa:
+                    falhas.append("o atendimento falou em valor, ou não disse "
+                                  "que não calcula")
+                if CPF_FILIADO in conversa or "111.444.777-35" in conversa:
+                    falhas.append("o atendimento respondeu com dado de OUTRA "
+                                  "pessoa")
+
         print("  dirigindo o Chromium — o filiado…")
         dados = _dirigir(cfg, "cadastro", falhas)
         protocolo = dados.get("protocolo", "")

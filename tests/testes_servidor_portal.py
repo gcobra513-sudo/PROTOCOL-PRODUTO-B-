@@ -2163,7 +2163,81 @@ def teste_a_caixa_e_o_dominio_de_um_endereco():
     print("  ok     +etiqueta e ponto do Gmail juntam; subdomínio junta")
 
 
+def teste_o_atendimento_entende_as_perguntas_de_sempre():
+    """O atendimento NÃO é um modelo de linguagem — dado de filiado não vai
+    para modelo de linguagem, e essa é regra da casa. Ele reconhece as
+    perguntas que o filiado faz por telefone, pelas palavras, e responde com
+    o que as telas já dizem. O que não reconhece, diz que não entendeu: não
+    chuta um assunto."""
+    from nucleo import atendimento
+
+    secao("o atendimento automático")
+    casos = {
+        "em quais processos eu estou inscrito?": "processos",
+        "Quais ações eu faço parte": "processos",
+        "mudou alguma coisa no meu processo?": "novidades",
+        "teve andamento? alguma novidade": "novidades",
+        "meus documentos estão certos?": "documentos",
+        "vocês receberam minha sentença": "documentos",
+        "o que falta eu fazer": "falta",
+        "tem alguma pendência minha?": "falta",
+        "eu tenho direito a receber?": "direitos",
+        "posso executar": "direitos",
+        "quanto eu vou receber": "valor",
+        "qual o valor": "valor",
+        "meus dados estão atualizados? quero trocar meu e-mail": "dados",
+        "bom dia": "ajuda",
+        "o que você faz?": "ajuda",
+        "qual a previsão do tempo": "nao_entendi",
+        "": "ajuda",
+    }
+    for pergunta, esperado in casos.items():
+        checa(atendimento.entender(pergunta) == esperado,
+              f"{pergunta!r}: entendeu {atendimento.entender(pergunta)!r}, "
+              f"esperava {esperado!r}")
+    print("  ok     reconhece as perguntas de sempre, e diz quando não entende")
+
+
+def teste_o_servidor_entrega_o_portal_no_mesmo_endereco():
+    """Um webapp num endereço só: o servidor entrega as páginas E a API.
+    A rota da API tem de continuar sendo da API — um arquivo estático não
+    pode ficar na frente de `/saude` nem de `/api/...`."""
+    from fastapi.testclient import TestClient
+
+    from servidor.app import criar_app
+    from servidor.config import ConfiguracaoInvalida, carregar
+
+    raiz = Path(tempfile.mkdtemp(prefix="estatico-"))
+    _NASCIDOS.append(raiz)
+    portal = raiz / "portal"
+    portal.mkdir()
+    (portal / "index.html").write_text("<!doctype html><title>PORTAL-DE-TESTE</title>")
+    base = {"PROTOCOL_MODO_ENSAIO": "1", "PROTOCOL_RAIZ": str(raiz / "dados")}
+    cliente = TestClient(criar_app(carregar(
+        {**base, "PROTOCOL_PORTAL_ESTATICO": str(portal)})))
+    r = cliente.get("/")
+    checa(r.status_code == 200 and "PORTAL-DE-TESTE" in r.text,
+          f"o servidor não entrega a página do portal: {r.status_code}")
+    r = cliente.get("/saude")
+    checa(r.status_code == 200 and "ok" in r.json(),
+          "o portal estático ficou na frente da rota de saúde")
+    r = cliente.post("/api/acesso/codigo", json={"entidade": "x", "cpf": "1"})
+    checa(r.headers["content-type"].startswith("application/json"),
+          "o portal estático ficou na frente da API")
+    try:
+        carregar({**base, "PROTOCOL_PORTAL_ESTATICO": str(raiz / "nao-existe")})
+        checa(False, "pasta de portal que não existe passou na subida")
+    except ConfiguracaoInvalida:
+        pass
+    sem = TestClient(criar_app(carregar(base)))
+    checa(sem.get("/").status_code == 404,
+          "sem a variável, o servidor entregou página de algum lugar")
+    print("  ok     páginas e API no mesmo endereço, sem uma tapar a outra")
+
+
 TESTES.extend([
+    teste_o_atendimento_entende_as_perguntas_de_sempre,
+    teste_o_servidor_entrega_o_portal_no_mesmo_endereco,
     teste_a_caixa_e_o_dominio_de_um_endereco,
     teste_o_aviso_ao_dono_nunca_vai_para_o_endereco_pedido,
     teste_o_lembrete_diario_de_pedido_que_espera,

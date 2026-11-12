@@ -4549,6 +4549,98 @@ def teste_dominio_confiado_por_quem_opera_libera():
     print("  ok     domínio confiado libera quem esperava, só naquele sindicato")
 
 
+# -------------------------------------------- o atendimento ao filiado
+
+def _atender(cliente, token: str, pergunta: str, **extra):
+    return cliente.post("/api/atendimento",
+                        json={"pergunta": pergunta, **extra},
+                        headers={"Authorization": f"Bearer {token}"}
+                        if token else {})
+
+
+def teste_o_atendimento_responde_com_o_que_as_telas_dizem():
+    """O filiado liga para a sede perguntando em que processo está, se os
+    documentos chegaram, o que falta. O atendimento responde a mesma coisa
+    que as telas — e tem de ser a MESMA, porque uma segunda apuração é uma
+    segunda resposta, e duas respostas para a mesma pessoa é o defeito que a
+    auditoria de produto já achou uma vez.
+
+    Então ele não apura nada: pergunta às rotas que as telas usam.
+    """
+    secao("o atendimento ao filiado")
+    entidade = "demo-atende-1"
+    cliente, ent, raiz = _servidor(entidade)
+    _base_com_processo_e_aviso(cliente, entidade, [SAI + (PROC_1,)])
+    cab = lambda: {"Authorization": f"Bearer {_token(cliente, C_PLAN, entidade)}"}
+    das_telas_acoes = cliente.get("/api/minhas-acoes", headers=cab()).json()
+    das_telas_proc = cliente.get("/api/meus-processos", headers=cab()).json()
+    token = _token(cliente, C_PLAN, entidade)
+
+    r = _atender(cliente, token, "em quais processos eu estou?")
+    checa(r.status_code == 200 and r.json()["assunto"] == "processos",
+          f"{r.status_code} {r.text[:200]}")
+    texto = " ".join(r.json()["resposta"])
+    for p in das_telas_proc["processos"]:
+        checa(p["numero"] in "".join(c for c in texto if c.isdigit()),
+              f"o atendimento não cita o processo que a tela mostra: {texto}")
+
+    texto = " ".join(_atender(cliente, token, "o que falta?").json()["resposta"])
+    itens = [i for g in das_telas_acoes["pendencias"] for i in g["itens"]]
+    checa(itens and all(i in texto for i in itens),
+          f"o atendimento não diz as MESMAS pendências da tela: faltou "
+          f"{[i for i in itens if i not in texto]}")
+
+    texto = " ".join(_atender(cliente, token,
+                              "meus documentos estão certos?").json()["resposta"])
+    checa("comprovante de contribuição" in texto.lower(),
+          f"não diz que documento já recebemos: {texto}")
+
+    texto = " ".join(_atender(cliente, token,
+                              "quanto eu vou receber?").json()["resposta"])
+    checa("R$" not in texto and "não calculamos" in texto.lower(),
+          f"O ATENDIMENTO FALOU EM VALOR, ou não disse que não calcula: {texto}")
+
+    texto = " ".join(_atender(cliente, token, "posso executar?").json()["resposta"])
+    podem = [o for o in das_telas_acoes["oportunidades"]
+             if o["veredicto"] == "PODE"]
+    checa(not podem, "a premissa mudou: o motor passou a dizer PODE aqui")
+    checa("já pode" not in texto.lower()
+          and "ainda não dá para dizer" in texto.lower(),
+          f"O ATENDIMENTO DISSE QUE PODE sem o motor dizer: {texto[:300]}")
+    checa(all(o["rotulo"] in texto for o in das_telas_acoes["oportunidades"]),
+          "o atendimento não cobre as mesmas oportunidades da tela")
+
+    r = _atender(cliente, token, "qual a previsão do tempo?")
+    checa(r.json()["assunto"] == "nao_entendi" and r.json()["sugestoes"],
+          f"chutou um assunto para pergunta que não conhece: {r.json()}")
+    print("  ok     processos, pendências e documentos: os mesmos das telas")
+
+
+def teste_o_atendimento_so_fala_de_quem_perguntou():
+    """Sem sessão não responde; e CPF no corpo do pedido não muda de quem é
+    a resposta — a rota não aceita CPF, como as outras do filiado. E a
+    PERGUNTA, que é texto livre e pode trazer qualquer coisa, não fica
+    guardada em lugar nenhum."""
+    entidade = "demo-atende-2"
+    cliente, ent, raiz = _servidor(entidade)
+    _base_com_processo_e_aviso(cliente, entidade,
+                               [SAI + (PROC_1,), FICA + (PROC_2,)])
+    r = _atender(cliente, "", "em quais processos eu estou?")
+    checa(r.status_code == 401, f"sem sessão respondeu: {r.status_code}")
+
+    token = _token(cliente, C_PLAN, entidade)
+    r = _atender(cliente, token, "em quais processos eu estou? MARCA-XYZZY",
+                 cpf=D_PLAN, entidade="outra")
+    texto = "".join(c for c in " ".join(r.json()["resposta"]) if c.isdigit())
+    checa(PROC_1 in texto and PROC_2 not in texto,
+          "O ATENDIMENTO RESPONDEU SOBRE OUTRA PESSOA por causa de um CPF "
+          "no pedido")
+    guardou = [str(c.relative_to(raiz)) for c in raiz.rglob("*")
+               if c.is_file() and b"MARCA-XYZZY" in c.read_bytes()]
+    checa(guardou == [], f"a pergunta do filiado ficou guardada em: {guardou}")
+    print("  ok     só responde a quem tem sessão, sobre ela, e não guarda a pergunta")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -4666,6 +4758,8 @@ TESTES = [
     teste_apelido_do_mesmo_endereco_nao_e_outra_caixa,
     teste_dominio_concentrado_segura_a_entrada,
     teste_dominio_confiado_por_quem_opera_libera,
+    teste_o_atendimento_responde_com_o_que_as_telas_dizem,
+    teste_o_atendimento_so_fala_de_quem_perguntou,
 ]
 
 

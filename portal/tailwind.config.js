@@ -18,6 +18,21 @@ export default {
         acento: "rgb(var(--acento) / <alpha-value>)",
         alerta: "rgb(var(--alerta) / <alpha-value>)",
         bom: "rgb(var(--bom) / <alpha-value>)",
+        lilas: "rgb(var(--lilas) / <alpha-value>)",
+        ceu: "rgb(var(--ceu) / <alpha-value>)",
+        ambar: "rgb(var(--ambar) / <alpha-value>)",
+        // FIXAS: o fundo dos cartões de número, sempre com texto branco.
+        roxo: { DEFAULT: "#5E35B1", fundo: "#4527A0" },
+        azul: { DEFAULT: "#1E88E5", fundo: "#1565C0" },
+      },
+      fontFamily: {
+        // Servida pelo próprio portal (`@fontsource`), nunca de um CDN: uma
+        // fonte pedida a terceiro contaria a ele quem abriu o portal de qual
+        // sindicato — e filiação sindical é dado sensível.
+        sans: ["Roboto", "system-ui", "-apple-system", "Segoe UI", "sans-serif"],
+      },
+      boxShadow: {
+        cartao: "0 1px 2px rgb(18 25 38 / 0.04), 0 1px 12px rgb(18 25 38 / 0.04)",
       },
     },
   },
