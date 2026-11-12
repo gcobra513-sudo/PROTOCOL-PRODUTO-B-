@@ -450,8 +450,36 @@ revoga), e não o tombstone, porque o cadastro tem de entrar com o banco
 fora do ar. Depois: 0 sobras nos quatro; o cadastro responde 401 e a
 leitura, 404. Quatorze mutantes desta rodada, todos derrubam teste.
 
-Aberto (T28): as três tarefas agendadas leem a base e gravam por CPF sem a
-trava — lido, não medido. `avisar` manda e-mail.
+**12/11, mais tarde — as três tarefas agendadas, medidas**
+(`docs/medicoes/2026-11-12-apagamento-e-as-tarefas-agendadas.py`).
+
+| tarefa | com um apagamento no meio da rodada |
+|---|---|
+| `avisar` | **1 e-mail enviado** a quem tinha acabado de pedir para sair, com o nome e a movimentação do processo; o corpo no log; 1 `aviso_enviado` |
+| `reavaliar` | 2 linhas em `oportunidade` — o veredicto dela, guardado depois |
+| `coletar` | nada do CPF, do nome ou do e-mail; o processo dela gravado mais uma vez |
+
+O e-mail é a única sobra de T28 que sai do servidor, e não se desfaz.
+
+**E uma afirmação minha que a medição derrubou.** Ao escrever o teste da
+coleta eu registrei que, apagada ANTES, o processo da pessoa "nem entraria
+na lista". Falso. Sem corrida nenhuma, o processo de quem foi apagado
+continuava sendo consultado no tribunal a cada coleta (2 de 2, medido): a
+lista saía da tabela `processo`, que o apagamento não limpa de propósito.
+A varredura dizia `vestigios: []` — corretamente, pelo que ela mede — e o
+tratamento continuava. A lista passou a sair de `vinculo`: processo que
+ninguém mais tem, ninguém mais consulta; o coletivo continua enquanto
+sobrar um filiado nele.
+
+Correção das tarefas: `avisar` e `reavaliar` conferem cada pessoa de novo,
+uma a uma, com o apagamento parado até o e-mail sair ou o veredicto ser
+gravado; `coletar` relê a lista na hora de gravar. A trava é por pessoa, e
+não pela rodada, para um apagamento pedido no painel esperar um e-mail e
+não quatro mil. Depois: 0 em tudo. Sete mutantes, todos derrubam teste.
+
+T28 fecha. Fica T29, para o jurídico: o NÚMERO do processo de quem saiu
+continua em `processo` (e o que já foi coletado, em `movimento` e
+`movimentos.jsonl`). Numa ação própria, o número identifica a pessoa.
 
 ### Uma observação para o dia em que houver planilha real (soma ao item 9)
 

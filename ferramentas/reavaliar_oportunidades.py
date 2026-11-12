@@ -55,7 +55,7 @@ RAIZ_DO_REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ_DO_REPO))
 
 from nucleo import entendimentos, motor, panorama  # noqa: E402
-from servidor import banco, entidades  # noqa: E402
+from servidor import apagamento, banco, entidades  # noqa: E402
 
 
 def main() -> int:
@@ -105,17 +105,26 @@ def main() -> int:
     # fraca que o produto tinha: "falta ler a sentença" de sentença lida.
     lidos = banco.fatos_lidos_da_entidade(args.banco, ent.apelido)
     gravadas = 0
+    sairam = 0
     try:
         for cpf, envio in pessoas.items():
             fatos = panorama.fatos_do_cadastro(envio["linha"],
                                                envio["entregues"],
                                                lidos.get(cpf, {}))
             oportunidades = motor.avaliar(fatos, catalogo)
-            gravadas += banco.registrar_oportunidades(
-                args.banco, ent.apelido, cpf, oportunidades,
-                assinatura=catalogo.assinatura,
-                digest=catalogo.digest,
-            )
+            # A BASE FOI LIDA LÁ EM CIMA. Quem pediu para sair desde então
+            # teria o veredicto guardado DEPOIS do apagamento (medido em
+            # 12/11/2026: 2 linhas em `oportunidade`). Confere de novo, com
+            # o apagamento parado enquanto grava.
+            with apagamento.se_ainda_esta(args.banco, ent, raiz, cpf) as esta:
+                if not esta:
+                    sairam += 1
+                    continue
+                gravadas += banco.registrar_oportunidades(
+                    args.banco, ent.apelido, cpf, oportunidades,
+                    assinatura=catalogo.assinatura,
+                    digest=catalogo.digest,
+                )
     except banco.CatalogoIncoerente as e:
         print(f"RECUSADO: {e}", file=sys.stderr)
         print("Nada foi gravado nesta rodada.", file=sys.stderr)
@@ -127,6 +136,10 @@ def main() -> int:
           f"(impressão {catalogo.digest[:12]})")
     print(f"  {len(pessoas)} pessoa(s) na base")
     print(f"  {gravadas} veredicto(s) guardado(s)")
+    if sairam:
+        # QUANTAS, nunca quem: esta saída vai para o log do agendador.
+        print(f"  {sairam} pessoa(s) saíram da base durante a rodada: "
+              f"nada foi guardado delas")
     if not mudou:
         print("  nenhuma mudou de veredicto neste catálogo")
         return 0

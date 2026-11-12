@@ -59,6 +59,34 @@ def numeros_do_diario(registros: list[dict]) -> list[str]:
     return numeros
 
 
+def numeros_da_entidade(pasta: pathlib.Path, banco_url: str,
+                        apelido: str) -> list[str]:
+    """Os processos a acompanhar HOJE, das duas fontes.
+
+    DAS DUAS FONTES. Ler só o diário de cadastro deixava de fora os números
+    que vieram da PLANILHA do sindicato — justamente os que a pessoa não
+    precisou digitar. O ciclo ficava quebrado no meio: a planilha trazia o
+    processo, o banco guardava, e a coleta não ia buscar. Achado pelo
+    agendador, que registrou "nada a acompanhar" numa entidade que tinha
+    processo.
+
+    É FUNÇÃO porque é chamada DUAS vezes: antes de consultar o tribunal, e
+    de novo na hora de gravar — ver `main`.
+    """
+    numeros = numeros_do_diario(deposito.ler_diario(pasta))
+    if banco_url:
+        from servidor import banco
+
+        try:
+            for numero in banco.processos_para_acompanhar(banco_url, apelido):
+                if numero not in numeros:
+                    numeros.append(numero)
+        except Exception as e:  # noqa: BLE001
+            print(f"  aviso: não deu para ler os processos do banco: {e}",
+                  file=sys.stderr)
+    return numeros
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -91,25 +119,7 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         pasta = ent.pasta(raiz)
-        # DAS DUAS FONTES. Ler só o diário de cadastro deixava de fora os
-        # números que vieram da PLANILHA do sindicato — justamente os que a
-        # pessoa não precisou digitar. O ciclo ficava quebrado no meio: a
-        # planilha trazia o processo, o banco guardava, e a coleta não ia
-        # buscar. Achado pelo agendador, que registrou "nada a acompanhar"
-        # numa entidade que tinha processo.
-        numeros = numeros_do_diario(deposito.ler_diario(pasta))
-        if args.banco:
-            from servidor import banco
-
-            try:
-                for numero in banco.processos_para_acompanhar(
-                    args.banco, ent.apelido
-                ):
-                    if numero not in numeros:
-                        numeros.append(numero)
-            except Exception as e:  # noqa: BLE001
-                print(f"  aviso: não deu para ler os processos do banco: {e}",
-                      file=sys.stderr)
+        numeros = numeros_da_entidade(pasta, args.banco, ent.apelido)
         destino = pasta / ARQUIVO
 
     if not numeros:
@@ -148,25 +158,39 @@ def main() -> int:
         print(f"  FALHA: {erro}", file=sys.stderr)
 
     if destino and not args.seco and agora:
-        deposito.anexar_com_fsync(
-            destino,
-            json.dumps(
-                {
-                    "coletado_em": dt.datetime.now(dt.UTC).isoformat(
-                        timespec="seconds"),
-                    "consultados": len(numeros),
-                    "falhas": erros,
-                    "movimentos": [
-                        {"numero": m.numero, "grau": m.grau,
-                         "data": m.data, "nome": m.nome}
-                        for m in agora
-                    ],
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-            ) + "\n",
-        )
-        print(f"\n  gravado em {destino}")
+        # A LISTA FOI LIDA ANTES DA CONSULTA, e a consulta leva 22 a 43 s
+        # por tribunal. Quem pediu para sair nesse intervalo deixava o
+        # processo DELA gravado — quando, apagada antes, ele nem entraria
+        # na lista (medido em 12/11/2026). A consulta já foi; o que dá para
+        # fazer é o resultado ser o de quem saiu antes: relê a lista com o
+        # apagamento parado, e grava só o que ainda é acompanhado.
+        with deposito.travada(pasta, deposito.TRAVA_DO_APAGAMENTO):
+            ainda = set(numeros_da_entidade(pasta, args.banco, ent.apelido))
+            ficam = [m for m in agora if m.numero in ainda]
+            if len(ficam) != len(agora):
+                print(f"  {len(agora) - len(ficam)} movimento(s) de processo "
+                      f"que deixou de ser acompanhado durante a coleta NÃO "
+                      f"foram gravados")
+            if ficam:
+                deposito.anexar_com_fsync(
+                    destino,
+                    json.dumps(
+                        {
+                            "coletado_em": dt.datetime.now(dt.UTC).isoformat(
+                                timespec="seconds"),
+                            "consultados": len(numeros),
+                            "falhas": erros,
+                            "movimentos": [
+                                {"numero": m.numero, "grau": m.grau,
+                                 "data": m.data, "nome": m.nome}
+                                for m in ficam
+                            ],
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ) + "\n",
+                )
+                print(f"\n  gravado em {destino}")
 
     return 1 if erros else 0
 

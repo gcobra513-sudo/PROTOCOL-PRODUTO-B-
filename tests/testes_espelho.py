@@ -3804,6 +3804,321 @@ def teste_quem_grava_dado_de_pessoa_segura_a_trava_do_apagamento():
     print("  ok     documentos e cadastro gravam com o apagamento parado")
 
 
+# ------------------- o apagamento no meio das tarefas agendadas (T28)
+
+PROC_1 = "00103912420064013400"
+PROC_2 = "00012347020194013400"
+PROC_3 = "00076540520198070001"
+
+
+def _rodar_ferramenta(nome: str, raiz, entidade: str, *extra: str):
+    """Roda `ferramentas/<nome>.py` NESTE processo, pelo `main()` dela.
+
+    Neste processo e não num subprocesso, que é como o agendador a chama,
+    porque o teste precisa encaixar um apagamento no meio dela.
+    """
+    import contextlib
+    import importlib
+    import io
+
+    modulo = importlib.import_module(f"ferramentas.{nome}")
+    antigo, saida = sys.argv, io.StringIO()
+    sys.argv = [nome, "--entidade", entidade, "--raiz", str(raiz),
+                "--banco", URL, *extra]
+    try:
+        with contextlib.redirect_stdout(saida), \
+                contextlib.redirect_stderr(saida):
+            codigo = modulo.main()
+    finally:
+        sys.argv = antigo
+    return codigo, saida.getvalue()
+
+
+def _base_com_processo_e_aviso(cliente, entidade: str,
+                               pessoas: list[tuple[str, str, str, str]]):
+    """(cpf, nome, e-mail, processo): na planilha do sindicato, e cadastrada
+    pelo portal pedindo aviso."""
+    import json as _json
+
+    linhas = ["CPF;Nome Completo;E-mail;Cargo;Processo"]
+    for cpf, nome, email, processo in pessoas:
+        linhas.append(f"{cpf};{nome};{email};"
+                      f"Auditor Fiscal da Receita Federal;{processo}")
+    _confirmar_planilha(cliente, entidade,
+                        ("\r\n".join(linhas) + "\r\n").encode("latin-1"))
+    for cpf, nome, email, _processo in pessoas:
+        r = cliente.post(
+            "/api/cadastro",
+            data={"token": _token(cliente, cpf, entidade),
+                  "linha": _json.dumps(linha(cpf, nome_completo=nome,
+                                             email=email, quer_aviso="sim"))},
+            files=[("arquivos", ("contribuicao-1.pdf", _pdf(CONTRIB),
+                                 "application/pdf"))])
+        checa(r.status_code == 200, f"o cenário não montou: {r.text[:200]}")
+
+
+SAI = (C_PLAN, "SAI NO MEIO (CADASTRO DE EXEMPLO)", "meio@exemplo.invalid")
+FICA = (D_PLAN, "FICA (CADASTRO DE EXEMPLO)", "fica@exemplo.invalid")
+
+
+def _ha_movimento_novo(entidade: str, ent, raiz, numeros: list[str]) -> None:
+    """Os processos já são conhecidos, e a coleta trouxe um movimento novo
+    em cada um: é o estado em que `avisar` MANDA e-mail."""
+    import json as _json
+
+    from nucleo import aviso as mod
+    from servidor import banco
+
+    banco.guardar_movimentos(URL, entidade, [
+        mod.Movimento(numero=n, grau="G1", data="2026-10-01",
+                      nome="Distribuição") for n in numeros])
+    (ent.pasta(raiz) / "movimentos.jsonl").write_text(_json.dumps({
+        "coletado_em": "2026-11-11T00:00:00+00:00",
+        "consultados": len(numeros), "falhas": [],
+        "movimentos": [{"numero": n, "grau": "G1", "data": "2026-11-10",
+                        "nome": "Juntada de petição"} for n in numeros],
+    }) + "\n", encoding="utf-8")
+
+
+def teste_apagamento_no_meio_do_aviso_nao_manda_email():
+    """MEDIDO em 12/11/2026
+    (`docs/medicoes/2026-11-12-apagamento-e-as-tarefas-agendadas.py`): a
+    tarefa de aviso lê quem pediu aviso, e DEPOIS, pessoa por pessoa, manda
+    o e-mail. Quem era apagado a pedido nesse intervalo RECEBIA O E-MAIL —
+    com o nome dela e a movimentação do processo dela —, e ainda ficavam o
+    corpo da mensagem no log e uma linha em `aviso_enviado`.
+
+    De todas as sobras de T28 esta é a única que sai do servidor: não há
+    como desfazer um e-mail.
+    """
+    from servidor import banco
+
+    secao("o apagamento no meio das tarefas agendadas")
+    entidade = "demo-tarefa-1"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _base_com_processo_e_aviso(cliente, entidade,
+                               [SAI + (PROC_1,), FICA + (PROC_1,)])
+    _ha_movimento_novo(entidade, ent, raiz, [PROC_1])
+
+    (resultado, apagou) = _com_apagamento_no_meio(
+        banco, "chaves_ja_avisadas", cliente, entidade, C_PLAN, gestor,
+        lambda: _rodar_ferramenta("avisar_movimentacao", raiz, entidade))
+    codigo, saida = resultado
+    checa(apagou == [(200, [])], f"o apagamento do meio não rodou: {apagou}")
+    log = raiz / "mensagens_enviadas.log"
+    mensagens = log.read_text(encoding="utf-8") if log.is_file() else ""
+    checa(SAI[2] not in mensagens and SAI[1] not in mensagens,
+          "SAIU E-MAIL PARA QUEM ACABOU DE PEDIR PARA SAIR")
+    checa(_no_banco(entidade, C_PLAN) == {},
+          f"…e ficou marcado no banco: {_no_banco(entidade, C_PLAN)}")
+    checa(_sobras_no_disco(raiz, C_PLAN) == [],
+          f"sobrou no disco: {_sobras_no_disco(raiz, C_PLAN)}")
+    checa(f"\t{FICA[2]}\t" in mensagens,
+          f"quem FICA não foi avisado (saída {codigo}): {saida[-300:]}")
+    checa("1 pessoa(s) saíram da base" in saida,
+          f"a ferramenta não diz que pulou alguém: {saida[-300:]}")
+    checa(C_PLAN not in saida and SAI[2] not in saida,
+          "a ferramenta escreveu no log do agendador QUEM pediu para sair")
+    print("  ok     apagamento no meio do aviso: o e-mail não sai")
+
+
+def teste_apagamento_no_meio_da_reavaliacao_nao_guarda_veredicto():
+    """MEDIDO em 12/11/2026: a reavaliação lê a base inteira e depois grava
+    o veredicto de cada pessoa. Quem era apagado no intervalo ganhava 2
+    linhas em `oportunidade` — o que ela pode executar e ajuizar, guardado
+    depois de ela pedir para sair."""
+    from servidor import banco
+
+    entidade = "demo-tarefa-2"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _base_com_processo_e_aviso(cliente, entidade,
+                               [SAI + (PROC_1,), FICA + (PROC_1,)])
+    (resultado, apagou) = _com_apagamento_no_meio(
+        banco, "fatos_lidos_da_entidade", cliente, entidade, C_PLAN, gestor,
+        lambda: _rodar_ferramenta("reavaliar_oportunidades", raiz, entidade))
+    codigo, saida = resultado
+    checa(apagou == [(200, [])], f"o apagamento do meio não rodou: {apagou}")
+    checa(codigo == 0, f"a reavaliação saiu com {codigo}: {saida[-300:]}")
+    checa(_no_banco(entidade, C_PLAN) == {},
+          f"O VEREDICTO DE QUEM PEDIU PARA SAIR FOI GUARDADO: "
+          f"{_no_banco(entidade, C_PLAN)}")
+    checa(_no_banco(entidade, D_PLAN).get("oportunidade", 0) > 0,
+          f"quem FICA ficou sem veredicto: {_no_banco(entidade, D_PLAN)}")
+    checa("1 pessoa(s) saíram da base" in saida and C_PLAN not in saida,
+          f"a ferramenta não diz que pulou alguém, ou diz quem: "
+          f"{saida[-300:]}")
+    print("  ok     apagamento no meio da reavaliação: nada é guardado")
+
+
+def _tribunal_de_mentira(numeros, *args, **kwargs):
+    from servidor import acompanhamento
+
+    return ([acompanhamento.Movimento(numero=n, grau="G1", data="2026-11-11",
+                                      nome="Conclusos para decisão")
+             for n in list(numeros)], [])
+
+
+def teste_processo_de_quem_saiu_deixa_de_ser_acompanhado():
+    """MEDIDO em 12/11/2026, e SEM CORRIDA NENHUMA: a pessoa é apagada a
+    pedido, a rota responde `vestigios: []`, e a coleta continua consultando
+    o processo dela no tribunal — no dia seguinte, e no outro, para sempre.
+
+    Eu tinha escrito, no teste da corrida logo abaixo, que "apagada antes, o
+    processo nem entraria na lista". Era falso, e foi esse teste que mostrou:
+    a lista saía da tabela `processo`, que o apagamento NÃO limpa — de
+    propósito, porque numa coletiva o mesmo número é de centenas. O que liga
+    a pessoa ao processo é `vinculo`, e esse sai. Então é por `vinculo` que
+    se decide o que acompanhar: processo que ninguém mais tem, ninguém mais
+    consulta.
+
+    O processo COLETIVO continua sendo acompanhado enquanto sobrar alguém.
+    """
+    from servidor import acompanhamento, banco
+
+    entidade = "demo-tarefa-5"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _base_com_processo_e_aviso(cliente, entidade, [
+        SAI + (f"{PROC_1}, {PROC_3}",), FICA + (f"{PROC_2}, {PROC_3}",)])
+    checa(banco.processos_para_acompanhar(URL, entidade)
+          == sorted([PROC_1, PROC_2, PROC_3]),
+          f"o cenário não montou: "
+          f"{banco.processos_para_acompanhar(URL, entidade)}")
+    r = _apagar(cliente, entidade,
+                {"cpf": C_PLAN, "motivo": "pedido do titular",
+                 "pedido_por": "g"}, gestor)
+    checa(r.status_code == 200 and r.json()["vestigios"] == [],
+          f"o apagamento não rodou limpo: {r.text[:200]}")
+
+    consultados: list[str] = []
+
+    def tribunal(numeros, *a, **k):
+        consultados.extend(numeros)
+        return _tribunal_de_mentira(numeros)
+
+    verdadeiro = acompanhamento.coletar
+    acompanhamento.coletar = tribunal
+    try:
+        _rodar_ferramenta("coletar_movimentacao", raiz, entidade)
+    finally:
+        acompanhamento.coletar = verdadeiro
+    checa(PROC_1 not in consultados,
+          "O PROCESSO DE QUEM PEDIU PARA SAIR CONTINUA SENDO CONSULTADO NO "
+          "TRIBUNAL")
+    checa(sorted(consultados) == sorted([PROC_2, PROC_3]),
+          f"deixou de acompanhar o processo de quem FICA, ou o coletivo "
+          f"que as duas tinham: {consultados}")
+    print("  ok     processo de quem saiu não é mais consultado; o coletivo é")
+
+
+def teste_apagamento_no_meio_da_coleta_nao_grava_processo_sem_dono():
+    """A coleta lê os processos a acompanhar, consulta o tribunal (22 a
+    43 s por consulta, medidos) e grava. Quem é apagado DURANTE a consulta
+    deixava o processo dela gravado mais uma vez.
+
+    Nada do CPF dela sobra: `movimento` é sobre o processo, por decisão
+    registrada em `banco._TABELAS_DO_APAGAMENTO`. O que se exige é que as
+    duas ordens deem o mesmo resultado — o de quem foi apagada ANTES, que
+    é o teste acima. A consulta em si já foi; o que dá para não fazer é
+    gravar.
+    """
+    from servidor import acompanhamento
+
+    entidade = "demo-tarefa-3"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _base_com_processo_e_aviso(cliente, entidade,
+                               [SAI + (PROC_1,), FICA + (PROC_2,)])
+    verdadeiro = acompanhamento.coletar
+    acompanhamento.coletar = _tribunal_de_mentira
+    try:
+        (resultado, apagou) = _com_apagamento_no_meio(
+            acompanhamento, "coletar", cliente, entidade, C_PLAN, gestor,
+            lambda: _rodar_ferramenta("coletar_movimentacao", raiz, entidade))
+    finally:
+        acompanhamento.coletar = verdadeiro
+    codigo, saida = resultado
+    checa(apagou == [(200, [])], f"o apagamento do meio não rodou: {apagou}")
+    diario = ent.pasta(raiz) / "movimentos.jsonl"
+    gravado = diario.read_text(encoding="utf-8") if diario.is_file() else ""
+    checa(PROC_2 in gravado,
+          f"o processo de quem FICA não foi gravado (saída {codigo}): "
+          f"{saida[-300:]}")
+    checa(PROC_1 not in gravado,
+          "O PROCESSO DE QUEM PEDIU PARA SAIR FOI GRAVADO DEPOIS DO "
+          "APAGAMENTO, sem ninguém mais que o acompanhe")
+    print("  ok     apagamento no meio da coleta: processo sem dono não grava")
+
+
+def teste_as_tarefas_agendadas_seguram_a_trava_do_apagamento():
+    """A mesma medição das rotas: no instante em que cada tarefa escreve —
+    ou manda o e-mail —, a trava do apagamento está tomada."""
+    import fcntl
+    import os
+
+    from servidor import acompanhamento, banco, deposito, remetente
+
+    entidade = "demo-tarefa-4"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    _base_com_processo_e_aviso(cliente, entidade, [SAI + (PROC_1,)])
+    _ha_movimento_novo(entidade, ent, raiz, [PROC_1])
+
+    def tomada() -> bool:
+        fd = os.open(pasta / deposito.TRAVA_DO_APAGAMENTO,
+                     os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            return False
+        finally:
+            os.close(fd)
+
+    visto: dict[str, bool] = {}
+    guardados = (remetente.ParaArquivo.enviar_mensagem, banco.marcar_avisado,
+                 banco.registrar_oportunidades, deposito.anexar_com_fsync,
+                 acompanhamento.coletar)
+
+    def espiar(rotulo, original):
+        def espiada(*a, **k):
+            visto[rotulo] = tomada()
+            return original(*a, **k)
+        return espiada
+
+    def anexar_espiado(caminho, texto):
+        if caminho.name == "movimentos.jsonl":
+            visto["coletar: diário de movimentos"] = tomada()
+        return guardados[3](caminho, texto)
+
+    remetente.ParaArquivo.enviar_mensagem = espiar("avisar: e-mail",
+                                                   guardados[0])
+    banco.marcar_avisado = espiar("avisar: marca", guardados[1])
+    banco.registrar_oportunidades = espiar("reavaliar: veredicto",
+                                           guardados[2])
+    deposito.anexar_com_fsync = anexar_espiado
+    acompanhamento.coletar = _tribunal_de_mentira
+    try:
+        _rodar_ferramenta("avisar_movimentacao", raiz, entidade)
+        _rodar_ferramenta("reavaliar_oportunidades", raiz, entidade)
+        _rodar_ferramenta("coletar_movimentacao", raiz, entidade)
+    finally:
+        (remetente.ParaArquivo.enviar_mensagem, banco.marcar_avisado,
+         banco.registrar_oportunidades, deposito.anexar_com_fsync,
+         acompanhamento.coletar) = guardados
+    checa(visto == {"avisar: e-mail": True, "avisar: marca": True,
+                    "reavaliar: veredicto": True,
+                    "coletar: diário de movimentos": True},
+          f"uma tarefa agendada grava (ou manda e-mail) sem a trava do "
+          f"apagamento: {visto}")
+    checa(not tomada(), "a trava ficou presa")
+    print("  ok     avisar, reavaliar e coletar gravam com o apagamento parado")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -3908,6 +4223,11 @@ TESTES = [
     teste_apagamento_no_meio_do_cadastro_nao_ressuscita,
     teste_apagamento_no_meio_da_leitura_do_gestor_nao_ressuscita,
     teste_quem_grava_dado_de_pessoa_segura_a_trava_do_apagamento,
+    teste_apagamento_no_meio_do_aviso_nao_manda_email,
+    teste_apagamento_no_meio_da_reavaliacao_nao_guarda_veredicto,
+    teste_processo_de_quem_saiu_deixa_de_ser_acompanhado,
+    teste_apagamento_no_meio_da_coleta_nao_grava_processo_sem_dono,
+    teste_as_tarefas_agendadas_seguram_a_trava_do_apagamento,
 ]
 
 

@@ -34,6 +34,7 @@ Spec: `docs/superpowers/specs/2026-11-02-apagamento-a-pedido-design.md`
 """
 from __future__ import annotations
 
+import contextlib
 import pathlib
 import shutil
 
@@ -252,6 +253,30 @@ def _procurar(caminho: pathlib.Path, digitos: str, email: str) -> str:
     if email and email in texto:
         return "e-mail"
     return ""
+
+
+@contextlib.contextmanager
+def se_ainda_esta(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str):
+    """Para quem roda sozinho e grava POR PESSOA: segura a trava do
+    apagamento e entrega `True` se a pessoa ainda está na base.
+
+        with apagamento.se_ainda_esta(url, ent, raiz, cpf) as esta:
+            if not esta:
+                continue        # saiu a pedido no meio da rodada
+            ...gravar, ou mandar o e-mail...
+
+    AS TAREFAS AGENDADAS leem a base no começo e agem pessoa por pessoa
+    depois — minutos, numa base grande. Medido em 12/11/2026: quem era
+    apagado nesse intervalo recebia o e-mail de aviso assim mesmo, e tinha
+    o veredicto guardado. A conferência tem de ser FEITA DE NOVO na hora de
+    agir, e com o apagamento parado: conferir e soltar a trava antes de
+    gravar deixaria a mesma janela, só que menor.
+
+    A trava é por pessoa, e não pela rodada inteira, para um apagamento
+    pedido no painel esperar um e-mail, e não quatro mil.
+    """
+    with deposito.travada(ent.pasta(raiz), deposito.TRAVA_DO_APAGAMENTO):
+        yield banco.pessoa_esta_na_base(url, ent.apelido, cpf)
 
 
 def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,

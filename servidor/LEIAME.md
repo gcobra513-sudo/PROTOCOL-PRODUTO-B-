@@ -200,8 +200,20 @@ era desfeito por ela. Para medir de novo:
 PROTOCOL_DATABASE_URL='postgresql://...' python3 docs/medicoes/2026-11-12-apagamento-no-meio.py
 ```
 
-As três tarefas agendadas (coletar, avisar, reavaliar) **não** seguram essa
-trava — T28 em `CHECKPOINTS.md`.
+As três tarefas agendadas seguem a mesma regra. `avisar` e `reavaliar`
+conferem cada pessoa de novo, uma a uma, antes de mandar o e-mail ou guardar
+o veredicto (`apagamento.se_ainda_esta`); `coletar` relê a lista de
+processos na hora de gravar. Quando alguém sai no meio da rodada, a saída
+da tarefa diz **quantas** pessoas foram puladas — nunca quem.
+
+```bash
+PROTOCOL_DATABASE_URL='postgresql://...' python3 docs/medicoes/2026-11-12-apagamento-e-as-tarefas-agendadas.py
+```
+
+**O que a coleta acompanha:** só processo que alguém da base ainda tem
+(`vinculo`). O processo de quem pediu para sair deixa de ser consultado no
+tribunal; o coletivo continua enquanto sobrar um filiado nele. O NÚMERO do
+processo continua na tabela `processo` — T29 em `CHECKPOINTS.md`.
 
 ## Nome por nome, e a planilha da base
 

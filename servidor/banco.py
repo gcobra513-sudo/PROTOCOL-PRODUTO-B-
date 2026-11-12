@@ -860,9 +860,17 @@ def processos_para_acompanhar(url: str, entidade: str) -> list[str]:
     números que vieram da PLANILHA do sindicato — justamente os que a pessoa
     não precisou digitar. O ciclo ficava quebrado no meio: a planilha trazia
     o processo, o `vinculo` guardava, e a coleta não ia buscar.
+
+    SÓ OS QUE ALGUÉM AINDA TEM. A consulta lia a tabela `processo`, que o
+    apagamento a pedido não limpa — de propósito: numa coletiva o mesmo
+    número é de centenas. Mas com isso o processo de quem pediu para sair
+    continuava sendo consultado no tribunal todo dia, para sempre (medido em
+    12/11/2026). O que liga uma pessoa a um processo é `vinculo`, e esse o
+    apagamento tira: processo que ninguém mais tem, ninguém mais consulta. O
+    coletivo continua enquanto sobrar um filiado nele.
     """
     with sessao(url, entidade) as cur:
-        cur.execute("SELECT numero FROM processo ORDER BY numero")
+        cur.execute("SELECT DISTINCT numero FROM vinculo ORDER BY numero")
         return [n for (n,) in cur.fetchall()]
 
 
@@ -1057,6 +1065,19 @@ def marcar_tombstone(url: str, entidade: str, cpf_hash: str,
             "VALUES (%s,%s,%s,%s)",
             (entidade, cpf_hash, motivo, pedido_por),
         )
+
+
+def pessoa_esta_na_base(url: str, entidade: str, cpf: str) -> bool:
+    """Esta pessoa ainda está na base da entidade?
+
+    É a pergunta de quem leu a base no começo de uma rodada e vai gravar
+    (ou mandar e-mail) por pessoa só depois: entre uma coisa e outra ela
+    pode ter sido apagada a pedido. `pessoa` é a última tabela que o
+    apagamento limpa, então "não está" quer dizer que ele terminou.
+    """
+    with sessao(url, entidade) as cur:
+        cur.execute("SELECT 1 FROM pessoa WHERE cpf = %s LIMIT 1", (cpf,))
+        return cur.fetchone() is not None
 
 
 def tombstones(url: str, entidade: str) -> set[str]:
