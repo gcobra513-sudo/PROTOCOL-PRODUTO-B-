@@ -32,6 +32,10 @@ export PROTOCOL_SMTP_SENHA=...
 python3 -m servidor --porta 8000
 ```
 
+**Para pôr no ar de verdade** — serviço, TLS, cópia diária, banco — o passo
+a passo é `implantacao/LEIAME.md`, e ele começa dizendo o que foi conferido
+e o que não foi.
+
 Sem `PROTOCOL_SEGREDO` o servidor **não sobe**, e diz o que falta. Segredo
 padrão é o mesmo que nenhum, com a desvantagem de parecer que existe.
 

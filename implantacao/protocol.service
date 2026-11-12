@@ -1,0 +1,31 @@
+# /etc/systemd/system/protocol.service
+#
+# UM PROCESSO SÓ, de propósito: o trabalho de fundo roda numa thread do
+# próprio servidor, e as travas de arquivo (o rol, o apagamento) valem entre
+# processos — mas nada aqui foi medido com dois. Se um dia precisar de mais
+# de um, o agendador sai para um serviço dele (PROTOCOL_AGENDAR=0 nos demais).
+[Unit]
+Description=PROTOCOL — servidor do portal (Produto B)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=protocol
+Group=protocol
+WorkingDirectory=/srv/protocol/app
+EnvironmentFile=/etc/protocol/protocol.env
+# Só em 127.0.0.1: quem fala com a internet é o Caddy.
+ExecStart=/srv/protocol/venv/bin/python -m servidor --host 127.0.0.1 --porta 8000
+Restart=on-failure
+RestartSec=5
+
+# O servidor escreve em UM lugar: a raiz de dados. O resto é só leitura.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/protocol
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

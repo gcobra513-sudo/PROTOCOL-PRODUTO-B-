@@ -242,6 +242,175 @@ def t_so_quem_opera_troca_o_email_de_quem_ja_entra():
           f"opera, nunca por rota: {onde['trocas.aprovar(']}")
 
 
+#: módulo que o código importa -> pacote que o `pip` instala, quando os
+#: nomes diferem.
+_PACOTE_DO_MODULO = {
+    "multipart": "python-multipart",
+    # O starlette é a base do fastapi e vem com ele, na versão que ele
+    # exige: declará-lo à parte seria fixar uma versão contra a outra.
+    "starlette": "fastapi",
+}
+
+
+def t_o_servidor_instala_tudo_o_que_importa():
+    """`servidor/requirements.txt` é o que uma implantação instala. Tudo o
+    que o servidor, o núcleo e as ferramentas que o agendador roda importam
+    de fora da biblioteca padrão tem de estar lá.
+
+    MEDIDO em 12/11/2026, num ambiente limpo: instalado só por esse arquivo,
+    o servidor subia e respondia — e não tinha `psycopg`. O import do banco
+    é tardio (dentro de função), então nada quebrava na subida: quebrava na
+    primeira consulta. Com o banco fora o portão falha fechado, e ninguém
+    recebe código. A suíte nunca viu isso porque roda no ambiente de quem
+    desenvolve, onde tudo já está instalado.
+    """
+    import ast
+    import sys
+
+    declarados = set()
+    for linha in (RAIZ / "servidor" / "requirements.txt").read_text(
+            encoding="utf-8").splitlines():
+        nome = linha.split("#")[0].strip()
+        for corte in ("[", ">", "<", "=", "~", "!", " "):
+            nome = nome.split(corte)[0]
+        if nome:
+            declarados.add(nome.lower())
+
+    arquivos = sorted((RAIZ / "servidor").glob("*.py")) \
+        + sorted((RAIZ / "nucleo").glob("*.py")) \
+        + [RAIZ / "ferramentas" / f"{n}.py" for n in (
+            "coletar_movimentacao", "avisar_movimentacao",
+            "reavaliar_oportunidades", "avisar_pedidos", "trocas_de_email",
+            "ingerir_acervo", "ingerir_documentos", "apagar_filiado")]
+    locais = {"servidor", "nucleo", "ferramentas"}
+    faltam: dict[str, str] = {}
+    for caminho in arquivos:
+        arvore = ast.parse(caminho.read_text(encoding="utf-8"))
+        for no in ast.walk(arvore):
+            if isinstance(no, ast.Import):
+                modulos = [a.name for a in no.names]
+            elif isinstance(no, ast.ImportFrom) and no.level == 0:
+                modulos = [no.module or ""]
+            else:
+                continue
+            for modulo in modulos:
+                topo = modulo.split(".")[0]
+                if (not topo or topo in locais
+                        or topo in sys.stdlib_module_names):
+                    continue
+                pacote = _PACOTE_DO_MODULO.get(topo, topo).lower()
+                if pacote not in declarados:
+                    faltam.setdefault(pacote, str(caminho.relative_to(RAIZ)))
+    checa(not faltam,
+          f"importado e FORA de servidor/requirements.txt (uma implantação "
+          f"não teria): {faltam}")
+
+
+def _ambiente_de_exemplo() -> tuple[dict[str, str], set[str]]:
+    """(variáveis definidas no exemplo, TODOS os nomes PROTOCOL_ que ele
+    cita — inclusive os comentados em "nunca em produção")."""
+    import re
+
+    texto = (RAIZ / "implantacao" / "protocol.env.exemplo").read_text(
+        encoding="utf-8")
+    definidas: dict[str, str] = {}
+    for linha in texto.splitlines():
+        if linha.startswith("PROTOCOL_") and "=" in linha:
+            nome, _, valor = linha.partition("=")
+            definidas[nome] = valor
+    return definidas, set(re.findall(r"PROTOCOL_[A-Z_]+[A-Z]", texto))
+
+
+def t_o_ambiente_de_exemplo_e_o_que_o_servidor_le():
+    """`implantacao/protocol.env.exemplo` é por onde alguém configura a
+    produção. Variável que o servidor lê e o exemplo não cita é variável
+    que ninguém vai definir; nome que o exemplo cita e o servidor não lê é
+    configuração que parece valer e não vale — o mesmo engano que
+    `config._PREFIXO_ERRADO` existe para denunciar.
+
+    E PREENCHIDO, O EXEMPLO TEM DE BASTAR: o servidor sobe fora do modo
+    ensaio, sem nenhum aviso de configuração faltando.
+    """
+    import re
+
+    sys.path.insert(0, str(RAIZ))
+    from servidor import config
+
+    lidas = set(re.findall(
+        r"PROTOCOL_[A-Z_]+[A-Z]",
+        (RAIZ / "servidor" / "config.py").read_text(encoding="utf-8")))
+    definidas, citadas = _ambiente_de_exemplo()
+    checa(lidas - citadas == set(),
+          f"o servidor lê e o exemplo de implantação não cita: "
+          f"{sorted(lidas - citadas)}")
+    checa(citadas - lidas == set(),
+          f"o exemplo cita nome que o servidor NÃO lê: "
+          f"{sorted(citadas - lidas)}")
+    checa("PROTOCOL_MODO_ENSAIO" not in definidas
+          and "PROTOCOL_SEMENTE_DEMO" not in definidas,
+          "o exemplo de PRODUÇÃO liga o modo ensaio ou a semente de "
+          "demonstração")
+    for nome in ("PROTOCOL_SEGREDO", "PROTOCOL_DATABASE_URL",
+                 "PROTOCOL_SMTP_SENHA"):
+        checa(definidas.get(nome) == "",
+              f"o exemplo traz valor em {nome}: segredo não mora no "
+              f"repositório")
+
+    preenchido = {k: v or "preenchido-na-maquina" for k, v in
+                  definidas.items()}
+    preenchido["PROTOCOL_EMAIL_DE_QUEM_OPERA"] = "nos@exemplo.invalid"
+    preenchido["PROTOCOL_DATABASE_URL"] = "postgresql://exemplo.invalid/x"
+    try:
+        cfg = config.carregar(preenchido)
+    except config.ConfiguracaoInvalida as e:
+        checa(False, f"o exemplo, preenchido, não sobe: {e}")
+        return
+    checa(not cfg.modo_ensaio and cfg.tem_banco and cfg.tem_remetente
+          and cfg.avisos == (),
+          f"o exemplo, preenchido, sobe com aviso de coisa faltando: "
+          f"{cfg.avisos}")
+
+
+def t_os_caminhos_da_implantacao_concordam():
+    """O serviço, o Caddy, a cópia e o passo a passo falam dos MESMOS
+    lugares. Um caminho diferente num dos quatro só aparece na máquina, no
+    dia de subir."""
+    pasta = RAIZ / "implantacao"
+    servico = (pasta / "protocol.service").read_text(encoding="utf-8")
+    caddy = (pasta / "Caddyfile").read_text(encoding="utf-8")
+    copia = (pasta / "protocol-copia.service").read_text(encoding="utf-8")
+    passo = (pasta / "LEIAME.md").read_text(encoding="utf-8")
+    definidas, _ = _ambiente_de_exemplo()
+    raiz_de_dados = definidas["PROTOCOL_RAIZ"]
+    checa(f"ReadWritePaths={raiz_de_dados}" in servico,
+          "o serviço não deixa o servidor escrever na raiz de dados do "
+          "exemplo de ambiente")
+    checa(f" {raiz_de_dados} " in copia,
+          "a cópia diária não copia a raiz de dados do exemplo de ambiente")
+    checa("--porta 8000" in servico and "127.0.0.1:8000" in caddy,
+          "o Caddy e o serviço discordam da porta")
+    checa("--host 127.0.0.1" in servico
+          and definidas["PROTOCOL_PROXIES_CONFIAVEIS"] == "127.0.0.1",
+          "o servidor tem de escutar só em 127.0.0.1 e confiar só no Caddy "
+          "local")
+    for caminho in ("/srv/protocol/app", "/srv/protocol/venv",
+                    "/srv/protocol/portal", "/etc/protocol/protocol.env",
+                    raiz_de_dados, "/var/backups/protocol"):
+        checa(caminho in passo,
+              f"o passo a passo não cria nem cita {caminho}")
+    # `source` no arquivo de ambiente parte a URL do banco no `&` — visto
+    # ao ensaiar esta pasta. O passo a passo não pode ensinar isso.
+    checa("com-ambiente.sh" in passo
+          and "\nsource " not in passo and "\n. /etc/protocol" not in passo,
+          "o passo a passo carrega o ambiente com `source`, ou não usa "
+          "`com-ambiente.sh`")
+    migracoes = sorted(p.name for p in
+                       (RAIZ / "servidor" / "migracoes").glob("*.sql"))
+    checa(all(m in passo for m in migracoes),
+          f"o passo a passo não manda aplicar todas as migrações: "
+          f"{migracoes}")
+
+
 TESTES = [
     ("a raiz de dados padrão está ignorada", t_a_raiz_padrao_esta_ignorada),
     ("todo arquivo que a aplicação escreve está ignorado",
@@ -254,6 +423,12 @@ TESTES = [
      t_ha_um_so_lugar_que_monta_os_fatos_de_uma_pessoa),
     ("só quem opera troca o e-mail de quem já entra",
      t_so_quem_opera_troca_o_email_de_quem_ja_entra),
+    ("o servidor instala tudo o que importa",
+     t_o_servidor_instala_tudo_o_que_importa),
+    ("o ambiente de exemplo é o que o servidor lê",
+     t_o_ambiente_de_exemplo_e_o_que_o_servidor_le),
+    ("os caminhos da implantação concordam",
+     t_os_caminhos_da_implantacao_concordam),
 ]
 
 

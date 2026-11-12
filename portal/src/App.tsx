@@ -163,18 +163,20 @@ export function App() {
     });
   }, [apelido]);
 
+  // O RASCUNHO NÃO É RESTAURADO AO ABRIR A PÁGINA. Era, e no computador da
+  // sede isso punha a segunda pessoa dentro do cadastro da primeira, sem
+  // portão (medido em 12/11/2026). Ele volta DEPOIS que o portão confere o
+  // CPF, e só se for daquele CPF — ver o efeito do `token`, abaixo.
+  //
+  // E SÓ É GRAVADO DEPOIS DISSO. `dono` é o CPF para o qual a decisão de
+  // restaurar já foi tomada: gravar antes escreveria o formulário ainda
+  // vazio por cima do rascunho que a dona veio buscar.
+  const [dono, setDono] = useState("");
   useEffect(() => {
-    const salvo = armazenamento.carregar();
-    if (salvo && salvo.versao === RASCUNHO_VAZIO.versao) {
-      setRascunho(salvo);
-      setEtapa(salvo.etapa);
-      setComecou(true);
+    if (comecou && dono && dono === armazenamento.soDigitos(rascunho.identificacao.cpf)) {
+      armazenamento.salvar({ ...rascunho, etapa });
     }
-  }, []);
-
-  useEffect(() => {
-    if (comecou) armazenamento.salvar({ ...rascunho, etapa });
-  }, [rascunho, etapa, comecou]);
+  }, [rascunho, etapa, comecou, dono]);
 
   const mudar = useCallback(
     <S extends keyof Rascunho>(secao: S, campo: string, valor: unknown) => {
@@ -194,7 +196,22 @@ export function App() {
   // Falha aqui NÃO trava o cadastro: a tela volta a ser a de antes, em
   // branco, e ela preenche. Pior que não preencher é não deixar entrar.
   useEffect(() => {
-    if (!token || !api.servidorLigado()) return;
+    if (!token) return;
+    // O PORTÃO ACABOU DE CONFERIR ESTE CPF. Só agora o rascunho guardado
+    // pode voltar — e, se era de outra pessoa, `carregarDe` o apaga. A
+    // etapa NÃO é restaurada: a pessoa está na tela do portão lendo "acesso
+    // confirmado", e ser jogada para a etapa 4 sem aviso é pior que clicar
+    // em Continuar e encontrar os campos preenchidos.
+    const cpf = rascunho.identificacao.cpf;
+    const salvo = armazenamento.carregarDe(cpf);
+    if (salvo) {
+      setRascunho({
+        ...salvo,
+        identificacao: { ...salvo.identificacao, cpf },
+      });
+    }
+    setDono(armazenamento.soDigitos(cpf));
+    if (!api.servidorLigado()) return;
     void api
       .meuCadastro(token)
       .then((d) => {
@@ -369,12 +386,49 @@ export function App() {
               onVoltarPara={(i) => setEtapa(i)}
             />
 
+            {/* SAIR, PARA QUEM ESTÁ NUM COMPUTADOR QUE NÃO É SEU. O rascunho
+                fica guardado neste navegador até o envio — é o que evita
+                perder tudo ao fechar a aba sem querer. No computador da
+                sede, quem vai embora sem terminar precisa de um jeito de
+                não deixar nada para trás. */}
+            {dono ? (
+              <p className="text-sm text-tinta/70">
+                Usando um computador que não é seu?{" "}
+                <button
+                  type="button"
+                  className="text-acento underline"
+                  onClick={() => {
+                    armazenamento.apagar();
+                    arquivos.esquecerTudo();
+                    setRascunho(RASCUNHO_VAZIO);
+                    setConhecido(null);
+                    setToken("");
+                    setDono("");
+                    setEtapa(0);
+                    setComecou(false);
+                  }}
+                >
+                  Sair e apagar o que preenchi neste computador
+                </button>
+              </p>
+            ) : null}
+
             {etapa === 0 ? (
               <Entrar
                 cpf={rascunho.identificacao.cpf}
                 onCpf={(v) => {
-                  mudar("identificacao", "cpf", v);
+                  // TROCOU O CPF DEPOIS DE ALGUÉM TER ENTRADO: é outra
+                  // pessoa na mesma aba. O que está na memória — nome,
+                  // processos, anexos — era da anterior, e não vai junto.
+                  if (token) {
+                    setRascunho(armazenamento.limpoPara(v));
+                    arquivos.esquecerTudo();
+                    setConhecido(null);
+                  } else {
+                    mudar("identificacao", "cpf", v);
+                  }
                   setToken("");
+                  setDono("");
                 }}
                 entidade={apelido}
                 temToken={Boolean(token)}

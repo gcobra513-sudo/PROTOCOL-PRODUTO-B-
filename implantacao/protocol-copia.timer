@@ -1,0 +1,10 @@
+# /etc/systemd/system/protocol-copia.timer
+[Unit]
+Description=PROTOCOL — cópia diária da raiz de dados
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
