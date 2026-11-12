@@ -239,7 +239,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
 
       <footer className="bg-carta">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-sm text-tinta/65 sm:px-6">
-          <span>PROTOCOL — protótipo, ainda não é um portal oficial.</span>
+          <span>PROTOCOL — para sindicatos e cooperativas.</span>
           <button type="button" onClick={onPrivacidade} className="text-acento underline">
             Como tratamos os seus dados
           </button>
