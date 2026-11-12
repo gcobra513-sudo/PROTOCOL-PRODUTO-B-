@@ -404,8 +404,14 @@ def t_os_caminhos_da_implantacao_concordam():
           and "\nsource " not in passo and "\n. /etc/protocol" not in passo,
           "o passo a passo carrega o ambiente com `source`, ou não usa "
           "`com-ambiente.sh`")
+    # Só as DATADAS são migração. `conferir_*.sql` mora na mesma pasta e é
+    # consulta de conferência — não muda nada, e não é para "aplicar".
     migracoes = sorted(p.name for p in
-                       (RAIZ / "servidor" / "migracoes").glob("*.sql"))
+                       (RAIZ / "servidor" / "migracoes").glob("[0-9]*.sql"))
+    checa(len(migracoes) >= 2, f"não achei as migrações datadas: {migracoes}")
+    checa("conferir_forma.sql" in passo,
+          "o passo a passo não manda CONFERIR a forma do banco depois de "
+          "migrar")
     checa(all(m in passo for m in migracoes),
           f"o passo a passo não manda aplicar todas as migrações: "
           f"{migracoes}")
