@@ -143,6 +143,25 @@ O painel devolve totais, até 8 nomes de exemplo por pendência (a tela mostra
 - a confirmar quando houver acesso: se a aplicação conecta como
   `protocol_app` com senha própria (`BANCO.md` registra isso como pendência).
 
+**12/11 — o que subir está escrito; subir, não.** `implantacao/` ganhou o
+serviço, o Caddy, o exemplo de ambiente, a cópia diária e o passo a passo.
+Dois defeitos apareceram só por tentar de verdade, num ambiente limpo:
+
+- `servidor/requirements.txt` não trazia o driver do banco. O import é
+  feito dentro das funções, então o servidor SUBIA, respondia a saúde, e
+  quebrava na primeira consulta. A suíte nunca viu, porque roda onde tudo já
+  está instalado. Há teste agora que confere toda importação contra o
+  arquivo;
+- a minha primeira prova de "o servidor sobe com o exemplo" estava furada:
+  carreguei o arquivo de ambiente com `source`, a URL do banco tem `&`, e o
+  shell a partiu ao meio — o servidor subiu SEM banco, sem erro, e eu ia
+  registrar como medido. O aviso "SEM BANCO" no log foi o que denunciou.
+  O passo a passo usa um carregador que lê o arquivo como o systemd lê.
+
+O Caddyfile não foi validado (não havia Caddy), e nada disto rodou numa
+Lightsail. As migrações de São Paulo seguem pendentes: o conector do
+Supabase continua na outra organização.
+
 ### 7. O rascunho vaza entre pessoas no computador compartilhado
 
 **Lido no código, NÃO ensaiado no navegador.** A chave do rascunho é única

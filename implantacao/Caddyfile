@@ -1,0 +1,42 @@
+# /etc/caddy/Caddyfile
+#
+# O Caddy cuida do TLS sozinho: pede o certificado e RENOVA. É o motivo de
+# ser ele — `docs/hospedagem.md` pede a renovação automatizada no primeiro
+# dia, porque o certificado vence em 90 dias.
+#
+# TROQUE o domínio. O DNS tem de apontar para esta máquina ANTES de o Caddy
+# subir, e as portas 80 e 443 têm de estar abertas no firewall da Lightsail.
+portal.exemplo.org {
+	encode gzip
+
+	# A API e a saúde vão para o servidor, que só escuta em 127.0.0.1.
+	@servidor path /api/* /saude
+	handle @servidor {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	# O resto é o portal compilado — arquivos estáticos.
+	handle {
+		root * /srv/protocol/portal
+		try_files {path} /index.html
+		file_server
+	}
+
+	# O limite do envio de documentos é do servidor (60 MB por pacote); aqui
+	# só há folga para o multipart.
+	request_body {
+		max_size 80MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		# O portal não é embutido em página de ninguém.
+		X-Frame-Options "DENY"
+	}
+
+	log {
+		output file /var/log/caddy/protocol.log
+	}
+}

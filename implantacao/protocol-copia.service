@@ -1,0 +1,9 @@
+# /etc/systemd/system/protocol-copia.service
+[Unit]
+Description=PROTOCOL — cópia da raiz de dados
+
+[Service]
+Type=oneshot
+User=protocol
+Group=protocol
+ExecStart=/srv/protocol/app/implantacao/copia.sh /var/lib/protocol /var/backups/protocol 14
