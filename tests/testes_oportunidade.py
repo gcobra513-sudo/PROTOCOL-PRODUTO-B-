@@ -262,7 +262,7 @@ def teste_a_origem_e_RECORTADA_pelo_contrato():
 
 def _oportunidade(referencia: str, veredicto: str, trilha: str = "ajuizar",
                   faltas: tuple[str, ...] = ()):
-    from nucleo import motor, pendencia
+    from nucleo import dito, motor, pendencia
 
     return motor.Oportunidade(
         trilha=trilha,
@@ -270,7 +270,7 @@ def _oportunidade(referencia: str, veredicto: str, trilha: str = "ajuizar",
         rotulo=f"Rótulo de {referencia}",
         veredicto=veredicto,
         categoria="Auditor-Fiscal da Receita Federal do Brasil",
-        motivos=("porque sim", "e porque isto"),
+        motivos=(dito.ambos("porque sim"), dito.ambos("e porque isto")),
         falta=tuple(pendencia.Falta(quem="CONFERENCIA", o_que=f) for f in faltas),
     )
 
