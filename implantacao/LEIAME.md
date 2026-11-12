@@ -124,6 +124,16 @@ cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh sh -c 'psql
 cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh sh -c 'psql "$PROTOCOL_DATABASE_URL" -v ON_ERROR_STOP=1 -f servidor/migracoes/2026-11-10-documento-origem-e-leitura-humana.sql'
 ```
 
+**Confere a forma**, em qualquer dos dois casos: a impressão digital do
+banco de produção tem de ser igual à de um banco recém-criado pelo esquema.
+
+```bash
+cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh sh -c 'psql "$PROTOCOL_DATABASE_URL" -At -f servidor/migracoes/conferir_forma.sql'
+```
+
+Compare com a mesma consulta rodada num banco novo (o de teste serve).
+Diferente quer dizer que falta migração — ou que sobra coluna.
+
 Depois, as reprojeções de `servidor/migracoes/LEIA.md`, e marque lá o que foi
 aplicado — é a única tabela deste repositório que só uma pessoa mantém.
 
