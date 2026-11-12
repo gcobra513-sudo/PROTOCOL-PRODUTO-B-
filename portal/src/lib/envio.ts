@@ -504,6 +504,9 @@ export interface Gargalo {
   o_que: string;
   pessoas: number;
   exemplos: string[];
+  /** Onde, no painel, isto se resolve — dito pelo servidor. Ausente em
+   *  servidor anterior, e vazio quando não há lugar. */
+  onde?: string;
 }
 
 export interface AcaoNaBase {

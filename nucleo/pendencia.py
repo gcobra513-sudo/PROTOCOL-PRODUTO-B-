@@ -98,6 +98,10 @@ EXPLICACOES = {
 }
 
 
+#: A pendência se resolve enviando o rol de substituídos, pelo painel.
+NO_ROL = "rol-de-substituidos"
+
+
 @dataclass(frozen=True)
 class Falta:
     """Uma coisa que falta, e de quem ela é.
@@ -108,6 +112,11 @@ class Falta:
 
     quem: str
     o_que: str
+    #: ONDE se resolve, quando há um lugar no painel para isso — hoje, só o
+    #: cartão do rol (`NO_ROL`). Declarado na origem pelo mesmo motivo do
+    #: dono: a tela que adivinhasse pela palavra "rol" na frase erraria
+    #: calada no dia em que alguém a reescrevesse.
+    onde: str = ""
 
     def __post_init__(self) -> None:
         if self.quem not in DONOS:

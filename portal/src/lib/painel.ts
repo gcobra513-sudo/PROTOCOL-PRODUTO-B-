@@ -567,3 +567,22 @@ export function resumoDoRolVigente(r: RolVigente): string[] {
   }
   return linhas;
 }
+
+/** Os lugares do painel onde uma pendência se resolve. A chave vem do
+ *  servidor (`pendencia.NO_ROL`); a âncora é o `id` do cartão. */
+const ONDE_SE_RESOLVE: Record<string, { ancora: string; rotulo: string }> = {
+  "rol-de-substituidos": {
+    ancora: "#rol-de-substituidos",
+    rotulo: "Enviar o rol",
+  },
+};
+
+/** O atalho para onde esta pendência se resolve, ou nulo.
+ *
+ *  NÃO ADIVINHA PELA FRASE. Quem diz onde é o servidor, na origem; e um
+ *  lugar que esta tela não conhece não vira link para lugar nenhum. */
+export function atalhoDoGargalo(
+  g: Gargalo,
+): { ancora: string; rotulo: string } | null {
+  return (g.onde && ONDE_SE_RESOLVE[g.onde]) || null;
+}

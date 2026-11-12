@@ -70,6 +70,8 @@ class Gargalo:
     pessoas: int
     #: Alguns nomes, para o gestor poder agir. Limitado de propósito.
     exemplos: tuple[str, ...] = ()
+    #: Onde, no painel, isto se resolve (`pendencia.NO_ROL`), ou vazio.
+    onde: str = ""
 
 
 @dataclass(frozen=True)
@@ -342,6 +344,7 @@ def montar(
     # (dono, o_que) -> nomes de quem está preso nela. A chave é o par, e não
     # só o texto: a mesma frase com donos diferentes é pendência diferente.
     presos: dict[tuple[str, str], list[str]] = {}
+    onde: dict[tuple[str, str], str] = {}
     aptos = 0
 
     for pessoa in pessoas:
@@ -366,10 +369,15 @@ def montar(
         # conta da base inteira.
         for chave in pessoa.pendencias:
             presos.setdefault(chave, []).append(pessoa.nome)
+        for o in pessoa.oportunidades:
+            for f in (*o.falta, *o.falta_para_valor):
+                if f.onde:
+                    onde[(f.quem, f.o_que)] = f.onde
 
     gargalos = [
         Gargalo(quem=dono, o_que=texto, pessoas=len(nomes),
-                exemplos=tuple(sorted(nomes)[:max(exemplos, 0)]))
+                exemplos=tuple(sorted(nomes)[:max(exemplos, 0)]),
+                onde=onde.get((dono, texto), ""))
         for (dono, texto), nomes in presos.items()
     ]
     # Do maior para o menor; empate desfeito pelo dono e pelo texto, para a

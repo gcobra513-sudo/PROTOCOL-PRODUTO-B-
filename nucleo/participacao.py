@@ -271,7 +271,8 @@ def cruzar(
             )
         if no_rol is None:
             falta.append(pendencia.Falta(
-                pendencia.CONFERENCIA, f"o rol de substituídos de {rotulo}"))
+                pendencia.CONFERENCIA, f"o rol de substituídos de {rotulo}",
+                pendencia.NO_ROL))
             motivos.append(dito(
                 f"{rotulo} tem rol de substituídos, e não se sabe se esta "
                 f"pessoa consta dele",

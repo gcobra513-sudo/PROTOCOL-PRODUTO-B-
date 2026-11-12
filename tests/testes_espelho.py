@@ -4643,7 +4643,8 @@ def teste_o_atendimento_so_fala_de_quem_perguntou():
 
 # ------------------------------- o rol de substituídos entra pelo painel
 
-ROL_FALTA = "o rol de substituídos da ação coletiva"
+ROL_FALTA = ("o rol de substituídos de Gratificação de Incremento da "
+             "Fiscalização e Arrecadação (GIFA)")
 
 
 def _rol_csv(*cpfs: str) -> bytes:
@@ -4802,6 +4803,12 @@ def teste_lista_parcial_nao_poe_ninguem_fora_do_rol():
            feito.get("sem_resposta")) == (1, 0, 1), f"{feito}")
     painel = cliente.get(f"/api/entidade/{entidade}/panorama",
                          headers=_gestor(cliente, entidade)).json()
+    do_rol = [g for g in painel["gargalos"] if g["o_que"] == ROL_FALTA]
+    checa(do_rol and do_rol[0].get("onde") == "rol-de-substituidos",
+          f"o gargalo do rol não diz ao painel onde se resolve: {do_rol}")
+    checa(all(g.get("onde", "") == "" for g in painel["gargalos"]
+              if g["o_que"] != ROL_FALTA),
+          "gargalo que não é do rol aponta para o cartão do rol")
     presos = {g["o_que"]: g["pessoas"] for g in painel["gargalos"]}
     checa(presos.get(ROL_FALTA) == 1,
           f"quem ficou fora da lista PARCIAL devia continuar esperando o "

@@ -29,6 +29,7 @@ import {
   resumoDoAcesso,
   resumoDoEnvioDoRol,
   resumoDoRolVigente,
+  atalhoDoGargalo,
 } from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
@@ -542,5 +543,25 @@ describe("o rol de substituídos: o que o gestor lê antes de confirmar (T19)", 
     expect(linhas.toLowerCase()).toContain("de novo");
     const semSobra = resumoDoRolVigente({ ...vigente, sem_resposta: 0 }).join("\n");
     expect(semSobra.toLowerCase()).not.toContain("de novo");
+  });
+});
+
+describe("a pendência leva ao lugar onde se resolve", () => {
+  it("a do rol aponta para o cartão do rol", () => {
+    const atalho = atalhoDoGargalo({ ...g("CONFERENCIA", "o rol de substituídos de GIFA", 12),
+                                     onde: "rol-de-substituidos" });
+    expect(atalho?.ancora).toBe("#rol-de-substituidos");
+    expect(atalho?.rotulo.toLowerCase()).toContain("rol");
+  });
+
+  it("não adivinha pela frase: sem `onde`, não há atalho", () => {
+    // A palavra "rol" na frase não basta. Quem diz onde se resolve é o
+    // servidor, na origem — a tela que deduzisse erraria calada.
+    expect(atalhoDoGargalo(g("CONFERENCIA", "o rol de substituídos de GIFA", 12))).toBeNull();
+    expect(atalhoDoGargalo({ ...g("TRIBUNAL", "o julgamento", 3), onde: "" })).toBeNull();
+  });
+
+  it("lugar que a tela não conhece não vira link quebrado", () => {
+    expect(atalhoDoGargalo({ ...g("CONFERENCIA", "x", 1), onde: "lugar-novo" })).toBeNull();
   });
 });

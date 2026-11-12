@@ -55,6 +55,7 @@ import {
   primeiroAcionavel,
   resumoDaFilaDeLeitura,
   resumoDaPlanilha,
+  atalhoDoGargalo,
   resumoDoEnvioDoRol,
   resumoDoRolVigente,
   resumoDoAcesso,
@@ -114,6 +115,14 @@ function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
               {alvo.pessoas > 3 ? ", entre outros" : ""}.
             </p>
           ) : null}
+          {atalhoDoGargalo(alvo) ? (
+            <a
+              href={atalhoDoGargalo(alvo)?.ancora}
+              className="mt-3 inline-block text-[15px] font-medium text-acento underline"
+            >
+              {atalhoDoGargalo(alvo)?.rotulo}
+            </a>
+          ) : null}
         </div>
       ) : (
         <Aviso tom="neutro">
@@ -166,6 +175,14 @@ function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
                   <span className="ml-2 text-[13px] text-tinta/50">
                     {g.titulo}
                   </span>
+                  {atalhoDoGargalo(g) ? (
+                    <a
+                      href={atalhoDoGargalo(g)?.ancora}
+                      className="ml-2 text-[13px] font-medium text-acento underline"
+                    >
+                      {atalhoDoGargalo(g)?.rotulo}
+                    </a>
+                  ) : null}
                 </span>
                 <span className="shrink-0 font-medium text-tinta">
                   {g.pessoas}
@@ -1498,11 +1515,14 @@ export function Painel({
         onMudou={() => setVersaoDaFila((v) => v + 1)}
       />
 
-      <RolDeSubstituidos
-        entidade={entidade}
-        token={token}
-        onMudou={() => setVersaoDaFila((v) => v + 1)}
-      />
+      {/* O `id` é o destino do atalho "Enviar o rol" das pendências. */}
+      <div id="rol-de-substituidos" className="scroll-mt-4">
+        <RolDeSubstituidos
+          entidade={entidade}
+          token={token}
+          onMudou={() => setVersaoDaFila((v) => v + 1)}
+        />
+      </div>
 
       <ApagarAPedido
         entidade={entidade}
