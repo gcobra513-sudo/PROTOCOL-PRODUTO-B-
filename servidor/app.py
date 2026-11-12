@@ -63,6 +63,7 @@ from . import (
     ingestao,
     remetente,
     rol,
+    trocas,
     validacao,
 )
 from .config import (
@@ -1572,19 +1573,45 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         feito_no_portao = feito["portao"]
         log.info("planilha ingerida ent=%s pessoas=%d novos_no_acesso=%d",
                  ent.apelido, retrato.total, len(feito_no_portao.novos))
-        if feito_no_portao.trocas:
-            # EM VOZ ALTA: é por esta linha que quem opera fica sabendo que
-            # há troca esperando. Sem ela, o pedido existiria só num arquivo.
+        if feito_no_portao.trocas or feito_no_portao.seguradas:
             log.warning(
-                "TROCA DE E-MAIL pedida ent=%s quantas=%d — conferir com "
-                "ferramentas/trocas_de_email.py",
-                ent.apelido, len(feito_no_portao.trocas))
+                "TROCA DE E-MAIL pedida ent=%s quantas=%d entradas=%d — "
+                "conferir com ferramentas/trocas_de_email.py",
+                ent.apelido, len(feito_no_portao.trocas),
+                len(feito_no_portao.seguradas))
+        if feito["pedidos_novos"]:
+            _avisar_quem_opera(ent, feito["pedidos_novos"])
         return {**resposta, "acesso": feito_no_portao.para_json(),
                 # Quem pediu para sair ENTRE a conferência e a gravação
                 # também não entrou, e a conta tem de dizer isso.
                 "apagados_a_pedido": apagadas + feito["apagadas"],
                 "pessoas": feito["retrato"].total,
                 "gravado": True, "projetadas": feito["projetadas"]}
+
+    def _avisar_quem_opera(ent: entidades.Entidade, novos: int) -> None:
+        """O pedido que a planilha deixou chega a quem decide.
+
+        A linha de log acima era o ÚNICO jeito de alguém ficar sabendo, e
+        log é lugar que se olha depois que algo quebrou.
+
+        NUNCA DERRUBA A PLANILHA. O aviso é para nós; o sindicato não tem
+        de reenviar a base porque o nosso correio caiu. O pedido já está
+        gravado, e a tarefa `pedidos` do agendador lembra todo dia enquanto
+        ele esperar.
+        """
+        if not cfg.email_de_quem_opera:
+            log.warning("PEDIDO sem a quem avisar ent=%s — defina "
+                        "PROTOCOL_EMAIL_DE_QUEM_OPERA", ent.apelido)
+            return
+        try:
+            trocas.avisar_quem_opera(
+                ent.pasta(cfg.raiz), apelido=ent.apelido, nome=ent.nome,
+                raiz=cfg.raiz, correio=correio,
+                destino=cfg.email_de_quem_opera, novos=novos)
+        except Exception:  # noqa: BLE001
+            log.exception("AVISO a quem opera falhou ent=%s — o pedido "
+                          "está gravado; o lembrete diário repete",
+                          ent.apelido)
 
     def _nome_de_envio(arquivo: UploadFile) -> str:
         """O nome que o gestor deu, SÓ COMO RÓTULO. Nunca vira caminho: é

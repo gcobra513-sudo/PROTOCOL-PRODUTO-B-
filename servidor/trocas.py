@@ -180,6 +180,76 @@ def recusar(pasta_entidade: pathlib.Path, cpf: str) -> dict:
     return {"para": pedido["para"]}
 
 
+def mensagem_para_quem_opera(pasta_entidade: pathlib.Path, *, apelido: str,
+                             nome: str, raiz: pathlib.Path,
+                             novos: int = 0) -> tuple[str, str] | None:
+    """(assunto, corpo) do aviso de pedidos que esperam — ou `None` se não
+    há nenhum.
+
+    SÓ CONTAGENS. Nem CPF, nem e-mail, nem nome de filiado: a caixa de
+    e-mail de quem opera não é o banco, não tem política de acesso e pode
+    estar em qualquer provedor. O aviso diz QUANTOS e ONDE, e manda olhar
+    no servidor — que é onde o dado mora e onde a decisão é tomada.
+
+    `novos` é quantos nasceram no envio que disparou o aviso. Zero é o
+    lembrete diário, que fala do que ainda espera.
+    """
+    pendentes = estado(pasta_entidade).pendentes
+    if not pendentes:
+        return None
+    entradas = sum(1 for p in pendentes.values() if not p.get("de"))
+    de_troca = len(pendentes) - entradas
+    desde = min((str(p.get("quando", ""))[:10] for p in pendentes.values()),
+                default="")
+    linhas = [f"Sindicato: {nome} ({apelido})", ""]
+    linhas.append(
+        f"{novos} pedido(s) novo(s) chegaram agora, pela planilha que o "
+        f"gestor enviou." if novos else
+        "Lembrete: há pedido esperando decisão.")
+    linhas += ["", "Esperando, ao todo:"]
+    if de_troca:
+        linhas.append(f"  {de_troca} troca(s) de e-mail de quem já entra "
+                      f"no portal")
+    if entradas:
+        linhas.append(f"  {entradas} entrada(s) nova(s) com um e-mail que "
+                      f"outra pessoa usa")
+    if desde:
+        linhas.append(f"O mais antigo espera desde {desde}.")
+    linhas += [
+        "",
+        "Enquanto ninguém decide, o código de acesso de quem pediu troca "
+        "continua indo para o e-mail de antes, e a entrada nova não entra.",
+        "",
+        "Para ver e decidir, no servidor:",
+        "",
+        f"  python3 ferramentas/trocas_de_email.py --raiz {raiz} "
+        f"--entidade {apelido} listar",
+        "",
+        "Este e-mail não traz CPF nem e-mail de filiado, de propósito.",
+    ]
+    assunto = (f"[PROTOCOL] {len(pendentes)} pedido(s) de acesso esperando "
+               f"em {apelido}")
+    return assunto, "\n".join(linhas) + "\n"
+
+
+def avisar_quem_opera(pasta_entidade: pathlib.Path, *, apelido: str,
+                      nome: str, raiz: pathlib.Path, correio, destino: str,
+                      novos: int = 0) -> int:
+    """Manda o aviso. Devolve quantos pedidos esperam (0: nada foi mandado).
+
+    UMA FUNÇÃO PARA OS DOIS MOMENTOS — a hora em que a planilha cria o
+    pedido, e o lembrete diário do agendador. Levanta se o correio falhar:
+    quem chama decide o que a falha significa (na rota, log; na tarefa
+    agendada, falha registrada).
+    """
+    mensagem = mensagem_para_quem_opera(
+        pasta_entidade, apelido=apelido, nome=nome, raiz=raiz, novos=novos)
+    if mensagem is None:
+        return 0
+    correio.enviar_mensagem(destino, *mensagem)
+    return len(estado(pasta_entidade).pendentes)
+
+
 def destino_atual(pasta_entidade: pathlib.Path, cpf: str) -> str | None:
     """Para onde o portão manda o código deste CPF hoje — os DOIS róis, na
     ordem em que o portão os consulta."""
