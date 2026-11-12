@@ -477,6 +477,24 @@ async function faseConferencia(navegador, gritos, resultado) {
     resultado.lista.planilha = await fs.readFile(await baixado.path(), "utf-8");
     resultado.lista.nomeDoArquivo = baixado.suggestedFilename();
     marco(`o gestor baixou ${resultado.lista.nomeDoArquivo}`);
+
+    // O ROL DE SUBSTITUÍDOS, pela tela — a porta que faltava para o produto
+    // responder. Duas etapas, e a caixa "é o rol inteiro" fica como nasce:
+    // desmarcada. O que a tela DISSE vai para a conferência, e o que ficou
+    // no disco é conferido do lado de fora.
+    const rol = g.locator("section",
+      { has: g.getByRole("heading", { name: "Rol de substituídos" }) }).first();
+    await rol.waitFor({ timeout: 20000 });
+    await rol.getByLabel(/O arquivo do rol/).setInputFiles(cfg.rol.caminho);
+    await rol.getByRole("button", { name: "Conferir o rol" }).click();
+    await rol.getByText(/Confira antes de gravar/).waitFor({ timeout: 20000 });
+    resultado.rol = { previa: await rol.innerText() };
+    await rol.getByRole("button", { name: "Confirmar e gravar o rol" }).click();
+    await rol.getByText(/Rol gravado/).waitFor({ timeout: 20000 });
+    await rol.getByText(/Rol enviado em/).waitFor({ timeout: 20000 });
+    resultado.rol.depois = await rol.innerText();
+    resultado.rol.gravou = true;
+    marco("o gestor enviou o rol de substituídos: conferiu, confirmou, e o painel mostra o rol que vale");
   } finally {
     await contexto.close();
   }

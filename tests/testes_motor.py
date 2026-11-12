@@ -340,6 +340,96 @@ def teste_a_oportunidade_diz_de_que_periodo_ela_e():
 
 
 
+# ------------------------------------------ o rol é DE UMA AÇÃO, não de todas
+
+def _duas_acoes():
+    """O catálogo real mais uma segunda coletiva, cópia da GIFA com outro id.
+
+    O catálogo em disco tem UMA ação, e é por isso que o defeito não
+    aparecia: com uma só, "o rol" e "o rol desta ação" são a mesma coisa.
+    """
+    import dataclasses
+    cat = catalogo(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
+    outra = dataclasses.replace(cat.de("GIFA-2006"), id="OUTRA-2010",
+                                descricao="Outra coletiva (de teste)")
+    return dataclasses.replace(cat, acoes=(*cat.acoes, outra))
+
+
+def teste_o_rol_de_uma_acao_nao_vale_para_outra():
+    """Constar do rol da GIFA não diz NADA sobre o rol de outra coletiva.
+
+    Com um fato só para todas as ações, o rol enviado para uma destravava a
+    execução de todas as outras do catálogo — permissão tirada de um
+    documento que não fala daquela ação.
+    """
+    secao("o rol é de uma ação")
+    cat = _duas_acoes()
+    achadas = motor.avaliar(
+        fatos(tem_titulo=True, ja_executou=False,
+              rol_das_acoes=(("GIFA-2006", True),)), cat)
+    por = {o.referencia: o for o in achadas if o.trilha == motor.EXECUTAR}
+    checa(por["GIFA-2006"].veredicto == motor.PODE,
+          f"no rol da GIFA e não pôde: {por['GIFA-2006'].motivos}")
+    checa(por["OUTRA-2010"].veredicto == motor.FALTA,
+          f"o rol da GIFA decidiu a outra ação: {por['OUTRA-2010'].veredicto}")
+    checa(any("rol" in f.o_que for f in por["OUTRA-2010"].falta),
+          f"a outra ação não pede o rol DELA: {por['OUTRA-2010'].falta}")
+    print("  ok     no rol de uma, a outra continua pedindo o rol dela")
+
+
+def teste_fora_do_rol_de_uma_acao_nao_barra_a_outra():
+    cat = _duas_acoes()
+    achadas = motor.avaliar(
+        fatos(tem_titulo=True, ja_executou=False,
+              rol_das_acoes=(("GIFA-2006", False), ("OUTRA-2010", True))), cat)
+    por = {o.referencia: o for o in achadas if o.trilha == motor.EXECUTAR}
+    checa(por["OUTRA-2010"].veredicto == motor.PODE,
+          f"fora do rol da GIFA barrou a outra: {por['OUTRA-2010'].motivos}")
+    checa(por["GIFA-2006"].veredicto != motor.PODE,
+          "fora do rol da GIFA e o motor disse PODE")
+    print("  ok     fora do rol de uma não barra a outra")
+
+
+def teste_a_resposta_da_acao_vence_a_resposta_geral():
+    """`no_rol` é a resposta sem ação — a que os testes antigos usam. Quando
+    há resposta PARA A AÇÃO, é ela que vale: a geral não sabe de qual ação
+    está falando."""
+    cat = catalogo(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
+    achadas = motor.avaliar(
+        fatos(tem_titulo=True, ja_executou=False, no_rol=True,
+              rol_das_acoes=(("GIFA-2006", False),)), cat)
+    gifa = next(o for o in achadas if o.referencia == "GIFA-2006")
+    checa(gifa.veredicto != motor.PODE,
+          "a resposta geral venceu a resposta da própria ação")
+    print("  ok     a resposta da ação vence a geral")
+
+
+def teste_o_rol_enviado_pelo_sindicato_vai_com_nota():
+    """Quem assina precisa saber DE ONDE veio o "consta do rol": de um
+    arquivo que o sindicato enviou, e não dos autos. Sem a nota, a
+    declaração do sindicato entra no lugar da conferência — e ninguém vê
+    que entrou. É a mesma regra do "não executei" declarado pela pessoa."""
+    cat = catalogo(("STJ-T1169", "STJ-T1302", "GIFA-2006"))
+    for consta in (True, False):
+        achadas = motor.avaliar(
+            fatos(tem_titulo=True, ja_executou=False,
+                  rol_das_acoes=(("GIFA-2006", consta),)), cat)
+        gifa = next(o for o in achadas if o.referencia == "GIFA-2006")
+        checa(any("enviado pelo sindicato" in n.lower() and "autos" in n
+                  for n in gifa.notas),
+              f"consta={consta}: sem nota dizendo de onde veio o rol: "
+              f"{gifa.notas}")
+    # E quem não tem resposta por ação NÃO ganha a nota: ela afirmaria um
+    # envio que não houve.
+    achadas = motor.avaliar(
+        fatos(tem_titulo=True, ja_executou=False, no_rol=True), cat)
+    gifa = next(o for o in achadas if o.referencia == "GIFA-2006")
+    checa(not any("enviado pelo sindicato" in n.lower() for n in gifa.notas),
+          f"nota de envio sem envio: {gifa.notas}")
+    print("  ok     rol enviado pelo sindicato: a nota diz que não é dos autos")
+
+
+
 TESTES.extend([
     teste_sem_titulo_ninguem_executa_nunca,
     teste_quem_tem_titulo_e_esta_no_rol_pode_executar,
@@ -358,6 +448,10 @@ TESTES.extend([
     teste_quem_saiu_antes_da_acao_nao_executa,
     teste_sem_saber_a_filiacao_a_resposta_e_falta,
     teste_a_oportunidade_diz_de_que_periodo_ela_e,
+    teste_o_rol_de_uma_acao_nao_vale_para_outra,
+    teste_fora_do_rol_de_uma_acao_nao_barra_a_outra,
+    teste_a_resposta_da_acao_vence_a_resposta_geral,
+    teste_o_rol_enviado_pelo_sindicato_vai_com_nota,
 ])
 
 

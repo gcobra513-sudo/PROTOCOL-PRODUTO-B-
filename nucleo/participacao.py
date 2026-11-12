@@ -41,6 +41,20 @@ from . import pendencia
 
 PARTICIPA = "PARTICIPA"
 NAO_PARTICIPA = "NAO_PARTICIPA"
+
+
+def consta_do_rol(rol_das_acoes, geral: bool | None, acao: str) -> bool | None:
+    """Esta pessoa consta do rol DESTA ação? `None` é "não se sabe".
+
+    A resposta da própria ação vence a geral, que não sabe de qual ação
+    está falando. Uma função só, usada pelo motor e pela participação: duas
+    cópias desta regra um dia discordam, e a discordância é uma pessoa que
+    "participa" de uma ação que ela "não pode executar".
+    """
+    for id_da_acao, consta in rol_das_acoes or ():
+        if id_da_acao == acao:
+            return bool(consta)
+    return geral
 INDETERMINADO = "INDETERMINADO"
 
 #: Ordem de leitura: o que a pessoa tem vem antes do que ela não tem.
@@ -58,8 +72,16 @@ class Filiado:
     filiado_desde: str = ""
     #: AAAA-MM, ou VAZIO para "ainda filiada".
     filiado_ate: str = ""
-    #: Consta do rol de substituídos? `None` é "não se sabe".
+    #: Consta do rol de substituídos? `None` é "não se sabe". É a resposta
+    #: SEM AÇÃO: só vale quando não há resposta para a ação em `rol_das_acoes`.
     no_rol: bool | None = None
+    #: (id da ação, consta do rol DELA?). O rol é um documento de UMA ação:
+    #: com um fato só, o rol enviado para a GIFA respondia por toda coletiva
+    #: do catálogo.
+    rol_das_acoes: tuple[tuple[str, bool], ...] = ()
+
+    def consta_do_rol(self, acao: str) -> bool | None:
+        return consta_do_rol(self.rol_das_acoes, self.no_rol, acao)
 
 
 @dataclass(frozen=True)
@@ -206,8 +228,9 @@ def cruzar(
         )
 
     # ---- o rol, e só quando a ação o exige ----
+    no_rol = filiado.consta_do_rol(acao.id)
     if acao.exige_rol:
-        if filiado.no_rol is False:
+        if no_rol is False:
             return Participacao(
                 acao.id, rotulo, NAO_PARTICIPA,
                 inicio=_texto(comum_inicio), fim=_texto(comum_fim),
@@ -216,7 +239,7 @@ def cruzar(
                     "consta dele",
                 ),
             )
-        if filiado.no_rol is None:
+        if no_rol is None:
             falta.append(pendencia.Falta(
                 pendencia.CONFERENCIA, f"o rol de substituídos de {rotulo}"))
             motivos.append(

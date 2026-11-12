@@ -38,7 +38,8 @@ import contextlib
 import pathlib
 import shutil
 
-from . import acervo, banco, conferencia, deposito, rol, trocas, validacao
+from . import (acervo, banco, conferencia, deposito, rol, substituidos,
+               trocas, validacao)
 from .entidades import Entidade
 
 #: Extensões que a varredura de bytes abre. PDF fica de fora de propósito: o
@@ -371,6 +372,7 @@ def _apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     saiu_do_acervo = _remover_do_acervo(pasta, digitos)
     sairam_leituras = conferencia.remover_pessoa(pasta, digitos)
     sairam_trocas = trocas.remover_pessoa(pasta, digitos)
+    saiu_dos_substituidos = substituidos.remover_pessoa(pasta, digitos)
     das_mensagens = _limpar_logs(raiz, digitos, email)
 
     # 5. O banco.
@@ -387,6 +389,7 @@ def _apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
         "acervo": saiu_do_acervo,
         "leituras": sairam_leituras,
         "trocas": sairam_trocas,
+        "rol_de_substituidos": saiu_dos_substituidos,
         "logs": das_mensagens,
         "email_conhecido": bool(email),
         "vestigios": vestigios(url, ent, raiz, digitos, portao=portao,

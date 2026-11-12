@@ -64,6 +64,7 @@ from . import (
     ingestao,
     remetente,
     rol,
+    substituidos,
     trocas,
     validacao,
 )
@@ -1031,6 +1032,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             linha,
             _entregues_do_cpf(ent, linha["cpf"]),
             _fatos_lidos_do_cpf(ent, linha["cpf"]),
+            rol=substituidos.de_cpf(ent.pasta(cfg.raiz), linha["cpf"]),
         )
         quem = participacao.Filiado(
             cpf=fatos.cpf,
@@ -1039,6 +1041,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             filiado_desde=fatos.filiado_desde,
             filiado_ate=fatos.filiado_ate,
             no_rol=fatos.no_rol,
+            rol_das_acoes=fatos.rol_das_acoes,
         )
         acoes = participacao.participacoes(quem, catalogo)
         oportunidades = motor.avaliar(fatos, catalogo)
@@ -1221,7 +1224,9 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             banco.fatos_lidos_da_entidade(cfg.banco_url, ent.apelido)
             if cfg.tem_banco else None
         )
-        visao = panorama.montar(registros, catalogo, lidos_por_cpf=lidos)
+        visao = panorama.montar(
+            registros, catalogo, lidos_por_cpf=lidos,
+            rol_por_cpf=substituidos.por_cpf(ent.pasta(cfg.raiz)))
         return {
             "entidade": ent.apelido,
             "nome": ent.nome,
@@ -1787,6 +1792,175 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         return await run_in_threadpool(
             _processar_documentos, ent, recebidos, confirmar)
 
+    # --------------------------------------------- o rol de substituídos
+
+    def _acao_do_catalogo(ent: entidades.Entidade, acao: str):
+        """A ação coletiva, se é do catálogo que ESTA entidade contratou.
+
+        O rol de uma ação de outra carreira não é assunto deste sindicato,
+        e um id qualquer gravado aqui ficaria respondendo por ação nenhuma.
+        """
+        catalogo = entendimentos.carregar_categorias(
+            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        )
+        for a in catalogo.acoes:
+            if a.id == acao:
+                return a
+        raise _problema(
+            422,
+            "esta ação não está entre as ações coletivas do seu sindicato "
+            "no sistema",
+        )
+
+    def _base_sem_apagados(ent: entidades.Entidade) -> set[str]:
+        """Quem a entidade atende HOJE, sem quem pediu para sair.
+
+        O segundo filtro é redundante de propósito: quem foi apagado já
+        saiu da base. Mas um tombstone ilegível tem de RECUSAR, e não
+        deixar passar — é a regra de toda porta que grava dado de pessoa.
+        """
+        import types
+
+        pasta = ent.pasta(cfg.raiz)
+        cpfs = ingestao.cpfs_da_base(cfg.banco_url, ent.apelido, pasta)
+        ficam, _ = ingestao.sem_apagados(
+            [types.SimpleNamespace(cpf=c) for c in sorted(cpfs)],
+            banco_url=cfg.banco_url, apelido=ent.apelido,
+            marcador_de=portao.marcar_cpf)
+        return {p.cpf for p in ficam}
+
+    def _processar_rol(ent: entidades.Entidade, quem: str, nome: str,
+                       corpo: bytes, acao, completo: bool,
+                       confirmar: str) -> dict:
+        try:
+            lido = substituidos.ler_arquivo(corpo, nome)
+        except substituidos.RolIlegivel as e:
+            raise _problema(422, str(e)) from None
+        # A IMPRESSÃO DIGITAL COBRE A AÇÃO E A DECLARAÇÃO, não só o arquivo:
+        # "lista completa" é o que põe gente FORA do rol, e confirmar com
+        # ela trocada seria gravar o que o gestor não viu.
+        soma = hashlib.sha256(
+            hashlib.sha256(corpo).hexdigest().encode()
+            + f"|{acao.id}|{'completo' if completo else 'parcial'}".encode()
+        ).hexdigest()
+
+        def resposta(plano: substituidos.Plano, gravado: bool) -> dict:
+            return {
+                "acao": acao.id,
+                "rotulo": acao.rotulo,
+                "sha256": soma,
+                "completo": plano.completo,
+                # O que o gestor declarou. Difere de `completo` quando há
+                # linha ilegível, e aí a declaração não valeu.
+                "declarado_completo": plano.declarado_completo,
+                # SÓ CONTAGENS. Os CPFs de quem consta ficam no arquivo da
+                # entidade; a tela não precisa deles para decidir.
+                "constam": len(plano.constam),
+                "nao_constam": len(plano.nao_constam),
+                "sem_resposta": plano.sem_resposta,
+                "fora_da_base": plano.fora_da_base,
+                "invalidas": plano.invalidas,
+                "gravado": gravado,
+            }
+
+        try:
+            if not _conferir_confirmacao(confirmar, soma):
+                return resposta(substituidos.planejar(
+                    lido, _base_sem_apagados(ent), acao=acao.id,
+                    completo=completo), False)
+            # O PLANO QUE VALE É O DA HORA DE GRAVAR, cruzado com a base
+            # com o apagamento parado — não o da prévia.
+            plano = substituidos.enviar(
+                ent.pasta(cfg.raiz), lido, acao=acao.id, completo=completo,
+                base_de=lambda: _base_sem_apagados(ent), quem=quem,
+                arquivo=nome, sha256=hashlib.sha256(corpo).hexdigest())
+        except ingestao.IngestaoRecusada as e:
+            log.error("ROL recusado ent=%s: %s", ent.apelido, e)
+            raise _problema(
+                503,
+                "não conseguimos conferir quem pediu apagamento, e sem isso "
+                "o rol poderia guardar de novo quem pediu para sair. Nada "
+                "foi gravado: tente de novo.",
+            ) from None
+        log.info("rol de substituídos ent=%s acao=%s constam=%d "
+                 "nao_constam=%d completo=%s", ent.apelido, acao.id,
+                 len(plano.constam), len(plano.nao_constam), plano.completo)
+        return resposta(plano, True)
+
+    @app.post("/api/entidade/{apelido}/rol-de-substituidos")
+    async def enviar_rol_de_substituidos(
+        apelido: str,
+        pedido: Request,
+        arquivo: UploadFile | None = File(None),
+        acao: str = Form(""),
+        completo: str = Form(""),
+        confirmar: str = Form(""),
+    ) -> dict:
+        """O sindicato envia o rol de substituídos de UMA ação coletiva.
+
+        Era o que faltava para o produto responder: o motor pergunta se a
+        pessoa consta do rol, e nenhum caminho gravava a resposta.
+
+        EM DUAS ETAPAS, como a planilha: sem `confirmar`, conta e não grava.
+        `completo` é a declaração de que a lista é o rol INTEIRO — só com
+        ela quem não aparece passa a constar como fora. As regras estão em
+        `servidor/substituidos.py`.
+
+        NÃO EXIGE BANCO: a autoridade é o arquivo da entidade, e a base sai
+        do banco quando há e do cadastro de acesso quando não há.
+        """
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        alvo = _acao_do_catalogo(ent, acao.strip())
+        if arquivo is None:
+            raise _problema(422, "envie o arquivo do rol")
+        corpo = await _ler_limitado(arquivo, LIMITE_DA_PLANILHA)
+        if not corpo:
+            raise _problema(422, "o arquivo do rol chegou vazio")
+        _auditar(ent, "enviar_rol_de_substituidos",
+                 quem_hash=sessao.cpf_hash)
+        return await run_in_threadpool(
+            _processar_rol, ent, sessao.cpf_hash, _nome_de_envio(arquivo),
+            corpo, alvo, bool(completo.strip()), confirmar)
+
+    @app.get("/api/entidade/{apelido}/rol-de-substituidos")
+    def ver_rol_de_substituidos(apelido: str, pedido: Request) -> dict:
+        """As ações coletivas do sindicato, e o rol de cada uma — em
+        contagens. Nenhum CPF sai daqui."""
+        ent = _gestor_de(apelido, pedido)
+        _auditar(ent, "ver_rol_de_substituidos",
+                 quem_hash=_sessao_de(pedido).cpf_hash)
+        catalogo = entendimentos.carregar_categorias(
+            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        )
+        pasta = ent.pasta(cfg.raiz)
+        resumo = substituidos.resumo(
+            pasta, ingestao.cpfs_da_base(cfg.banco_url, ent.apelido, pasta))
+        return {
+            "entidade": ent.apelido,
+            "acoes": [
+                {"acao": a.id, "rotulo": a.rotulo,
+                 "rol": resumo.get(a.id)}
+                for a in catalogo.acoes
+            ],
+        }
+
+    @app.post("/api/entidade/{apelido}/rol-de-substituidos/retirar")
+    def retirar_rol_de_substituidos(apelido: str, corpo: dict,
+                                    pedido: Request) -> dict:
+        """Desfaz o rol de uma ação: arquivo errado, ou ação errada."""
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        alvo = _acao_do_catalogo(ent, str(corpo.get("acao") or "").strip())
+        _auditar(ent, "retirar_rol_de_substituidos",
+                 quem_hash=sessao.cpf_hash)
+        retirado = substituidos.retirar(ent.pasta(cfg.raiz), alvo.id,
+                                        quem=sessao.cpf_hash)
+        if retirado:
+            log.info("rol de substituídos RETIRADO ent=%s acao=%s",
+                     ent.apelido, alvo.id)
+        return {"acao": alvo.id, "retirado": retirado}
+
     # --------------------------------------------- nome por nome
 
     def _base_avaliada(ent: entidades.Entidade) -> list:
@@ -1800,7 +1974,9 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         else:
             registros = deposito.ler_diario(ent.pasta(cfg.raiz))
             lidos = None
-        return panorama.por_pessoa(registros, catalogo, lidos)
+        return panorama.por_pessoa(
+            registros, catalogo, lidos,
+            substituidos.por_cpf(ent.pasta(cfg.raiz)))
 
     def _cpf_mascarado(cpf: str) -> str:
         """`***.444.777-**`: dá para o gestor distinguir dois homônimos, e

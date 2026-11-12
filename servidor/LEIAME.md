@@ -352,6 +352,32 @@ continua recebendo só PDF.
 O que continua recusado: arquivo que **não abre** — corrompido ou com senha.
 Esse ninguém lê, e guardá-lo criaria uma fila que não anda.
 
+### O rol de substituídos: o sindicato envia, pelo painel
+
+O motor pergunta se a pessoa consta do rol da ação coletiva. Quem tem a
+lista é o sindicato, que ajuizou.
+
+```
+GET  /api/entidade/{apelido}/rol-de-substituidos            as ações e o rol de cada uma, em contagens
+POST /api/entidade/{apelido}/rol-de-substituidos            envia (duas etapas: a prévia não grava)
+POST /api/entidade/{apelido}/rol-de-substituidos/retirar    desfaz o rol de uma ação
+```
+
+- o arquivo é planilha com coluna de CPF, ou PDF com texto. Rol só com nome
+  não entra;
+- o rol é de **uma** ação, e só ação do catálogo que a entidade contratou;
+- quem não está na lista só é dado como fora se o gestor declarar que ela é
+  o rol inteiro **e** a lista tiver sido lida inteira;
+- o CPF de quem não é da base é contado e não fica guardado; quem entra na
+  base depois do envio fica sem resposta até o reenvio;
+- a autoridade é `<entidade>/rol_de_substituidos.jsonl`, uma linha por ato.
+  Não há projeção no banco: as quatro superfícies leem o arquivo;
+- a resposta é **declarada**, e o motor diz isso em nota.
+
+As regras e o porquê de cada uma estão no cabeçalho de
+`servidor/substituidos.py`. Não confundir com `rol.py`, que é o rol de quem
+entra no portal.
+
 ### Quem lê: o sindicato, pelo painel
 
 No painel do gestor aparece **"Documentos para ler"**. Ele abre o documento,

@@ -27,6 +27,8 @@ import {
   situacaoDaPessoa,
   resumoDaPlanilha,
   resumoDoAcesso,
+  resumoDoEnvioDoRol,
+  resumoDoRolVigente,
 } from "./painel";
 
 function g(quem: string, o_que: string, n: number): Gargalo {
@@ -465,5 +467,80 @@ describe("o que a planilha muda em quem consegue entrar (T26)", () => {
   it("não chama ninguém de escritório (Regra Zero)", () => {
     expect(resumoDoAcesso(ACESSO, false).join("\n").toLowerCase())
       .not.toContain("escritório");
+  });
+});
+
+describe("o rol de substituídos: o que o gestor lê antes de confirmar (T19)", () => {
+  const PREVIA: api.PreviaDoRol = {
+    acao: "GIFA-2006", rotulo: "GIFA (2006)", sha256: "abc", completo: true,
+    declarado_completo: true,
+    constam: 30, nao_constam: 12, sem_resposta: 0, fora_da_base: 400,
+    invalidas: 2, gravado: false,
+  };
+
+  it("lista completa: diz quantos constam e quantos passam a ficar FORA", () => {
+    const linhas = resumoDoEnvioDoRol(PREVIA).join("\n");
+    expect(linhas).toContain("30 pessoas");
+    expect(linhas).toContain("12 pessoas");
+    expect(linhas.toLowerCase()).toContain("fora do rol");
+  });
+
+  it("lista parcial: quem não está nela NÃO é dito fora do rol", () => {
+    // "Fora do rol" tem consequência. Numa lista que ninguém declarou
+    // inteira, a ausência não responde nada — e a tela não pode sugerir.
+    const linhas = resumoDoEnvioDoRol({
+      ...PREVIA, completo: false, nao_constam: 0, sem_resposta: 12,
+    }).join("\n").toLowerCase();
+    expect(linhas).toContain("sem resposta");
+    expect(linhas).not.toContain("fora do rol");
+  });
+
+  it("diz que o CPF de quem não é da base não fica guardado", () => {
+    const linhas = resumoDoEnvioDoRol(PREVIA).join("\n").toLowerCase();
+    expect(linhas).toContain("400");
+    expect(linhas).toContain("não");
+    expect(linhas).toContain("guardad");
+  });
+
+  it("avisa quando NINGUÉM da base está na lista: é sinal de arquivo errado", () => {
+    const linhas = resumoDoEnvioDoRol({ ...PREVIA, constam: 0, nao_constam: 42 });
+    expect((linhas[0] ?? "").toLowerCase()).toContain("ninguém");
+    expect(linhas.join("\n").toLowerCase()).toContain("arquivo");
+  });
+
+  it("declarada completa com linha ilegível: diz que a declaração NÃO valeu", () => {
+    // CPF que perdeu o zero no Excel vira linha ilegível. Enquanto houver
+    // uma, ninguém é dado como fora — e o gestor tem de saber por quê, senão
+    // marca a caixa, vê "sem resposta" e conclui que o sistema ignorou.
+    const linhas = resumoDoEnvioDoRol({
+      ...PREVIA, completo: false, declarado_completo: true,
+      nao_constam: 0, sem_resposta: 12, invalidas: 3,
+    }).join("\n").toLowerCase();
+    expect(linhas).toContain("3 linha");
+    expect(linhas).toContain("ninguém é dado como fora");
+    expect(linhas).toContain("corrija");
+    expect(linhas).not.toContain("não foi declarada completa");
+  });
+
+  it("não fala do que não aconteceu", () => {
+    const limpa = resumoDoEnvioDoRol({ ...PREVIA, fora_da_base: 0, invalidas: 0 })
+      .join("\n").toLowerCase();
+    expect(limpa).not.toContain("guardad");
+    expect(limpa).not.toContain("cpf válido");
+  });
+
+  it("o rol que vale: a data como se lê aqui, e quem ficou sem resposta", () => {
+    const vigente: api.RolVigente = {
+      enviado_em: "2026-11-12T14:03:00+00:00", arquivo: "rol-gifa.xlsx",
+      completo: true, declarado_completo: true, constam: 30,
+      nao_constam: 12, sem_resposta: 3, fora_da_base: 400, invalidas: 0,
+    };
+    const linhas = resumoDoRolVigente(vigente).join("\n");
+    expect(linhas).toContain("12/11/2026");
+    expect(linhas).toContain("rol-gifa.xlsx");
+    expect(linhas).toContain("3 pessoas");
+    expect(linhas.toLowerCase()).toContain("de novo");
+    const semSobra = resumoDoRolVigente({ ...vigente, sem_resposta: 0 }).join("\n");
+    expect(semSobra.toLowerCase()).not.toContain("de novo");
   });
 });
