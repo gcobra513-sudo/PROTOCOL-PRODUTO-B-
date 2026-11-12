@@ -1965,5 +1965,132 @@ TESTES.extend([
 ])
 
 
+# -------------------------------------- o lembrete de pedido que espera
+
+def _lembrar(raiz: Path, entidade: str, destino: str | None):
+    import os
+
+    ambiente = {k: v for k, v in os.environ.items()
+                if not k.startswith("PROTOCOL_")}
+    if destino is not None:
+        ambiente["PROTOCOL_EMAIL_DE_QUEM_OPERA"] = destino
+    return subprocess.run(
+        [sys.executable, str(RAIZ / "ferramentas" / "avisar_pedidos.py"),
+         "--raiz", str(raiz), "--entidade", entidade],
+        capture_output=True, text=True, env=ambiente)
+
+
+def teste_o_lembrete_diario_de_pedido_que_espera():
+    """O e-mail da hora pode se perder — correio fora, endereço ainda não
+    configurado. O lembrete roda todo dia pelo agendador e repete ENQUANTO
+    houver pedido esperando: um pedido esquecido é um filiado sem entrar.
+
+    Sem a quem avisar, e havendo pedido, a ferramenta sai com 1: é o que faz
+    o agendador registrar FALHA, e a falha aparecer em `/saude`. Sem pedido,
+    sai com 0 e não manda nada — não há o que lembrar.
+    """
+    from servidor import trocas
+
+    secao("o lembrete de pedido que espera")
+    c = Cenario()
+    pasta = c.ent.pasta(c.raiz)
+    log = c.raiz / "mensagens_enviadas.log"
+
+    r = _lembrar(c.raiz, "demo-teste", "nos@exemplo.invalid")
+    checa(r.returncode == 0 and not log.exists(),
+          f"sem pedido nenhum, lembrou: {r.returncode} {r.stdout} {r.stderr}")
+
+    trocas.pedir(pasta, cpf=CPF_DIGITOS, de="fulano@exemplo.org",
+                 para="outro@exemplo.invalid")
+    trocas.pedir(pasta, cpf=NOVO_NO_ROL, de="", para="outro@exemplo.invalid")
+
+    r = _lembrar(c.raiz, "demo-teste", None)
+    checa(r.returncode == 1 and not log.exists(),
+          f"pedido esperando e NINGUÉM a avisar tem de ser falha: "
+          f"{r.returncode} {r.stdout} {r.stderr}")
+    checa(CPF_DIGITOS not in r.stdout + r.stderr,
+          "a saída da ferramenta vai para o log do agendador e traz CPF")
+
+    r = _lembrar(c.raiz, "demo-teste", "nos@exemplo.invalid")
+    texto = log.read_text(encoding="utf-8") if log.exists() else ""
+    checa(r.returncode == 0 and "\tnos@exemplo.invalid\t" in texto,
+          f"o lembrete não saiu: {r.returncode} {r.stdout} {r.stderr}")
+    checa("1 troca" in texto and "1 entrada" in texto
+          and "demo-teste" in texto,
+          f"o lembrete não diz quantos nem onde: {texto}")
+    for dado in (CPF_DIGITOS, NOVO_NO_ROL, "fulano@exemplo.org",
+                 "outro@exemplo.invalid"):
+        checa(dado not in texto,
+              f"O LEMBRETE LEVA DADO DE FILIADO PARA A CAIXA DE E-MAIL: {dado}")
+
+    # Decididos os dois, não há mais o que lembrar.
+    trocas.recusar(pasta, CPF_DIGITOS)
+    trocas.recusar(pasta, NOVO_NO_ROL)
+    antes = log.read_text(encoding="utf-8")
+    r = _lembrar(c.raiz, "demo-teste", "nos@exemplo.invalid")
+    checa(r.returncode == 0 and log.read_text(encoding="utf-8") == antes,
+          "lembrou de pedido que já foi decidido")
+
+    # A FUNÇÃO, sem a ferramenta na frente: sem pedido, ela mesma não manda
+    # nada. A ferramenta e a rota conferem antes de chamar — e é por isso
+    # que a conferência DELA só se prova chamando direto.
+    class Espia:
+        chamadas = 0
+
+        def enviar_mensagem(self, destino, assunto, corpo):
+            Espia.chamadas += 1
+
+    n = trocas.avisar_quem_opera(
+        pasta, apelido="demo-teste", nome="Sindicato de Teste", raiz=c.raiz,
+        correio=Espia(), destino="nos@exemplo.invalid")
+    checa(n == 0 and Espia.chamadas == 0,
+          f"sem pedido esperando, a função mandou e-mail: {n}, "
+          f"{Espia.chamadas} chamada(s)")
+    print("  ok     lembra enquanto espera; sem a quem avisar, falha; sem pedido, cala")
+
+
+def teste_o_lembrete_e_tarefa_do_agendador():
+    from servidor import agenda
+    from servidor.config import carregar
+
+    checa("pedidos" in agenda.TAREFAS,
+          f"o lembrete não é tarefa do agendador: {agenda.TAREFAS}")
+    cfg = carregar({"PROTOCOL_RAIZ": "dados_portal",
+                    "PROTOCOL_MODO_ENSAIO": "1"})
+    checa("pedidos" in agenda.tarefas_padrao(cfg),
+          "a tarefa `pedidos` não está ligada a ferramenta nenhuma")
+    print("  ok     `pedidos` é tarefa do agendador, e está ligada")
+
+
+def teste_o_endereco_de_quem_opera_na_configuracao():
+    """Endereço torto é erro de quem sobe o servidor, e tem de aparecer NA
+    SUBIDA — não no dia em que o primeiro pedido não chegar a ninguém.
+    Ausente não impede subir: avisa, em voz alta."""
+    from servidor.config import ConfiguracaoInvalida, carregar
+
+    base = {"PROTOCOL_RAIZ": "dados_portal", "PROTOCOL_MODO_ENSAIO": "1"}
+    cfg = carregar({**base, "PROTOCOL_EMAIL_DE_QUEM_OPERA":
+                    " nos@exemplo.invalid "})
+    checa(cfg.email_de_quem_opera == "nos@exemplo.invalid",
+          f"não leu o endereço: {cfg.email_de_quem_opera!r}")
+    try:
+        carregar({**base, "PROTOCOL_EMAIL_DE_QUEM_OPERA": "sem-arroba"})
+        checa(False, "endereço torto de quem opera passou na subida")
+    except ConfiguracaoInvalida:
+        pass
+    cfg = carregar(base)
+    checa(cfg.email_de_quem_opera == ""
+          and any("PROTOCOL_EMAIL_DE_QUEM_OPERA" in a for a in cfg.avisos),
+          f"sem endereço, a subida não avisa: {cfg.avisos}")
+    print("  ok     endereço torto não sobe; ausente sobe avisando")
+
+
+TESTES.extend([
+    teste_o_lembrete_diario_de_pedido_que_espera,
+    teste_o_lembrete_e_tarefa_do_agendador,
+    teste_o_endereco_de_quem_opera_na_configuracao,
+])
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

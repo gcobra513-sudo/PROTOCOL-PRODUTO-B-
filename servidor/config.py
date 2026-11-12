@@ -91,6 +91,16 @@ class Config:
     #: cabeçalho" — e é uma afirmação sobre a implantação, que só quem a
     #: monta pode fazer. Por isso não tem padrão útil.
     proxies_confiaveis: tuple[str, ...] = ()
+    #: Para onde vai o aviso de que a planilha de um sindicato deixou um
+    #: PEDIDO esperando — troca de e-mail de quem já entra, ou entrada nova
+    #: com e-mail repetido. Esses pedidos só valem depois de conferidos por
+    #: quem opera o servidor, e um pedido que ninguém vê é um filiado
+    #: esperando sem prazo.
+    #:
+    #: VAZIO não impede subir: os pedidos continuam indo para o log, e a
+    #: tarefa `pedidos` do agendador passa a falhar enquanto houver algum —
+    #: que é o jeito de isso aparecer em `/saude`.
+    email_de_quem_opera: str = ""
 
     @property
     def tem_banco(self) -> bool:
@@ -199,7 +209,25 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
             "por isso — só demonstração é atendida."
         )
 
+    email_de_quem_opera = amb.get("PROTOCOL_EMAIL_DE_QUEM_OPERA", "").strip()
+    if email_de_quem_opera:
+        from .validacao import EMAIL
+
+        if not EMAIL.match(email_de_quem_opera):
+            # NA SUBIDA, e não no dia em que o primeiro pedido não chegar.
+            raise ConfiguracaoInvalida(
+                f"PROTOCOL_EMAIL_DE_QUEM_OPERA={email_de_quem_opera!r} não "
+                f"é um endereço de e-mail."
+            )
+    else:
+        avisos.append(
+            "PROTOCOL_EMAIL_DE_QUEM_OPERA está vazia: os pedidos de troca "
+            "de e-mail que a planilha de um sindicato deixar NÃO avisam "
+            "ninguém — ficam só no log, esperando alguém olhar."
+        )
+
     cfg = Config(
+        email_de_quem_opera=email_de_quem_opera,
         agendar=amb.get("PROTOCOL_AGENDAR", "1") != "0",
         portal=amb.get("PROTOCOL_PORTAL", "").strip(),
         banco_url=banco_url,

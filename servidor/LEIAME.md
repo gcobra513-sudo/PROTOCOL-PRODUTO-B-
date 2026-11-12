@@ -46,6 +46,7 @@ padrão é o mesmo que nenhum, com a desvantagem de parecer que existe.
 | `PROTOCOL_EMISSOES_POR_CPF_HORA` | padrão 3 |
 | `PROTOCOL_EMISSOES_POR_ORIGEM_HORA` | padrão 20. **Suba** se o sindicato atende vários filiados do mesmo computador da sede |
 | `PROTOCOL_PROXIES_CONFIAVEIS` | endereços, separados por vírgula, de quem este servidor aceita `X-Forwarded-For`. **Vazio por padrão, e vazio significa não acreditar no cabeçalho.** Se o servidor fica atrás de proxy reverso e isto não estiver preenchido, a contagem acima vale para todos juntos — e aí o portão fecha para a fila. Se estiver preenchido com o endereço errado, a contagem volta a ser escolhida por quem pede |
+| `PROTOCOL_EMAIL_DE_QUEM_OPERA` | para onde vai o aviso de que a planilha de um sindicato deixou **pedido esperando** (troca de e-mail, entrada com e-mail repetido). Vazio não impede subir: avisa na subida, e a tarefa `pedidos` passa a falhar enquanto houver pedido — é assim que aparece em `/saude`. Endereço torto impede subir |
 | `PROTOCOL_MODO_ENSAIO` | `1` dispensa segredo e devolve o código na resposta. Nunca com gente de verdade |
 
 ## Apagamento a pedido (LGPD art. 18, VI)
@@ -175,9 +176,23 @@ python3 ferramentas/trocas_de_email.py --raiz dados_portal --entidade sind-df re
 
 Não existe rota para aprovar, de propósito — e `tests/testes_repositorio.py`
 falha se aparecer uma. A recusa fica guardada: a mesma planilha, reenviada,
-não recria o pedido. Quando há troca pedida, o servidor escreve no log
-`TROCA DE E-MAIL pedida ent=… quantas=…` — **é por essa linha que se fica
-sabendo**; ninguém é avisado por e-mail.
+não recria o pedido.
+
+**Como ficamos sabendo de um pedido.** Por e-mail, em
+`PROTOCOL_EMAIL_DE_QUEM_OPERA`, em dois momentos:
+
+- **na hora**, quando a planilha confirmada cria um pedido novo. Reenviar a
+  mesma planilha não avisa de novo;
+- **todo dia**, pela tarefa `pedidos` do agendador
+  (`ferramentas/avisar_pedidos.py`), enquanto houver pedido esperando. É o
+  que cobre o e-mail da hora que se perdeu.
+
+O e-mail traz **só contagens** — quantas trocas, quantas entradas, desde
+quando, em qual sindicato — e o comando para olhar. Nunca CPF nem e-mail de
+filiado: a caixa de quem opera não é o banco. Se o correio falhar na hora, a
+planilha do sindicato entra do mesmo jeito. Sem endereço configurado e com
+pedido esperando, a tarefa `pedidos` **falha**, e a falha aparece em
+`/saude`. A linha `TROCA DE E-MAIL pedida ent=…` continua no log.
 
 `ferramentas/ingerir_acervo.py` segue a mesma regra, porque chama a mesma
 função: rodada por nós, ela também só *pede* a troca.

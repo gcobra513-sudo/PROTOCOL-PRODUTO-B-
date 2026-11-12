@@ -610,7 +610,11 @@ def teste_reavaliar_e_tarefa_do_agendador():
     secao("o agendador")
     from servidor import agenda, config
 
-    checa(list(agenda.TAREFAS) == ["coletar", "avisar", "reavaliar"],
+    # `pedidos` entrou depois (12/11/2026) e fica por ÚLTIMO: é o lembrete
+    # a quem opera, e uma falha de correio nossa não pode atrasar o que é
+    # do filiado. `reavaliar` continua depois de `coletar` e `avisar`.
+    checa(list(agenda.TAREFAS)
+          == ["coletar", "avisar", "reavaliar", "pedidos"],
           f"a ordem ou o conjunto está diferente: {agenda.TAREFAS}")
 
     cfg = config.carregar({

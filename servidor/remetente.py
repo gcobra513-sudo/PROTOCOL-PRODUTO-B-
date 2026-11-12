@@ -126,3 +126,23 @@ class PorSmtp:
             if self.usuario:
                 s.login(self.usuario, self.senha)
             s.send_message(msg)
+
+
+def pelo_ambiente(raiz: pathlib.Path) -> Remetente:
+    """O remetente de uma FERRAMENTA, lido do ambiente.
+
+    As ferramentas não chamam `config.carregar()` — ela exige o segredo do
+    portão, que elas não usam. Com `PROTOCOL_SMTP_HOST`, é SMTP; sem, é o
+    arquivo de desenvolvimento, na raiz de dados.
+    """
+    import os
+
+    if os.environ.get("PROTOCOL_SMTP_HOST"):
+        return PorSmtp(
+            os.environ.get("PROTOCOL_SMTP_HOST", ""),
+            int(os.environ.get("PROTOCOL_SMTP_PORTA", "587")),
+            os.environ.get("PROTOCOL_SMTP_USUARIO", ""),
+            os.environ.get("PROTOCOL_SMTP_SENHA", ""),
+            os.environ.get("PROTOCOL_SMTP_REMETENTE", ""),
+        )
+    return ParaArquivo(raiz)

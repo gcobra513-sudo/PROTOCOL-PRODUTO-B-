@@ -256,7 +256,10 @@ def plano_do_portao(pasta: pathlib.Path, pessoas: list) -> PlanoDoPortao:
 
 
 def _aplicar_ao_portao(pasta: pathlib.Path, plano: PlanoDoPortao,
-                       quem: str) -> None:
+                       quem: str) -> int:
+    """Aplica o plano. Devolve quantos pedidos NASCERAM — é o que decide se
+    quem opera é avisado: reenviar a mesma planilha não é notícia."""
+    nasceram = 0
     rol.acrescentar(pasta, plano.novos)
     pedidos = trocas.estado(pasta).pendentes
     # A entrada segurada é um pedido com `de` vazio: não há e-mail de antes.
@@ -268,8 +271,10 @@ def _aplicar_ao_portao(pasta: pathlib.Path, plano: PlanoDoPortao,
         if ja and rol.mesmo_email(ja.get("para", ""), para):
             continue
         trocas.pedir(pasta, cpf=cpf, de=de, para=para, quem=quem)
+        nasceram += 1
     for cpf in plano.retiradas:
         trocas.retirar(pasta, cpf)
+    return nasceram
 
 
 def gravar_planilha(ent: Entidade, raiz: pathlib.Path, pessoas: list, *,
@@ -341,9 +346,10 @@ def _gravar_planilha(ent: Entidade, pasta: pathlib.Path, pessoas: list, *,
     # O ACESSO POR ÚLTIMO. Se a base falhar acima, ninguém ganha código para
     # entrar num portal que não o conhece; e reenviar a planilha conserta,
     # porque quem já entrou no rol deixa de ser novo.
-    _aplicar_ao_portao(pasta, plano, quem)
+    nasceram = _aplicar_ao_portao(pasta, plano, quem)
     return {"retrato": retrato, "projetadas": projetadas,
-            "arquivo": pasta / ARQUIVO_DO_ACERVO, "portao": plano}
+            "arquivo": pasta / ARQUIVO_DO_ACERVO, "portao": plano,
+            "pedidos_novos": nasceram}
 
 
 # ----------------------------------------------------------- os documentos

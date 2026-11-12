@@ -43,7 +43,12 @@ log = logging.getLogger("protocol.agenda")
 #: duas são sobre movimentação de processo, ela é sobre o veredicto do
 #: motor. No dia em que uma movimentação coletada alimentar o veredicto, ou
 #: em que o veredicto alimentar um aviso, esta ordem tem de ser revista.
-TAREFAS = ("coletar", "avisar", "reavaliar")
+#:
+#: `pedidos` é o lembrete a QUEM OPERA de que a planilha de um sindicato
+#: deixou pedido esperando (troca de e-mail, entrada com e-mail repetido).
+#: Não depende das outras três nem elas dele; fica por último para que uma
+#: falha de correio nossa nunca atrase o que é do filiado.
+TAREFAS = ("coletar", "avisar", "reavaliar", "pedidos")
 
 #: A partir de quanto tempo sem uma execução BOA o trabalho conta como
 #: atrasado. Os trabalhos são diários: menos que 24h daria alarme falso a
@@ -287,6 +292,14 @@ def tarefas_padrao(cfg):
         # tribunal julgar — justamente o dia em que ninguém está olhando o
         # catálogo.
         "reavaliar": _rodar("reavaliar_oportunidades.py", []),
+        # O LEMBRETE DE PEDIDO QUE ESPERA. O e-mail da hora pode se perder;
+        # este repete todo dia enquanto houver pedido, e SAI COM 1 quando
+        # não há a quem avisar — pedido esperando sem ninguém saber vira
+        # falha registrada, e aparece em `/saude`.
+        "pedidos": _rodar(
+            "avisar_pedidos.py",
+            ["--para", cfg.email_de_quem_opera]
+            if cfg.email_de_quem_opera else []),
     }
 
 

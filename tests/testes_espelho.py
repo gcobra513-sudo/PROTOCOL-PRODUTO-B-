@@ -403,7 +403,7 @@ def teste_recriar_derruba_TODAS_as_tabelas():
 
 # ------------------------------------------- o caminho de produção, por HTTP
 
-def _servidor(apelido: str = "demo-a"):
+def _servidor(apelido: str = "demo-a", ambiente: dict | None = None):
     """Um servidor em modo ensaio COM banco, e uma entidade de demonstração.
 
     `apelido` existe para o teste que precisa da BASE SÓ DELE: o banco não é
@@ -439,6 +439,7 @@ def _servidor(apelido: str = "demo-a"):
         "PROTOCOL_AGENDAR": "0",
         "PROTOCOL_EMISSOES_POR_CPF_HORA": "50",
         "PROTOCOL_EMISSOES_POR_ORIGEM_HORA": "500",
+        **(ambiente or {}),
     })
     return TestClient(criar_app(cfg)), ent, raiz
 
@@ -4119,6 +4120,115 @@ def teste_as_tarefas_agendadas_seguram_a_trava_do_apagamento():
     print("  ok     avisar, reavaliar e coletar gravam com o apagamento parado")
 
 
+# ------------------------ o pedido de troca chega a quem opera
+
+NOS = "operacao@exemplo.invalid"
+
+
+def _avisos_a_quem_opera(raiz) -> list[str]:
+    """Os e-mails que saíram para quem opera — cada um, cabeçalho e corpo."""
+    log = raiz / "mensagens_enviadas.log"
+    if not log.is_file():
+        return []
+    return [m for m in log.read_text(encoding="utf-8").split("=== ")
+            if f"\t{NOS}\t" in m]
+
+
+def teste_pedido_de_troca_avisa_quem_opera():
+    """A troca pedida só vale depois de conferida por quem opera — e quem
+    opera só ficava sabendo por uma linha no log do servidor. Um pedido que
+    ninguém vê é um filiado esperando por um e-mail que não muda, ou sem
+    conseguir entrar, sem prazo.
+
+    O E-MAIL NÃO TRAZ CPF NEM E-MAIL DE FILIADO. A caixa de quem opera não
+    é o banco: o aviso diz QUANTOS e ONDE, e manda olhar no servidor.
+
+    E SÓ AVISA DO QUE É NOVO: a planilha é reenviada toda vez que a base
+    muda, e um e-mail por reenvio ensinaria a não ler.
+    """
+    secao("o pedido de troca chega a quem opera")
+    entidade = "demo-avisa-1"
+    cliente, ent, raiz = _servidor(
+        entidade, {"PROTOCOL_EMAIL_DE_QUEM_OPERA": NOS})
+    corpo = _planilha([
+        (A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR),
+        (C_PLAN, "UMA (CADASTRO DE EXEMPLO)", MESMO),
+        (D_PLAN, "OUTRA (CADASTRO DE EXEMPLO)", MESMO),
+        (E_PLAN, "SOZINHA (CADASTRO DE EXEMPLO)", "sozinha@exemplo.invalid"),
+    ])
+    _enviar_planilha(cliente, entidade, corpo)
+    checa(_avisos_a_quem_opera(raiz) == [],
+          "a PRÉVIA avisou: nada foi pedido ainda")
+    _confirmar_planilha(cliente, entidade, corpo)
+    avisos = _avisos_a_quem_opera(raiz)
+    checa(len(avisos) == 1,
+          f"o pedido não chegou a quem opera (ou chegou repetido): "
+          f"{len(avisos)} e-mail(s)")
+    if len(avisos) != 1:
+        return
+    texto = avisos[0]
+    checa(entidade in texto and "1 troca" in texto and "2 entrada" in texto,
+          f"o aviso não diz onde nem quantos: {texto}")
+    checa("trocas_de_email.py" in texto and "listar" in texto,
+          f"o aviso não diz o que fazer: {texto}")
+    for dado in (A, C_PLAN, D_PLAN, INVASOR, MESMO, "fulana@exemplo.org",
+                 "FULANA", "UMA (CADASTRO"):
+        checa(dado not in texto,
+              f"O AVISO LEVA DADO DE FILIADO PARA A CAIXA DE E-MAIL: {dado}")
+
+    _confirmar_planilha(cliente, entidade, corpo)
+    checa(len(_avisos_a_quem_opera(raiz)) == 1,
+          "a MESMA planilha, sem pedido novo, avisou de novo")
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(E_PLAN, "SOZINHA (CADASTRO DE EXEMPLO)", "sozinha@exemplo.invalid"),
+         (F_PLAN, "MAIS UMA (CADASTRO DE EXEMPLO)", "maisuma@exemplo.invalid")]))
+    checa(len(_avisos_a_quem_opera(raiz)) == 1,
+          "planilha que só traz gente nova, sem pedido, avisou")
+    # SÓ uma entrada segurada, sem troca nenhuma: também é pedido, e também
+    # espera por nós. (Um mutante que só contava as trocas passava aqui.)
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(_cpf_sintetico(8105), "QUARTA (CADASTRO DE EXEMPLO)", MESMO)]))
+    avisos = _avisos_a_quem_opera(raiz)
+    checa(len(avisos) == 2 and "1 pedido(s) novo(s)" in avisos[-1]
+          and "3 entrada" in avisos[-1],
+          f"a entrada segurada, sozinha, não avisou quem opera: "
+          f"{avisos[-1] if avisos else avisos}")
+    print("  ok     pedido novo: um e-mail a quem opera, sem dado de filiado")
+
+
+def teste_aviso_que_falha_nao_derruba_a_planilha():
+    """O aviso é para NÓS. Se o correio estiver fora, a planilha do
+    sindicato tem de entrar do mesmo jeito — o pedido está gravado, e o
+    lembrete diário o encontra."""
+    from servidor import remetente, trocas
+
+    entidade = "demo-avisa-2"
+    cliente, ent, raiz = _servidor(
+        entidade, {"PROTOCOL_EMAIL_DE_QUEM_OPERA": NOS})
+    original = remetente.ParaArquivo.enviar_mensagem
+
+    def fora_do_ar(self, destino, assunto, corpo):
+        raise OSError("correio fora do ar")
+
+    remetente.ParaArquivo.enviar_mensagem = fora_do_ar
+    try:
+        feito = _confirmar_planilha(cliente, entidade, _planilha(
+            [(A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR)]))
+    finally:
+        remetente.ParaArquivo.enviar_mensagem = original
+    checa(feito.get("gravado") is True
+          and A in trocas.estado(ent.pasta(raiz)).pendentes,
+          f"a falha do aviso derrubou a planilha ou o pedido: {feito}")
+    # Sem endereço configurado: nada sai, e nada quebra.
+    cliente2, ent2, raiz2 = _servidor("demo-avisa-3")
+    feito = _confirmar_planilha(cliente2, "demo-avisa-3", _planilha(
+        [(A, "FULANA (CADASTRO DE EXEMPLO)", INVASOR)]))
+    checa(feito.get("gravado") is True
+          and not (raiz2 / "mensagens_enviadas.log").exists(),
+          "sem endereço de quem opera, saiu e-mail para algum lugar")
+    print("  ok     correio fora ou endereço ausente: a planilha entra")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -4228,6 +4338,8 @@ TESTES = [
     teste_processo_de_quem_saiu_deixa_de_ser_acompanhado,
     teste_apagamento_no_meio_da_coleta_nao_grava_processo_sem_dono,
     teste_as_tarefas_agendadas_seguram_a_trava_do_apagamento,
+    teste_pedido_de_troca_avisa_quem_opera,
+    teste_aviso_que_falha_nao_derruba_a_planilha,
 ]
 
 
