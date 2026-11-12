@@ -43,6 +43,7 @@ from fastapi.responses import JSONResponse, Response
 
 # `conta` e não `cadastro`: `entidades.Cadastro` já ocupa esse nome aqui,
 # e a colisão deixava o módulo do contrato invisível em silêncio.
+from nucleo import atendimento
 from nucleo import cadastro as conta
 from nucleo import entendimentos, leitura, motor, panorama
 from nucleo import participacao, pendencia
@@ -2344,5 +2345,47 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         saida = recibo.para_json()
         saida["substituiu_protocolo"] = anterior
         return saida
+
+    @app.post("/api/atendimento")
+    def atender(pedido: Request,
+                corpo: dict = Body(default_factory=dict)) -> dict:
+        """As perguntas de sempre do filiado, respondidas na hora.
+
+        NÃO ACEITA CPF, como as outras rotas dele: responde sobre quem abriu
+        a sessão. E NÃO APURA NADA — pergunta às MESMAS funções que as telas
+        usam, e `nucleo.atendimento` só escreve em frases. Um segundo jeito
+        de apurar seria uma segunda resposta para a mesma pessoa.
+
+        A PERGUNTA NÃO É GUARDADA NEM LOGADA. É texto livre: a pessoa pode
+        escrever ali o que quiser, de si e dos outros. O log leva só o
+        assunto reconhecido.
+
+        NÃO HÁ MODELO DE LINGUAGEM AQUI, e não é falta de tempo: dado de
+        filiado não vai para modelo de linguagem.
+        """
+        sessao = _sessao_de(pedido)
+        assunto = atendimento.entender(str(corpo.get("pergunta") or "")[:500])
+        dados: dict = {}
+        if assunto in (atendimento.PROCESSOS, atendimento.NOVIDADES):
+            dados["processos"] = meus_processos(pedido)
+        if assunto in (atendimento.PROCESSOS, atendimento.DOCUMENTOS,
+                       atendimento.FALTA, atendimento.DIREITOS):
+            dados["acoes"] = minhas_acoes(pedido)
+        if assunto in (atendimento.DOCUMENTOS, atendimento.DADOS):
+            dados["cadastro"] = meu_cadastro(pedido)
+        log.info("atendimento ent=%s assunto=%s", sessao.entidade, assunto)
+        return {
+            "assunto": assunto,
+            "resposta": atendimento.responder(assunto, **dados),
+            "sugestoes": list(atendimento.SUGESTOES),
+        }
+
+    # AS PÁGINAS, POR ÚLTIMO — depois de TODAS as rotas. Montado antes, o
+    # portal estático ficaria na frente de `/saude` e de `/api/...`.
+    if cfg.portal_estatico:
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/", StaticFiles(directory=cfg.portal_estatico, html=True),
+                  name="portal")
 
     return app

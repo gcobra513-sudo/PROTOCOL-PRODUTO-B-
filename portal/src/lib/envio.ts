@@ -21,10 +21,14 @@
 import type { DocumentoEnviado, Rascunho } from "./tipos";
 import { linhaDoCadastro, nomearDocumentos } from "./exportar";
 
-const BASE: string = (import.meta.env.VITE_API ?? "").replace(/\/+$/, "");
+// `VITE_API=/` quer dizer "a API está no MESMO endereço do portal" — é assim
+// quando um servidor só entrega as páginas e a API. Aí a base fica vazia (os
+// pedidos saem relativos), e o que diz que há servidor é a variável existir.
+const DECLARADA: string = (import.meta.env.VITE_API ?? "").trim();
+const BASE: string = DECLARADA.replace(/\/+$/, "");
 
 export function servidorLigado(): boolean {
-  return BASE.length > 0;
+  return DECLARADA.length > 0;
 }
 
 /** O apelido da entidade, do mesmo `?entidade=` que a página inicial lê. */
@@ -364,7 +368,7 @@ export async function verCompletude(
  *  nunca era chamada por ninguém. Tela que não se consegue abrir é tela que
  *  não existe — e o pior é que ela passa por pronta na contagem.
  */
-export const TELAS = ["cadastro", "acoes", "processos", "painel"] as const;
+export const TELAS = ["cadastro", "acoes", "processos", "atendimento", "painel"] as const;
 export type Tela = (typeof TELAS)[number];
 
 /** A área que o link pede, ou `cadastro`.
@@ -909,4 +913,36 @@ export async function meuCadastro(token: string): Promise<MeuCadastro> {
     documentos: corpo.documentos ?? [],
     aviso: corpo.aviso ?? "",
   };
+}
+
+// ------------------------------------------------------------ atendimento
+
+export interface RespostaDoAtendimento {
+  /** O assunto que o servidor entendeu — ou "nao_entendi". */
+  assunto: string;
+  /** Um parágrafo por item. */
+  resposta: string[];
+  /** Perguntas que ele sabe responder, para oferecer em seguida. */
+  sugestoes: string[];
+}
+
+/** Pergunta ao atendimento automático. NÃO leva CPF: o servidor responde
+ *  sobre quem abriu a sessão, e só sobre ela. */
+export async function perguntar(
+  token: string,
+  pergunta: string,
+): Promise<RespostaDoAtendimento> {
+  const r = await fetch(`${BASE}/api/atendimento`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ pergunta }),
+  });
+  const corpo = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new Error(corpo?.detail ?? "o atendimento não respondeu");
+  }
+  return corpo as RespostaDoAtendimento;
 }

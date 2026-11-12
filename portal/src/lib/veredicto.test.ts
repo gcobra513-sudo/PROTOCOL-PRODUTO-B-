@@ -167,8 +167,13 @@ describe("as áreas do portal", () => {
     expect(ir("?consulta")).toBe("processos");
   });
 
-  it("toda área declarada é uma das quatro", () => {
-    expect([...TELAS]).toEqual(["cadastro", "acoes", "processos", "painel"]);
+  it("toda área declarada é uma das cinco", () => {
+    // O ATENDIMENTO entrou em 12/11/2026: a conversa em que o filiado
+    // pergunta o que perguntaria por telefone. É área dele, não do gestor.
+    expect([...TELAS]).toEqual([
+      "cadastro", "acoes", "processos", "atendimento", "painel",
+    ]);
+    expect(telaDoLink("?tela=atendimento")).toBe("atendimento");
   });
 });
 

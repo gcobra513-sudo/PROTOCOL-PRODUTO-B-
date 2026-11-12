@@ -14,36 +14,55 @@
    * O contraste de cada par foi escolhido para passar de 4.5:1 nos dois
    * modos; o acento escurece no claro e clareia no escuro por isso.
    */
+  /*
+   * A PALETA DE 12/11/2026: roxo e azul sobre cinza-azulado claro, cartões
+   * brancos de canto largo. Pedida pelo dono do produto, inspirada num
+   * painel administrativo — e não é a identidade de sindicato nenhum.
+   *
+   * `acento` é o roxo, e é a cor de TEXTO e de botão: por isso ele escurece
+   * no claro e clareia no escuro, para passar de 4.5:1 nos dois. Os cartões
+   * de número usam `roxo` e `azul` FIXOS (em `tailwind.config.js`), sempre
+   * com texto branco, e por isso não mudam com o modo.
+   */
   :root {
-    --tinta: 21 32 43;
-    --papel: 246 247 249;
+    --tinta: 18 25 38;
+    --papel: 238 242 246;
     --carta: 255 255 255;
-    --borda: 214 219 227;
-    --acento: 31 95 168;
-    --alerta: 180 52 31;
-    --bom: 28 122 74;
+    --borda: 221 227 236;
+    --acento: 94 53 177;
+    --lilas: 237 231 246;
+    --ceu: 227 242 253;
+    --alerta: 198 40 40;
+    --bom: 0 121 59;
+    --ambar: 255 248 225;
   }
 
   @media (prefers-color-scheme: dark) {
     :root:not([data-tema="claro"]) {
-      --tinta: 229 233 238;
-      --papel: 17 23 30;
-      --carta: 25 32 41;
-      --borda: 56 66 79;
-      --acento: 125 179 240;
+      --tinta: 229 233 240;
+      --papel: 17 25 54;
+      --carta: 26 34 63;
+      --borda: 50 61 100;
+      --acento: 179 157 219;
+      --lilas: 49 39 92;
+      --ceu: 24 49 87;
       --alerta: 248 150 130;
       --bom: 110 206 155;
+      --ambar: 66 55 20;
     }
   }
 
   :root[data-tema="escuro"] {
-    --tinta: 229 233 238;
-    --papel: 17 23 30;
-    --carta: 25 32 41;
-    --borda: 56 66 79;
-    --acento: 125 179 240;
+    --tinta: 229 233 240;
+    --papel: 17 25 54;
+    --carta: 26 34 63;
+    --borda: 50 61 100;
+    --acento: 179 157 219;
+    --lilas: 49 39 92;
+    --ceu: 24 49 87;
     --alerta: 248 150 130;
     --bom: 110 206 155;
+    --ambar: 66 55 20;
   }
 
   html {

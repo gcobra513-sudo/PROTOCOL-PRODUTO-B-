@@ -22,14 +22,14 @@ export function cn(...entradas: (string | undefined | false | null)[]) {
 
 // --------------------------------------------------------------------------
 const botao = cva(
-  "inline-flex items-center justify-center gap-2 rounded-md font-medium " +
+  "inline-flex items-center justify-center gap-2 rounded-lg font-medium " +
     "transition-colors focus-visible:outline focus-visible:outline-2 " +
     "focus-visible:outline-offset-2 focus-visible:outline-acento " +
     "disabled:cursor-not-allowed disabled:opacity-50",
   {
     variants: {
       tipo: {
-        principal: "bg-acento text-carta hover:bg-acento/90",
+        principal: "bg-acento text-carta shadow-sm hover:bg-acento/90",
         secundario:
           "border border-borda bg-carta text-tinta hover:bg-papel",
         discreto: "text-tinta/70 hover:text-tinta hover:bg-papel",
@@ -64,7 +64,7 @@ export function Cartao({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-borda bg-carta p-5 sm:p-7">
+    <section className="rounded-xl bg-carta p-5 shadow-cartao sm:p-7">
       <h2 className="text-xl font-semibold text-tinta">{titulo}</h2>
       {explicacao ? (
         <p className="mt-2 text-[15px] leading-relaxed text-tinta/70">
@@ -121,7 +121,7 @@ export function Campo({
         aria-invalid={temErro || undefined}
         aria-describedby={temErro || ajuda ? idAjuda : undefined}
         className={cn(
-          "mt-1.5 h-11 w-full rounded-md border bg-carta px-3 text-[15px]",
+          "mt-1.5 h-12 w-full rounded-lg border bg-carta px-3.5 text-[15px]",
           "text-tinta placeholder:text-tinta/40",
           "focus:outline focus:outline-2 focus:outline-offset-0 focus:outline-acento",
           temErro ? "border-alerta" : "border-borda",
@@ -180,7 +180,7 @@ export function Escolha<T extends string>({
           <label
             key={o.valor}
             className={cn(
-              "flex cursor-pointer items-start gap-3 rounded-md border p-3",
+              "flex cursor-pointer items-start gap-3 rounded-lg border p-3",
               "transition-colors hover:bg-papel",
               valor === o.valor
                 ? "border-acento bg-acento/5"
@@ -249,19 +249,99 @@ export function Aviso({
   children: ReactNode;
 }) {
   const cores = {
-    alerta: "border-alerta/40 bg-alerta/5 text-alerta",
-    bom: "border-bom/40 bg-bom/5 text-bom",
-    neutro: "border-borda bg-papel text-tinta/80",
+    alerta: "border-alerta/25 bg-alerta/5 text-alerta",
+    bom: "border-bom/25 bg-bom/5 text-bom",
+    neutro: "border-transparent bg-lilas text-tinta/85",
   } as const;
   return (
     <div
       role={tom === "alerta" ? "alert" : undefined}
       className={cn(
-        "rounded-md border p-3.5 text-[15px] leading-relaxed",
+        "rounded-lg border p-4 text-[15px] leading-relaxed",
         cores[tom],
       )}
     >
       {children}
+    </div>
+  );
+}
+
+// --------------------------------------------------------------------------
+/** O NÚMERO QUE ABRE O PAINEL: um cartão cheio, de cor, com o número grande.
+ *
+ *  Dois círculos claros no canto, só de enfeite — e por isso `aria-hidden`.
+ *  O texto é branco sobre cor FIXA (não muda com o modo escuro): o par foi
+ *  escolhido uma vez, e o número em 36px passa do contraste de texto grande.
+ */
+export function Destaque({
+  cor,
+  icone,
+  valor,
+  rotulo,
+}: {
+  cor: "roxo" | "azul";
+  icone: ReactNode;
+  valor: ReactNode;
+  rotulo: string;
+}) {
+  const fundo = cor === "roxo" ? "bg-roxo" : "bg-azul";
+  const bolha = cor === "roxo" ? "bg-roxo-fundo" : "bg-azul-fundo";
+  return (
+    <div className={cn("relative overflow-hidden rounded-xl p-5 text-white", fundo)}>
+      <span aria-hidden="true" className={cn("absolute -right-10 -top-16 h-44 w-44 rounded-full opacity-60", bolha)} />
+      <span aria-hidden="true" className={cn("absolute -right-24 -top-6 h-44 w-44 rounded-full opacity-40", bolha)} />
+      <div className="relative">
+        <span className={cn("flex h-11 w-11 items-center justify-center rounded-lg", bolha)}>
+          {icone}
+        </span>
+        <p className="mt-5 text-4xl font-bold leading-none">{valor}</p>
+        <p className="mt-2 text-[15px] font-medium text-white/85">{rotulo}</p>
+      </div>
+    </div>
+  );
+}
+
+/** O número pequeno, ao lado dos dois grandes. */
+export function Mini({
+  cor,
+  icone,
+  valor,
+  rotulo,
+}: {
+  cor: "azul" | "claro";
+  icone: ReactNode;
+  valor: ReactNode;
+  rotulo: string;
+}) {
+  const cheio = cor === "azul";
+  return (
+    <div
+      className={cn(
+        "relative flex items-center gap-4 overflow-hidden rounded-xl p-4",
+        cheio ? "bg-azul text-white" : "bg-carta text-tinta shadow-cartao",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "absolute -right-8 -top-10 h-28 w-28 rounded-full",
+          cheio ? "bg-azul-fundo opacity-60" : "bg-ambar",
+        )}
+      />
+      <span
+        className={cn(
+          "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg",
+          cheio ? "bg-azul-fundo" : "bg-ambar text-tinta",
+        )}
+      >
+        {icone}
+      </span>
+      <div className="relative">
+        <p className="text-xl font-bold leading-tight">{valor}</p>
+        <p className={cn("text-sm", cheio ? "text-white/85" : "text-tinta/65")}>
+          {rotulo}
+        </p>
+      </div>
     </div>
   );
 }
