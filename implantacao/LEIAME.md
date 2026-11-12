@@ -182,17 +182,31 @@ o navegador abre o portal com cadeado.
 
 ## 9. O primeiro sindicato
 
+Veja as carreiras que dá para contratar, e crie — o sindicato, as carreiras
+dele e quem é gestor, de uma vez:
+
 ```bash
-cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh /srv/protocol/venv/bin/python -c "import os, pathlib; from servidor.entidades import Cadastro; print(Cadastro(pathlib.Path(os.environ['PROTOCOL_RAIZ'])).criar('sind-df', 'Sindicato Tal', categorias=('auditor-fiscal-receita-federal',)))"
+cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh /srv/protocol/venv/bin/python ferramentas/sindicatos.py --raiz /var/lib/protocol categorias
 ```
 
-Diga quem é gestor — `/var/lib/protocol/sind-df/gestores.csv`, com modo 600 e
-dono `protocol`:
-
-```csv
-cpf,email
-000.000.000-00,gestor@sindicato.exemplo.org
+```bash
+cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh /srv/protocol/venv/bin/python ferramentas/sindicatos.py --raiz /var/lib/protocol criar sind-df "Sindicato Tal" --categoria auditor-fiscal-receita-federal --gestor 000.000.000-00=gestor@sindicato.exemplo.org
 ```
+
+A ferramenta confere tudo antes de gravar — o apelido, a carreira, o CPF e
+o e-mail do gestor — e recusa em vez de criar pela metade. O arquivo de
+gestores nasce com modo 600. **O apelido decide se é demonstração:** só os
+que começam por `demo-` são; qualquer outro é sindicato de verdade.
+
+Confere:
+
+```bash
+cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh /srv/protocol/venv/bin/python ferramentas/sindicatos.py --raiz /var/lib/protocol listar
+```
+
+Para pôr ou tirar um gestor depois: `sindicatos.py gestor sind-df nomear CPF
+EMAIL` e `... tirar CPF`. Gestor não nomeia gestor, e por isso não há botão
+para isso no painel.
 
 Daí em diante é o sindicato: o gestor entra em
 `https://portal.exemplo.org/?entidade=sind-df&tela=painel`, envia a planilha,
