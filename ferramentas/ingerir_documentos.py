@@ -155,9 +155,20 @@ def main() -> int:
     from servidor import ingestao
 
     entrega = ent.entrega(raiz)
-    ingestao.gravar_documentos(ent, raiz, r, args.banco)
+    try:
+        feito = ingestao.gravar_documentos(
+            ent, raiz, r, args.banco,
+            marcador_de=ingestao.marcador_pelo_ambiente())
+    except ingestao.IngestaoRecusada as e:
+        print(f"\nNADA GRAVADO: {e}", file=sys.stderr)
+        return 2
 
-    print(f"  gravado em {entrega}")
+    print(f"  gravado em {entrega}: {feito['gravados']} documento(s) de "
+          f"{feito['pessoas']} pessoa(s)")
+    if feito["apagadas"]:
+        # NUNCA DIZ QUEM — a pessoa pediu para sair.
+        print(f"  {feito['apagadas']} pessoa(s) pediram apagamento e os "
+              f"documentos delas NÃO foram gravados.")
     if not args.banco:
         print(
             "\n  AVISO: sem --banco, os arquivos ficam no disco e os fatos\n"

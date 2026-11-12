@@ -3440,6 +3440,370 @@ def teste_a_planilha_e_o_apagamento_seguram_a_mesma_trava():
     print("  ok     planilha e apagamento não rodam ao mesmo tempo")
 
 
+# --------------------------------- e-mail repetido em gente nova (T27)
+
+MESMO = "mesmo@exemplo.invalid"
+F_PLAN = _cpf_sintetico(8104)
+
+
+def _ferramenta_de_trocas(raiz, entidade: str, *args: str):
+    import subprocess
+
+    return subprocess.run(
+        [sys.executable, str(RAIZ / "ferramentas" / "trocas_de_email.py"),
+         "--raiz", str(raiz), "--entidade", entidade, *args],
+        capture_output=True, text=True)
+
+
+def teste_email_repetido_em_gente_nova_segura_a_entrada():
+    """T27. "Gente nova entra direto" deixava uma conta de gestor
+    comprometida pôr UM endereço em quantas pessoas novas quisesse, e
+    receber o código de todas.
+
+    Duas pessoas novas com o mesmo e-mail: NENHUMA entra — escolher qual
+    das duas é a dona seria resolver a divergência sozinho. As duas ficam
+    pedidas, e quem opera confere. Quem veio com e-mail só dela entra.
+    """
+    from servidor import trocas
+
+    secao("e-mail repetido em gente nova")
+    entidade = "demo-rep-1"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    corpo = _planilha([
+        (C_PLAN, "UMA (CADASTRO DE EXEMPLO)", MESMO),
+        (D_PLAN, "OUTRA (CADASTRO DE EXEMPLO)", "Mesmo@Exemplo.INVALID"),
+        (E_PLAN, "SOZINHA (CADASTRO DE EXEMPLO)", "sozinha@exemplo.invalid"),
+    ])
+    feito = _confirmar_planilha(cliente, entidade, corpo)
+    checa((feito["acesso"]["novos"], feito["acesso"].get("novos_aguardando"))
+          == (1, 2), f"e-mail repetido não segurou a entrada: {feito['acesso']}")
+    for cpf in (C_PLAN, D_PLAN):
+        checa(_destino_do_codigo(cliente, raiz, entidade, cpf) is None,
+              "O MESMO E-MAIL RECEBEU O CÓDIGO DE DUAS PESSOAS NOVAS")
+    checa(_destino_do_codigo(cliente, raiz, entidade, E_PLAN)
+          == "sozinha@exemplo.invalid",
+          "quem veio com e-mail só dela ficou de fora")
+    pendentes = trocas.estado(pasta).pendentes
+    checa(sorted(pendentes) == sorted([C_PLAN, D_PLAN])
+          and pendentes[C_PLAN]["de"] == "",
+          f"as entradas seguradas não ficaram pedidas: {pendentes}")
+
+    # Uma TERCEIRA, sozinha na planilha dela, com o e-mail das duas que
+    # esperam: nenhuma das duas está no rol, e mesmo assim o endereço já
+    # tem dono pendente.
+    feito = _confirmar_planilha(cliente, entidade, _planilha(
+        [(F_PLAN, "TERCEIRA (CADASTRO DE EXEMPLO)", MESMO)]))
+    checa(feito["acesso"]["novos_aguardando"] == 1
+          and _destino_do_codigo(cliente, raiz, entidade, F_PLAN) is None,
+          f"o e-mail de quem ESPERA serviu para outra pessoa nova: "
+          f"{feito['acesso']}")
+
+    r = _ferramenta_de_trocas(raiz, entidade, "listar")
+    checa(r.returncode == 0 and "entrada nova" in r.stdout
+          and MESMO in r.stdout,
+          f"listar não mostra a entrada segurada: {r.stdout} {r.stderr}")
+    r = _ferramenta_de_trocas(raiz, entidade, "aprovar", C_PLAN)
+    checa(r.returncode == 0, f"aprovar a entrada falhou: {r.stdout} {r.stderr}")
+    r = _ferramenta_de_trocas(raiz, entidade, "recusar", D_PLAN)
+    checa(r.returncode == 0, f"recusar a entrada falhou: {r.stdout} {r.stderr}")
+    checa(_destino_do_codigo(cliente, raiz, entidade, C_PLAN) == MESMO,
+          "a entrada APROVADA não passou a valer")
+    checa(_destino_do_codigo(cliente, raiz, entidade, D_PLAN) is None,
+          "a entrada RECUSADA passou a valer")
+    feito = _confirmar_planilha(cliente, entidade, corpo)
+    checa((feito["acesso"]["novos"], feito["acesso"]["novos_aguardando"],
+           feito["acesso"]["trocas_recusadas"]) == (0, 0, 1)
+          and sorted(trocas.estado(pasta).pendentes) == [F_PLAN],
+          f"a mesma planilha recriou a entrada recusada: {feito['acesso']}")
+    print("  ok     mesmo e-mail em duas novas: nenhuma entra até conferirmos")
+
+
+def teste_email_de_quem_ja_entra_nao_serve_para_gente_nova():
+    """A MESMA REGRA, UMA PLANILHA DE CADA VEZ. Se "repetido" olhasse só
+    para dentro da planilha, bastaria mandar uma pessoa por envio: cada uma
+    seria a única com aquele e-mail no arquivo dela.
+
+    Então repetido quer dizer: já é o e-mail de OUTRA pessoa no portão —
+    filiado ou gestor — ou de outra pessoa nova, ou de outra entrada que
+    ainda espera.
+    """
+    from servidor import trocas
+
+    entidade = "demo-rep-2"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(C_PLAN, "PRIMEIRA (CADASTRO DE EXEMPLO)", MESMO)]))
+    checa(_destino_do_codigo(cliente, raiz, entidade, C_PLAN) == MESMO,
+          "o cenário não montou: a primeira devia entrar")
+    feito = _confirmar_planilha(cliente, entidade, _planilha(
+        [(D_PLAN, "SEGUNDA (CADASTRO DE EXEMPLO)", MESMO)]))
+    checa((feito["acesso"]["novos"], feito["acesso"]["novos_aguardando"])
+          == (0, 1) and _destino_do_codigo(cliente, raiz, entidade, D_PLAN)
+          is None,
+          f"UMA PESSOA POR ENVIO CONTORNOU A REGRA: {feito['acesso']}")
+    feito = _confirmar_planilha(cliente, entidade, _planilha(
+        [(E_PLAN, "TERCEIRA (CADASTRO DE EXEMPLO)", "gestor@exemplo.org")]))
+    checa(feito["acesso"]["novos_aguardando"] == 1
+          and _destino_do_codigo(cliente, raiz, entidade, E_PLAN) is None,
+          f"gente nova entrou com o e-mail do GESTOR: {feito['acesso']}")
+    # Quem esperava e voltou com e-mail só dela ENTRA, e o pedido some.
+    feito = _confirmar_planilha(cliente, entidade, _planilha(
+        [(D_PLAN, "SEGUNDA (CADASTRO DE EXEMPLO)", "segunda@exemplo.invalid")]))
+    checa(feito["acesso"]["novos"] == 1
+          and _destino_do_codigo(cliente, raiz, entidade, D_PLAN)
+          == "segunda@exemplo.invalid"
+          and D_PLAN not in trocas.estado(pasta).pendentes,
+          f"quem corrigiu o e-mail continua esperando: {feito['acesso']} "
+          f"{trocas.estado(pasta).pendentes}")
+    print("  ok     e-mail de quem já entra não serve para novo; corrigir libera")
+
+
+# ------------------------- o apagamento no meio dos outros caminhos (T28)
+
+def _com_apagamento_no_meio(modulo, funcao: str, cliente, entidade: str,
+                            cpf: str, gestor: str, acao):
+    """Roda `acao()` com o apagamento a pedido de `cpf` encaixado
+    imediatamente antes de `modulo.funcao` — o pior intercalamento, tornado
+    determinístico. Devolve (resposta da ação, respostas do apagamento)."""
+    original = getattr(modulo, funcao)
+    apagou: list = []
+
+    def embrulhada(*args, **kwargs):
+        # UMA VEZ SÓ, e sempre ANTES de quem grava tomar a trava: o
+        # apagamento espera por ela, e encaixado depois esperaria para
+        # sempre por quem o chamou.
+        if not apagou:
+            r = _apagar(cliente, entidade,
+                        {"cpf": cpf, "motivo": "pedido do titular",
+                         "pedido_por": "g"}, gestor)
+            apagou.append((r.status_code, r.json().get("vestigios")))
+        return original(*args, **kwargs)
+
+    setattr(modulo, funcao, embrulhada)
+    try:
+        return acao(), apagou
+    finally:
+        setattr(modulo, funcao, original)
+
+
+def _sobras_no_disco(raiz, cpf: str) -> list[str]:
+    achou = []
+    for caminho in sorted(raiz.rglob("*")):
+        if cpf in caminho.name:
+            achou.append(f"caminho {caminho.relative_to(raiz)}")
+        elif caminho.is_file() and cpf.encode() in caminho.read_bytes():
+            achou.append(f"conteúdo de {caminho.relative_to(raiz)}")
+    return achou
+
+
+def teste_apagamento_no_meio_dos_documentos_do_sindicato_nao_ressuscita():
+    """MEDIDO em 12/11/2026 (`docs/medicoes/2026-11-12-apagamento-no-meio.py`):
+    a prévia casa o arquivo com a pessoa, ela é apagada a pedido, e a
+    gravação punha de volta a pasta de entrega dela, 1 `documento` e 2
+    `achado`."""
+    from servidor import ingestao
+
+    entidade = "demo-meio-1"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _confirmar_planilha(cliente, entidade, _planilha([
+        (C_PLAN, "SAI NO MEIO (CADASTRO DE EXEMPLO)", "meio@exemplo.invalid"),
+        (D_PLAN, "FICA (CADASTRO DE EXEMPLO)", "fica@exemplo.invalid"),
+    ]))
+    arquivos = {f"{C_PLAN}-sentenca.pdf": _pdf(SENTENCA),
+                f"{D_PLAN}-sentenca.pdf": _pdf(SENTENCA)}
+    sha = _enviar_documentos(cliente, entidade, arquivos).json()["sha256"]
+    r, apagou = _com_apagamento_no_meio(
+        ingestao, "gravar_documentos", cliente, entidade, C_PLAN, gestor,
+        lambda: _enviar_documentos(cliente, entidade, arquivos,
+                                   confirmar=sha))
+    checa(apagou == [(200, [])], f"o apagamento do meio não rodou: {apagou}")
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    checa(_sobras_no_disco(raiz, C_PLAN) == [],
+          f"O DOCUMENTO DE QUEM PEDIU PARA SAIR NO MEIO FOI GRAVADO: "
+          f"{_sobras_no_disco(raiz, C_PLAN)}")
+    checa(_no_banco(entidade, C_PLAN) == {},
+          f"…e projetado no banco: {_no_banco(entidade, C_PLAN)}")
+    checa((ent.entrega(raiz) / D_PLAN).is_dir()
+          and (r.json().get("casaram"), r.json().get("pessoas")) == (1, 1),
+          f"o documento de quem fica não foi gravado, ou a resposta conta "
+          f"o que não gravou: {r.json()}")
+    print("  ok     apagamento no meio dos documentos do sindicato: não volta")
+
+
+def teste_apagamento_no_meio_do_cadastro_nao_ressuscita():
+    """MEDIDO em 12/11/2026: a sessão do filiado é conferida no começo do
+    pedido, os arquivos sobem (segundos, num pacote de 60 MB), e só então o
+    cadastro é gravado. Um apagamento nesse intervalo era desfeito no pior
+    lugar possível — o DIÁRIO, que é a autoridade: `banco.reconstruir`
+    traria a pessoa de volta para sempre. Sobravam 7 vestígios.
+
+    O apagamento revoga a sessão. Então basta conferi-la DE NOVO na hora de
+    gravar, com o apagamento parado — e isso não depende do banco estar no
+    ar, que é o que este caminho nunca pôde exigir.
+    """
+    import json as _json
+
+    from servidor import validacao
+
+    entidade = "demo-meio-2"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(C_PLAN, "SAI NO MEIO (CADASTRO DE EXEMPLO)", "meio@exemplo.invalid")]))
+    token = _token(cliente, C_PLAN, entidade)
+
+    def cadastrar():
+        return cliente.post(
+            "/api/cadastro",
+            data={"token": token, "linha": _json.dumps(linha(C_PLAN))},
+            files=[("arquivos", ("contribuicao-1.pdf", _pdf(CONTRIB),
+                                 "application/pdf")),
+                   ("arquivos", ("sentenca.pdf", _pdf(SENTENCA),
+                                 "application/pdf"))])
+
+    # O gancho é a leitura do primeiro arquivo: é o meio do envio, depois
+    # de a sessão ter sido conferida e antes de qualquer gravação.
+    r, apagou = _com_apagamento_no_meio(
+        validacao, "examinar_pdf", cliente, entidade, C_PLAN, gestor,
+        cadastrar)
+    checa(apagou == [(200, [])], f"o apagamento do meio não rodou: {apagou}")
+    checa(r.status_code == 401,
+          f"o cadastro de quem acabou de ser apagado foi aceito: "
+          f"{r.status_code} {r.text[:200]}")
+    checa(_sobras_no_disco(raiz, C_PLAN) == [],
+          f"QUEM PEDIU PARA SAIR NO MEIO DO CADASTRO VOLTOU AO DISCO: "
+          f"{_sobras_no_disco(raiz, C_PLAN)}")
+    checa(_no_banco(entidade, C_PLAN) == {},
+          f"…e ao banco: {_no_banco(entidade, C_PLAN)}")
+    print("  ok     apagamento no meio do cadastro: 401, e nada volta")
+
+
+def teste_apagamento_no_meio_da_leitura_do_gestor_nao_ressuscita():
+    """MEDIDO em 12/11/2026: o gestor abre o documento da fila e registra o
+    que leu; a pessoa é apagada a pedido entre uma coisa e outra; e a
+    leitura era gravada assim mesmo. Sobrava a linha em `leituras.jsonl` —
+    o CPF dela e o que a sentença dela diz, no arquivo que é AUTORIDADE."""
+    from servidor import conferencia
+
+    entidade = "demo-meio-4"
+    cliente, ent, raiz = _servidor(entidade)
+    gestor = _token(cliente, B, entidade)
+    _confirmar_planilha(cliente, entidade, _planilha(
+        [(C_PLAN, "SAI NO MEIO (CADASTRO DE EXEMPLO)", "meio@exemplo.invalid")]))
+    r = _enviar(cliente, C_PLAN, entidade, {
+        "contribuicao-1.pdf": _pdf(CONTRIB), "sentenca.pdf": _so_imagem()})
+    checa(r.status_code == 200, f"o cenário não montou: {r.text[:200]}")
+    doc = next(d["id"] for d in _fila(cliente, entidade)["pendentes"]
+               if d["tipo"] == "sentenca")
+    cabecalho = {"Authorization": f"Bearer {gestor}"}
+    r, apagou = _com_apagamento_no_meio(
+        conferencia, "validar", cliente, entidade, C_PLAN, gestor,
+        lambda: cliente.post(
+            f"/api/entidade/{entidade}/conferencia/{doc}",
+            json={"resultado": "lido",
+                  "fatos": {"dispositivo": "procedente"}},
+            headers=cabecalho))
+    checa(apagou == [(200, [])], f"o apagamento do meio não rodou: {apagou}")
+    checa(r.status_code == 404,
+          f"a leitura do documento de quem acabou de ser apagado foi "
+          f"aceita: {r.status_code} {r.text[:200]}")
+    checa(_sobras_no_disco(raiz, C_PLAN) == [],
+          f"A LEITURA DE QUEM PEDIU PARA SAIR FOI GRAVADA: "
+          f"{_sobras_no_disco(raiz, C_PLAN)}")
+    checa(_no_banco(entidade, C_PLAN) == {},
+          f"…e projetada: {_no_banco(entidade, C_PLAN)}")
+    print("  ok     apagamento no meio da leitura do gestor: 404, e nada fica")
+
+
+def teste_quem_grava_dado_de_pessoa_segura_a_trava_do_apagamento():
+    """Conferir de novo encolhe a janela; a trava a fecha. E no cadastro ela
+    tem de cobrir também o ESPELHO no banco: diário gravado, apagamento,
+    espelho — e a pessoa voltava ao banco mesmo com o diário já redigido."""
+    import fcntl
+    import os
+
+    from servidor import banco, deposito
+
+    entidade = "demo-meio-3"
+    cliente, ent, raiz = _servidor(entidade)
+    pasta = ent.pasta(raiz)
+
+    def tomada() -> bool:
+        fd = os.open(pasta / deposito.TRAVA_DO_APAGAMENTO,
+                     os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        else:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            return False
+        finally:
+            os.close(fd)
+
+    visto: dict[str, bool] = {}
+    depositar, reconstruir, guardar = (
+        deposito.depositar, banco.reconstruir, banco.guardar_achados)
+    fase = ["documentos"]
+
+    def depositar_espiado(*a, **k):
+        visto["cadastro: diário"] = tomada()
+        return depositar(*a, **k)
+
+    def reconstruir_espiado(*a, **k):
+        visto["cadastro: espelho"] = tomada()
+        return reconstruir(*a, **k)
+
+    def guardar_espiado(*a, **k):
+        visto.setdefault(f"{fase[0]}: achados", tomada())
+        return guardar(*a, **k)
+
+    from servidor import conferencia
+    registrar = conferencia.registrar
+
+    def registrar_espiado(*a, **k):
+        visto["leitura: registro"] = tomada()
+        return registrar(*a, **k)
+
+    deposito.depositar = depositar_espiado
+    banco.reconstruir = reconstruir_espiado
+    banco.guardar_achados = guardar_espiado
+    conferencia.registrar = registrar_espiado
+    try:
+        _confirmar_planilha(cliente, entidade, _planilha(
+            [(C_PLAN, "ALGUEM (CADASTRO DE EXEMPLO)", "a@exemplo.invalid")]))
+        arquivos = {f"{C_PLAN}-sentenca.pdf": _pdf(SENTENCA)}
+        sha = _enviar_documentos(cliente, entidade, arquivos).json()["sha256"]
+        _enviar_documentos(cliente, entidade, arquivos, confirmar=sha)
+        fase[0] = "cadastro"
+        r = _cadastrar_com_titulo(cliente, C_PLAN, entidade)
+        checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+        fase[0] = "leitura"
+        _enviar(cliente, C_PLAN, entidade, {
+            "contribuicao-1.pdf": _pdf(CONTRIB),
+            "sentenca.pdf": _so_imagem()})
+        doc = next(d["id"] for d in _fila(cliente, entidade)["pendentes"]
+                   if d["tipo"] == "sentenca")
+        r = _registrar(cliente, entidade, doc, {
+            "resultado": "lido", "fatos": {"dispositivo": "procedente"}})
+        checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    finally:
+        deposito.depositar = depositar
+        banco.reconstruir = reconstruir
+        banco.guardar_achados = guardar
+        conferencia.registrar = registrar
+    visto.pop("leitura: achados", None)   # o cadastro de scanner, de novo
+    checa(visto == {"documentos: achados": True, "cadastro: diário": True,
+                    "cadastro: espelho": True, "cadastro: achados": True,
+                    "leitura: registro": True},
+          f"alguém grava dado de pessoa sem a trava do apagamento: {visto}")
+    checa(not tomada(), "a trava ficou presa")
+    print("  ok     documentos e cadastro gravam com o apagamento parado")
+
+
 TESTES = [
     teste_recriar_derruba_TODAS_as_tabelas,
     teste_o_diario_vira_banco,
@@ -3538,6 +3902,12 @@ TESTES = [
     teste_sindicato_sem_rol_comeca_pela_planilha,
     teste_apagamento_no_meio_da_planilha_nao_ressuscita,
     teste_a_planilha_e_o_apagamento_seguram_a_mesma_trava,
+    teste_email_repetido_em_gente_nova_segura_a_entrada,
+    teste_email_de_quem_ja_entra_nao_serve_para_gente_nova,
+    teste_apagamento_no_meio_dos_documentos_do_sindicato_nao_ressuscita,
+    teste_apagamento_no_meio_do_cadastro_nao_ressuscita,
+    teste_apagamento_no_meio_da_leitura_do_gestor_nao_ressuscita,
+    teste_quem_grava_dado_de_pessoa_segura_a_trava_do_apagamento,
 ]
 
 

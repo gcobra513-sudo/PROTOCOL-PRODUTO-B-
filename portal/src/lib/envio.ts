@@ -528,6 +528,9 @@ export interface Mudancas {
  *  conferir. É a trava que impede uma conta de gestor de virar todas. */
 export interface AcessoPelaPlanilha {
   novos: number;
+  /** Novos que vieram com um e-mail que OUTRA pessoa usa: não entram até
+   *  quem opera o serviço conferir. Um endereço, uma pessoa. */
+  novos_aguardando: number;
   trocas_aguardando: number;
   trocas_recusadas: number;
   sem_email: number;

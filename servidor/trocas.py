@@ -11,7 +11,10 @@ Então a planilha faz duas coisas diferentes com o mesmo campo:
 
 - para quem é NOVO no portão, o e-mail vale na hora (`rol.acrescentar`);
 - para quem JÁ tem destino, o e-mail diferente vira um PEDIDO aqui, e o
-  portão continua mandando o código para o endereço de antes.
+  portão continua mandando o código para o endereço de antes;
+- para quem é novo e veio com um e-mail que OUTRA pessoa usa, a ENTRADA
+  vira pedido também (`de` vazio): um endereço não recebe o código de
+  várias pessoas sem alguém conferir.
 
 QUEM DECIDE é quem opera o servidor, por `ferramentas/trocas_de_email.py`,
 depois de conferir por fora. NÃO HÁ ROTA para aprovar, e não é esquecimento:
@@ -117,26 +120,54 @@ class SemPedido(LookupError):
 
 
 def aprovar(pasta_entidade: pathlib.Path, cpf: str) -> dict:
-    """Faz a troca pedida valer. Devolve `{"de", "para"}`.
+    """Faz o pedido valer. Devolve `{"de", "para"}` — `de` vazio quando era
+    uma ENTRADA segurada, e não uma troca.
 
     O ROL PRIMEIRO, o registro depois: se a escrita do rol falhar, o pedido
     continua pendente e a ferramenta pode ser rodada de novo. Na ordem
-    inversa haveria uma troca "aprovada" que nunca valeu, e ninguém olhando.
+    inversa haveria um pedido "aprovado" que nunca valeu, e ninguém olhando.
 
     `de` é o que o portão tem AGORA, não o que tinha quando o pedido foi
-    feito — é o que quem aprova precisa ver.
+    feito — é o que quem aprova precisa ver. Quem não tem destino hoje
+    ENTRA com o e-mail pedido: é a entrada segurada por e-mail repetido, e
+    quem opera acabou de dizer que o e-mail é mesmo dela.
     """
     digitos = validacao.so_digitos(cpf)
     pedido = estado(pasta_entidade).pendentes.get(digitos)
     if pedido is None:
         raise SemPedido(digitos)
     de = destino_atual(pasta_entidade, digitos) or ""
-    if not rol.trocar_email(pasta_entidade, digitos, pedido["para"]):
-        raise SemPedido(
-            "a pessoa não está mais no acesso; não há e-mail para trocar")
+    if de:
+        feito = rol.trocar_email(pasta_entidade, digitos, pedido["para"])
+    else:
+        feito = rol.acrescentar(pasta_entidade, [(digitos, pedido["para"])])
+    if not feito:
+        raise SemPedido("o rol não mudou; o pedido continua esperando")
     _anexar(pasta_entidade, {"evento": APROVADA, "quando": _agora(),
                              "cpf": digitos, "para": pedido["para"]})
     return {"de": de, "para": pedido["para"]}
+
+
+def outros_com(pasta_entidade: pathlib.Path, cpf: str, email: str) -> list[str]:
+    """Os OUTROS CPFs que usam este e-mail: no portão, ou esperando entrar.
+
+    É o que quem opera precisa ver para decidir uma entrada segurada: de
+    quem mais é o endereço.
+    """
+    digitos = validacao.so_digitos(cpf)
+    alvo = email.strip().casefold()
+    achou: set[str] = set()
+    try:
+        listas = [rol.carregar(pasta_entidade).por_cpf]
+    except rol.RolAusente:
+        listas = []
+    listas.append(rol.carregar_gestores(pasta_entidade).por_cpf)
+    for lista in listas:
+        achou |= {c for c, e in lista.items() if e.strip().casefold() == alvo}
+    achou |= {c for c, p in estado(pasta_entidade).pendentes.items()
+              if not p.get("de")
+              and str(p.get("para", "")).strip().casefold() == alvo}
+    return sorted(achou - {digitos})
 
 
 def recusar(pasta_entidade: pathlib.Path, cpf: str) -> dict:

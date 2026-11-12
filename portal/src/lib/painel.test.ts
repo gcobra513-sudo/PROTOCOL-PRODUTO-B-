@@ -391,9 +391,19 @@ describe("a prévia da planilha, antes de o gestor confirmar", () => {
 
 describe("o que a planilha muda em quem consegue entrar (T26)", () => {
   const ACESSO: api.AcessoPelaPlanilha = {
-    novos: 40, trocas_aguardando: 3, trocas_recusadas: 1, sem_email: 5,
-    divergentes: 2, fora_da_planilha: 7,
+    novos: 40, novos_aguardando: 4, trocas_aguardando: 3,
+    trocas_recusadas: 1, sem_email: 5, divergentes: 2, fora_da_planilha: 7,
   };
+
+  it("e-mail repetido em gente nova: NÃO entrou, e diz o que fazer", () => {
+    // O gestor precisa saber duas coisas: que essas pessoas não entram
+    // ainda, e que basta um e-mail só de cada uma para entrarem na hora.
+    const linhas = resumoDoAcesso(ACESSO, true).join("\n").toLowerCase();
+    expect(linhas).toContain("4 pessoas");
+    expect(linhas).toContain("outra pessoa");
+    expect(linhas).toContain("não entram");
+    expect(linhas).toContain("só dela");
+  });
 
   it("antes de gravar fala no futuro; depois, no que aconteceu", () => {
     expect(resumoDoAcesso(ACESSO, false).join("\n")).toContain("vão poder entrar");
@@ -425,7 +435,8 @@ describe("o que a planilha muda em quem consegue entrar (T26)", () => {
   });
 
   it("não fala do que não aconteceu, e aguenta servidor antigo", () => {
-    const nada = { novos: 0, trocas_aguardando: 0, trocas_recusadas: 0,
+    const nada = { novos: 0, novos_aguardando: 0, trocas_aguardando: 0,
+                   trocas_recusadas: 0,
                    sem_email: 0, divergentes: 0, fora_da_planilha: 0 };
     expect(resumoDoAcesso(nada, true)).toEqual([]);
     expect(resumoDoAcesso(undefined, true)).toEqual([]);

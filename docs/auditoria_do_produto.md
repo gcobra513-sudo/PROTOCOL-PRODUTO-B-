@@ -420,11 +420,38 @@ disco existe.
    duas coisas, e cada uma tem o seu mutante: conferir de novo encolhe a
    janela, a trava a fecha.
 
-O que fica aberto está em `CHECKPOINTS.md`: T27 (quem ainda não entrou
-recebe o primeiro e-mail que a planilha trouxer) e T28 (os outros dois
-caminhos que gravam dado de pessoa — os documentos do sindicato e o
-cadastro do próprio filiado — têm o mesmo desenho de conferir antes e
-gravar depois; **lido no código, não medido**).
+**12/11 — T27 e T28.**
+
+*E-mail repetido em gente nova segura a entrada* (decisão de 12/11). Quem é
+novo só entra direto com um e-mail que seja só dele. "Repetido" olha o
+portão inteiro e as entradas que esperam, não só a planilha — medido: uma
+pessoa por envio não contorna, e o e-mail de um gestor não serve para gente
+nova. O que não fecha: um domínio inteiro, com um endereço por pessoa.
+
+*T28, medido* (`docs/medicoes/2026-11-12-apagamento-no-meio.py`, sequência
+forçada: o apagamento roda inteiro, pela rota, imediatamente antes de quem
+grava). Eu tinha escrito "lido, não medido" para dois caminhos. Medidos, os
+dois vazavam — e apareceu um terceiro que eu não tinha listado:
+
+| caminho | sobrava da pessoa apagada |
+|---|---|
+| planilha | 0 (corrigida em 10/11; fica como controle) |
+| documentos do sindicato | 3 — a pasta de entrega, 1 `documento`, 2 `achado` |
+| cadastro do filiado | 7 — pasta de entrega, `manifesto.csv`, **`recebidos.jsonl`**, e 23 linhas em 4 tabelas |
+| leitura do gestor | 1 — `leituras.jsonl`: o CPF e o que a sentença diz |
+
+O do cadastro é o pior: o diário é a autoridade, e `banco.reconstruir`
+traria a pessoa de volta a cada recuperação.
+
+Correção, a mesma nos quatro: conferir **de novo na hora de gravar**, com o
+apagamento parado por uma trava comum. O que se confere muda com o caminho,
+e no cadastro a escolha importa — ele confere a **sessão** (que o apagamento
+revoga), e não o tombstone, porque o cadastro tem de entrar com o banco
+fora do ar. Depois: 0 sobras nos quatro; o cadastro responde 401 e a
+leitura, 404. Quatorze mutantes desta rodada, todos derrubam teste.
+
+Aberto (T28): as três tarefas agendadas leem a base e gravam por CPF sem a
+trava — lido, não medido. `avisar` manda e-mail.
 
 ### Uma observação para o dia em que houver planilha real (soma ao item 9)
 
