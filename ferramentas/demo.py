@@ -56,7 +56,7 @@ class NaoDa(Exception):
 # ---------------------------------------------------------------- o que falta
 
 
-def conferir_a_maquina() -> None:
+def conferir_a_maquina(*, precisa_de_node: bool = True) -> None:
     # O SERVIDOR É DE LINUX, que é onde ele vai morar: as travas de arquivo
     # do rol e do apagamento usam `fcntl`, que o Windows não tem. Dito aqui,
     # antes de tudo — da primeira vez a demonstração criou o banco inteiro e
@@ -74,7 +74,9 @@ def conferir_a_maquina() -> None:
         raise NaoDa(
             "faltam pacotes do Python: " + ", ".join(faltam) + ".\n"
             "  pip install -r servidor/requirements.txt httpx reportlab")
-    for programa in ("node", "npx", "npm"):
+    # Com o portal já compilado (a imagem da demonstração hospedada), o
+    # Node não entra na máquina que serve — menos coisa instalada lá.
+    for programa in ("node", "npx", "npm") if precisa_de_node else ():
         if not shutil.which(programa):
             raise NaoDa(f"`{programa}` não está instalado. Instale o Node.js "
                         "(versão 18 ou mais nova): https://nodejs.org")
@@ -142,7 +144,10 @@ class BancoProprio:
         if r.returncode != 0:
             raise NaoDa("o PostgreSQL não conseguiu criar o banco da "
                         f"demonstração:\n{r.stdout}\n{r.stderr}")
-        opcoes = f"-p {self.porta} -c listen_addresses=127.0.0.1"
+        # Memória pequena de propósito: a demonstração hospedada roda numa
+        # máquina de 512 MB, junto com o servidor, e são 42 cadastros.
+        opcoes = (f"-p {self.porta} -c listen_addresses=127.0.0.1 "
+                  "-c shared_buffers=24MB -c max_connections=20")
         if os.name != "nt":
             # Sem soquete em arquivo: só a porta em 127.0.0.1. NO WINDOWS
             # NÃO: lá o padrão já é nenhum, e as aspas simples não são aspas
@@ -358,6 +363,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--banco", default="",
                     help="URL de um PostgreSQL VAZIO. Sem isto, a "
                          "demonstração cria e apaga o dela.")
+    ap.add_argument("--portal-pronto", default="",
+                    help="pasta de um portal JÁ compilado (com a API em "
+                         "\"/\"). Sem isto, compila agora, e precisa do Node.")
     ap.add_argument("--pasta", default="",
                     help="onde guardar os arquivos da demonstração. Sem "
                          "isto, uma pasta temporária, apagada no fim.")
@@ -388,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
     print("Preparando a demonstração (cerca de um minuto)...", flush=True)
-    conferir_a_maquina()
+    conferir_a_maquina(precisa_de_node=not a.portal_pronto)
     porta_livre(a.host, a.porta)
     if a.banco:
         exigir_banco_vazio(a.banco)
@@ -414,9 +422,15 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
     (pasta_ent / trocas.ARQUIVO_DE_DOMINIOS).write_text(
         DOMINIO + "\n", encoding="utf-8")
 
-    print("  compilando o portal...", flush=True)
-    portal = pasta / "portal"
-    compilar_portal(portal)
+    if a.portal_pronto:
+        portal = pathlib.Path(a.portal_pronto).resolve()
+        if not (portal / "index.html").is_file():
+            raise NaoDa(f"--portal-pronto não tem um portal compilado: "
+                        f"{portal}")
+    else:
+        print("  compilando o portal...", flush=True)
+        portal = pasta / "portal"
+        compilar_portal(portal)
 
     # MODO ENSAIO, sempre: o código de acesso aparece na tela e nenhum
     # e-mail sai. E sem o trabalho de fundo, que falaria com tribunal.
