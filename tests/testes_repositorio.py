@@ -280,6 +280,9 @@ def t_gestor_nao_nomeia_gestor():
           "apareceu uma chamada de `.criar(` em servidor/app.py: criar "
           "sindicato é ato de quem opera, não de rota")
     checa(sorted(set(onde[".criar("])) == [
+              # demo.py: só o sindicato `demo-...`, numa pasta dela, em modo
+              # ensaio — nunca na raiz de dados de um servidor de verdade.
+              "ferramentas/demo.py",
               "ferramentas/ensaio_portal.py", "ferramentas/sindicatos.py",
               "servidor/semente.py"],
           f"quem cria entidade mudou — confira se é de propósito: "

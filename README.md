@@ -43,6 +43,32 @@ junto faria este repositório ter milhares de linhas que ninguém aqui executa.
 
 ---
 
+## Ver funcionando — a demonstração
+
+```bash
+python3 ferramentas/demo.py
+```
+
+Sobe o servidor e o portal em `http://127.0.0.1:8080`, com um sindicato de
+demonstração já preenchido, e imprime com que CPF entrar (gestor e três
+filiados). Fica no ar até o Ctrl+C; aí desliga tudo e apaga o que criou.
+
+Tudo é **declaradamente fictício**: nomes com "(FICTÍCIO)" escrito, CPFs
+montados de um contador, e-mails num domínio que não existe, e nenhum e-mail
+sai — o código de acesso aparece na tela. Não ponha dado de gente de verdade.
+
+Precisa de Python 3.11+, Node.js 18+ e PostgreSQL 14+ instalados, e de:
+
+```bash
+pip install -r servidor/requirements.txt httpx reportlab
+```
+
+A demonstração cria um PostgreSQL só dela, numa pasta temporária. Se preferir
+indicar um banco, ele tem de estar **vazio** (`--banco URL`): ela não apaga
+banco de ninguém. `--porta` troca a porta.
+
+---
+
 ## Rodar
 
 ```bash
