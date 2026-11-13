@@ -78,6 +78,12 @@ from .config import (
 
 log = logging.getLogger("protocol.portal")
 
+#: De quanto em quanto tempo `/saude` manda conferir a conexão com o servidor
+#: de e-mail. Cinco minutos: curto o bastante para o monitor saber no mesmo
+#: quarto de hora, longo o bastante para que a rota, que é anônima, não
+#: sirva para fazer o portal martelar o provedor.
+CONFERIR_ENVIO_A_CADA = 300
+
 
 def _hash_curto(texto: str) -> str:
     """Marcador para o log de auditoria. NUNCA o CPF em claro: um log cheio
@@ -291,7 +297,9 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         emissoes_por_cpf_hora=cfg.emissoes_por_cpf_hora,
         emissoes_por_origem_hora=cfg.emissoes_por_origem_hora,
     )
-    correio: remetente.Remetente = (
+    # VIGIADO: todo envio deste processo passa por aqui, e o resultado fica
+    # onde `/saude` lê. Ver `remetente.Vigiado`.
+    correio = remetente.Vigiado(
         remetente.PorSmtp(
             cfg.smtp_host,
             cfg.smtp_porta,
@@ -457,13 +465,22 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                     log.exception("estado do agendador falhou para %s",
                                   ent.apelido)
                     ilegivel += 1
+        # O ENVIO DE E-MAIL PARADO É SAÚDE RUIM. Sem código ninguém entra,
+        # e a tela de quem pede não pode dizer que falhou (seria dizer a um
+        # anônimo que o CPF está no rol) — então é AQUI que aparece. A
+        # conferência é disparada por esta rota, em fundo e no máximo a cada
+        # `CONFERIR_ENVIO_A_CADA` segundos, para pegar o provedor que parou
+        # mesmo sem ninguém pedindo código.
+        correio.conferir_em_fundo(CONFERIR_ENVIO_A_CADA)
+        envio = correio.estado()
         return {
-            "ok": not atrasados and not ilegivel,
+            "ok": not atrasados and not ilegivel and envio != "falhando",
             "trabalho_de_fundo": list(por_tarefa.values()),
             "atrasados": atrasados,
             "estado_ilegivel": ilegivel,
             "modo_ensaio": cfg.modo_ensaio,
             "envio_de_email": "smtp" if cfg.tem_remetente else "arquivo",
+            "envio": envio,
             "entidades": len(cadastro.todas()),
         }
 

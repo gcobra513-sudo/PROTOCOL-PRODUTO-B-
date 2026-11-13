@@ -214,6 +214,12 @@ curl -s http://127.0.0.1:8000/saude
 ```
 
 Tem de responder JSON com `"modo_ensaio": false` e `"envio_de_email": "smtp"`.
+Rode de novo depois de alguns segundos e olhe `"envio"`: a primeira chamada
+manda conferir a conexão com o servidor de e-mail (abre, confere o
+certificado, entra com a conta — sem mandar mensagem) e responde
+`"conferindo"`; a seguinte tem de dizer `"ok"`. Se disser `"falhando"`, nenhum
+código de acesso vai sair: `journalctl -u protocol | grep 'ENVIO DE E-MAIL'`
+diz se foi a conexão ou a entrega, e o tipo do erro.
 Se o serviço não subiu, `journalctl -u protocol -n 50` diz o que falta — o
 servidor explica por extenso, em vez de dar um rastro de erro.
 
@@ -284,6 +290,23 @@ systemctl list-timers protocol-copia.timer && ls -la /var/backups/protocol
 protege de perder o disco. Ligue também, no console da Lightsail, os
 **snapshots automáticos** da instância — é a única cópia fora do disco, e ela
 fica em São Paulo. Nenhuma cópia destes dados sai do Brasil.
+
+## Ficar sabendo quando parar
+
+`/saude` responde `"ok": false` em três casos, e os três são "o portal está
+de pé mas não está entregando": trabalho de fundo atrasado, estado que não
+deu para ler, e **envio de e-mail falhando** (`"envio": "falhando"`). O
+último existe porque quem pede o código lê "código enviado" mesmo quando o
+envio falha — a tela não pode dizer outra coisa sem revelar quem está no
+cadastro do sindicato —, então é só por aqui que quem opera fica sabendo.
+
+**Nada neste repositório olha `/saude` por você.** Aponte um monitor de fora
+para `https://<domínio>/saude`, a cada poucos minutos, alertando quando a
+resposta não trouxer `"ok": true` (e não só quando a porta não responder). A
+rota não exige sessão e não publica dado de filiado nem nome de sindicato.
+
+Envio marcado como falhando por causa de uma ENTREGA só volta a `"ok"` quando
+um envio de verdade der certo — entrar no portal você mesmo é o teste.
 
 ## Atualizar depois
 

@@ -2374,5 +2374,55 @@ TESTES.extend([
 ])
 
 
+def teste_a_saude_denuncia_o_envio_de_email_parado():
+    """Visto ao ensaiar a implantação: o servidor de e-mail recusava, a
+    pessoa lia "código enviado" e nada chegava — e `/saude` dizia `ok`.
+    A resposta a QUEM PEDE continua a mesma (senão vira oráculo de filiação);
+    quem tem de ficar sabendo é quem opera."""
+    secao("o envio de e-mail parado aparece na saúde")
+    from servidor import remetente
+
+    c = Cenario()
+    antes = c.cliente.get("/saude").json()
+    checa(antes["ok"] is True and antes.get("envio") != "falhando",
+          f"saúde ruim antes de qualquer falha: {antes}")
+
+    original = remetente.ParaArquivo.enviar
+
+    def fora_do_ar(self, *a, **k):
+        raise ConnectionRefusedError("servidor de e-mail fora do ar")
+
+    remetente.ParaArquivo.enviar = fora_do_ar
+    try:
+        r = c.cliente.post("/api/acesso/codigo",
+                           json={"entidade": "demo-teste", "cpf": CPF})
+    finally:
+        remetente.ParaArquivo.enviar = original
+    checa(r.status_code == 202,
+          f"a falha de envio mudou a resposta a quem pede: {r.status_code}")
+    depois = c.cliente.get("/saude").json()
+    checa(depois["ok"] is False,
+          f"o envio falhou e a saúde continua ok: {depois}")
+    checa(depois.get("envio") == "falhando",
+          f"a saúde não diz que é o envio: {depois}")
+    # A rota não exige sessão: nem endereço, nem CPF, nem o texto do erro.
+    cru = json.dumps(depois)
+    checa("fulano@" not in cru and CPF_DIGITOS not in cru
+          and "fora do ar" not in cru,
+          f"a saúde publicou detalhe da falha a quem não tem sessão: {cru}")
+
+    r = c.cliente.post("/api/acesso/codigo",
+                       json={"entidade": "demo-teste", "cpf": CPF})
+    volta = c.cliente.get("/saude").json()
+    checa(volta["ok"] is True and volta.get("envio") == "ok",
+          f"o envio voltou e a saúde não: {volta}")
+    print("  ok     envio parado: saúde ruim; envio de volta: saúde boa")
+
+
+TESTES.extend([
+    teste_a_saude_denuncia_o_envio_de_email_parado,
+])
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
