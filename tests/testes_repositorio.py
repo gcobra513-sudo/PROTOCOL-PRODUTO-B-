@@ -549,7 +549,64 @@ def t_o_ensaio_conhece_cada_comando_do_passo_a_passo():
               f"{marca}: trocado ou pulado sem dizer o motivo")
 
 
+def t_a_demo_hospedada_so_roda_a_demonstracao():
+    """A imagem de `implantacao/demo/` vai para um endereço PÚBLICO, fora do
+    Brasil, num plano gratuito. O que a deixa aceitável é ela só saber rodar
+    `ferramentas/demo.py` — modo ensaio, cadastro fictício, banco que nasce
+    e morre com o contêiner. No dia em que ela ganhar um banco de fora ou um
+    segredo, deixou de ser demonstração e virou implantação no lugar errado.
+    """
+    texto = (RAIZ / "implantacao" / "demo" / "Dockerfile").read_text("utf-8")
+    instrucoes = [l for l in texto.splitlines()
+                  if l.strip() and not l.lstrip().startswith("#")]
+    cmd = [l for l in instrucoes if l.startswith(("CMD", "ENTRYPOINT"))]
+    checa(len(cmd) == 1 and "ferramentas/demo.py" in cmd[0],
+          f"a imagem da demo não roda (só) a demonstração: {cmd}")
+    checa("--banco" not in " ".join(instrucoes),
+          "a imagem da demo aponta para um banco de fora")
+    for proibido in ("PROTOCOL_DATABASE_URL", "PROTOCOL_SEGREDO",
+                     "PROTOCOL_SMTP", "PROTOCOL_MODO_ENSAIO"):
+        checa(proibido not in " ".join(instrucoes),
+              f"a imagem da demo fixa {proibido}: o que ela é quem decide é "
+              "`demo.py`, não uma variável")
+    usuarios = [l.split()[1] for l in instrucoes if l.startswith("USER")]
+    checa(usuarios and usuarios[-1] not in ("root", "0"),
+          f"a imagem da demo roda como root: {usuarios}")
+    # E a demonstração liga o modo ensaio ela mesma, sem depender de fora.
+    demo = (RAIZ / "ferramentas" / "demo.py").read_text("utf-8")
+    checa('"PROTOCOL_MODO_ENSAIO": "1"' in demo,
+          "ferramentas/demo.py não liga mais o modo ensaio por conta própria")
+
+
+def t_com_o_portal_pronto_a_demo_nao_pede_node():
+    """Na imagem hospedada o portal já vem compilado e o Node não está lá."""
+    import os
+    import sys as _sys
+
+    _sys.path.insert(0, str(RAIZ))
+    from ferramentas import demo
+
+    antes = os.environ.get("PATH", "")
+    os.environ["PATH"] = ""
+    try:
+        try:
+            demo.conferir_a_maquina(precisa_de_node=False)
+        except demo.NaoDa as e:
+            checa(False, f"com o portal pronto, ainda pediu: {e}")
+        try:
+            demo.conferir_a_maquina()
+            checa(False, "sem Node e sem portal pronto, não reclamou")
+        except demo.NaoDa:
+            pass
+    finally:
+        os.environ["PATH"] = antes
+
+
 TESTES = [
+    ("a demo hospedada só roda a demonstração",
+     t_a_demo_hospedada_so_roda_a_demonstracao),
+    ("com o portal pronto a demo não pede Node",
+     t_com_o_portal_pronto_a_demo_nao_pede_node),
     ("a raiz de dados padrão está ignorada", t_a_raiz_padrao_esta_ignorada),
     ("todo arquivo que a aplicação escreve está ignorado",
      t_cada_arquivo_que_a_aplicacao_escreve_esta_ignorado),

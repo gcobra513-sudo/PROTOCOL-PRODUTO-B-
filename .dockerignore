@@ -1,0 +1,6 @@
+.git
+.claude
+.superpowers
+portal/node_modules
+portal/dist
+**/__pycache__
