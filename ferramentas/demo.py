@@ -122,9 +122,11 @@ class BancoProprio:
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             self.porta = s.getsockname()[1]
+        print("  criando o banco da demonstração...", flush=True)
         r = subprocess.run(
             [initdb, "-D", str(self.dados), "-U", "postgres", "-A", "trust",
-             "-E", "UTF8", "--locale=C"], capture_output=True, text=True)
+             "-E", "UTF8", "--locale=C"], capture_output=True, text=True,
+            stdin=subprocess.DEVNULL)
         if r.returncode != 0:
             raise NaoDa("o PostgreSQL não conseguiu criar o banco da "
                         f"demonstração:\n{r.stdout}\n{r.stderr}")
@@ -135,10 +137,26 @@ class BancoProprio:
             # — o servidor recebia `''` como nome de pasta e não subia
             # (visto na primeira vez que a demonstração rodou em Windows).
             opcoes += " -c unix_socket_directories=''"
-        r = subprocess.run(
-            [self.pg_ctl, "-D", str(self.dados), "-w", "-o", opcoes,
-             "-l", str(pasta / "postgres.log"), "start"],
-            capture_output=True, text=True)
+        # A SAÍDA VAI PARA ARQUIVO, NÃO PARA UM CANO. O servidor que o
+        # `pg_ctl` deixa rodando herda a saída de quem o chamou; com um cano,
+        # quem espera o fim da saída espera para sempre, porque o servidor
+        # nunca a fecha. Visto no Windows: o banco subia e a demonstração
+        # ficava parada em "Preparando".
+        with open(pasta / "pg_ctl.log", "w", encoding="utf-8") as saida:
+            try:
+                codigo = subprocess.run(
+                    [self.pg_ctl, "-D", str(self.dados), "-w", "-o", opcoes,
+                     "-l", str(pasta / "postgres.log"), "start"],
+                    stdout=saida, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL).returncode
+            except BaseException:
+                # Interrompido no meio da partida: o servidor pode já estar
+                # de pé, e ninguém mais teria como desligá-lo.
+                self.parar()
+                raise
+        r = subprocess.CompletedProcess(
+            [], codigo, (pasta / "pg_ctl.log").read_text(
+                encoding="utf-8", errors="replace"), "")
         if r.returncode != 0:
             # O REGISTRO VAI NA MENSAGEM: a pasta é temporária e some logo
             # em seguida, então "examine o arquivo de log" mandaria a
@@ -155,7 +173,8 @@ class BancoProprio:
 
     def parar(self) -> None:
         subprocess.run([self.pg_ctl, "-D", str(self.dados), "-m", "fast",
-                        "-w", "stop"], capture_output=True, text=True)
+                        "-w", "stop"], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
 
 
 def exigir_banco_vazio(url: str) -> None:
