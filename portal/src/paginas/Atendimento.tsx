@@ -23,7 +23,7 @@ interface Fala {
 const ABERTURA: Fala = {
   de: "atendimento",
   texto: [
-    "Olá. Sou o atendimento automático do portal: respondo na hora, com o que está no seu cadastro.",
+    "Olá. Sou o Proto, o assistente automático do portal: respondo na hora, com o que está no seu cadastro.",
     "Não sou uma pessoa e não dou parecer. Escolha uma pergunta abaixo, ou escreva a sua.",
   ],
 };
@@ -33,6 +33,7 @@ const SUGESTOES_INICIAIS = [
   "Mudou alguma coisa nos meus processos?",
   "Meus documentos chegaram?",
   "O que falta eu fazer?",
+  "Meus dados estão certos?",
 ];
 
 export function Atendimento({
@@ -40,6 +41,8 @@ export function Atendimento({
   token,
   onToken,
   onSessaoMorta,
+  perguntaInicial = "",
+  onPerguntaFeita,
 }: {
   entidade: string;
   /** A sessão é do `App`, e vale em todas as áreas: vazio = ninguém entrou. */
@@ -47,6 +50,9 @@ export function Atendimento({
   onToken: (token: string, cpf: string) => void;
   /** O servidor não aceita mais esta sessão: a tela volta ao portão. */
   onSessaoMorta: () => void;
+  /** Pergunta que veio escolhida da Minha área: é feita ao abrir. */
+  perguntaInicial?: string;
+  onPerguntaFeita?: () => void;
 }) {
   const [falas, setFalas] = useState<Fala[]>([ABERTURA]);
   const [sugestoes, setSugestoes] = useState<string[]>(SUGESTOES_INICIAIS);
@@ -63,7 +69,7 @@ export function Atendimento({
     return (
       <Portao
         entidade={entidade}
-        titulo="Atendimento"
+        titulo="Pergunte ao Proto"
         explicacao="Pergunte pelos seus processos, pelos seus documentos e pelo que falta. Para responder sobre você, precisamos confirmar que é você."
         onToken={onToken}
       />
@@ -83,21 +89,29 @@ export function Atendimento({
       if (r.sugestoes.length) setSugestoes(r.sugestoes);
     } catch (e) {
       if (sessaoMorreu(e)) onSessaoMorta();
-      else setErro(e instanceof Error ? e.message : "o atendimento não respondeu");
+      else setErro(e instanceof Error ? e.message : "o Proto não respondeu");
     } finally {
       setEsperando(false);
     }
   }
 
+  // A PERGUNTA QUE VEIO DA MINHA ÁREA, feita uma vez só: quem clicou numa
+  // pergunta quer a resposta, não a mesma pergunta para clicar de novo.
+  useEffect(() => {
+    if (!perguntaInicial) return;
+    onPerguntaFeita?.();
+    void perguntar(perguntaInicial);
+  }, [perguntaInicial]);
+
   return (
     <Cartao
-      titulo="Atendimento"
-      explicacao="Automático: responde com o que está no seu cadastro. A sua pergunta não fica guardada."
+      titulo="Pergunte ao Proto"
+      explicacao="O assistente automático do portal: responde com o que está no seu cadastro. A sua pergunta não fica guardada."
     >
       <div
         role="log"
         aria-live="polite"
-        aria-label="Conversa com o atendimento"
+        aria-label="Conversa com o Proto"
         className="max-h-[28rem] space-y-3 overflow-y-auto rounded-xl bg-papel p-4"
       >
         {falas.map((f, i) => (
@@ -119,7 +133,7 @@ export function Atendimento({
               )}
             >
               <span className="sr-only">
-                {f.de === "voce" ? "Você: " : "Atendimento: "}
+                {f.de === "voce" ? "Você: " : "Proto: "}
               </span>
               {f.texto.map((t, j) => (
                 <p key={j}>{t}</p>

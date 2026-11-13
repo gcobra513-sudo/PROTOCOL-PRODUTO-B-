@@ -215,7 +215,8 @@ async function faseEntrada(navegador, gritos, resultado) {
       p.waitForURL(/entidade=/, { timeout: 15000 }),
       p.getByRole("button", { name: "Sou filiado" }).click(),
     ]);
-    await p.getByRole("button", { name: /^Começar$/ }).waitFor({ timeout: 15000 });
+    // "Sou filiado" leva à MINHA ÁREA — que, sem sessão, é o portão dela.
+    await p.getByRole("heading", { name: "Minha área" }).waitFor({ timeout: 15000 });
     resultado.entrada.levouAoPortal = p.url().includes(`entidade=${cfg.entidade}`);
     marco("entrada: código errado é recusado na tela; o link colado leva ao portal");
 
@@ -250,13 +251,22 @@ async function faseEntrada(navegador, gritos, resultado) {
     // MEDIDO em 12/11/2026, antes da correção: cada área pedia CPF e código
     // de novo — quatro visitas, quatro códigos, e o limite é três por hora.
     const pediuDeNovo = [];
-    for (const [nome, tela] of [["Minhas ações", "acoes"], ["Meus processos", "processos"],
-                                ["Atendimento", "atendimento"]]) {
+    for (const [nome, tela] of [["Minha área", "area"],
+                                ["Minhas ações", "acoes"], ["Meus processos", "processos"],
+                                ["Pergunte ao Proto", "atendimento"]]) {
       await p.getByRole("link", { name: nome }).first().click();
       await p.waitForURL(new RegExp(`tela=${tela}`), { timeout: 15000 });
       await p.waitForLoadState("networkidle");
       if (await p.getByLabel("Seu CPF", { exact: false }).count()) pediuDeNovo.push(nome);
     }
+    // A MINHA ÁREA leva a pergunta escolhida até o Proto, e ele responde
+    // sem a pessoa clicar de novo.
+    await p.getByRole("link", { name: "Minha área" }).first().click();
+    await p.getByRole("heading", { name: /^Olá/ }).waitFor({ timeout: 15000 });
+    await p.getByRole("button", { name: "Meus documentos chegaram?" }).click();
+    await p.waitForURL(/tela=atendimento/, { timeout: 15000 });
+    await falas(3);
+    marco("minha área: abriu, e a pergunta escolhida chegou respondida ao Proto");
     resultado.entrada.sessao = { pediuDeNovo, codigos: codigosPedidos };
     marco(`três áreas com ${codigosPedidos} código(s); pediu CPF de novo em: ${pediuDeNovo.join(", ") || "nenhuma"}`);
 

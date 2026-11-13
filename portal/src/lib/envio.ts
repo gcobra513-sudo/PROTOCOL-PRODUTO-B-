@@ -384,7 +384,7 @@ export async function verCompletude(
  *  nunca era chamada por ninguém. Tela que não se consegue abrir é tela que
  *  não existe — e o pior é que ela passa por pronta na contagem.
  */
-export const TELAS = ["cadastro", "acoes", "processos", "atendimento", "painel"] as const;
+export const TELAS = ["cadastro", "area", "acoes", "processos", "atendimento", "painel"] as const;
 export type Tela = (typeof TELAS)[number];
 
 /** A área que o link pede, ou `cadastro`.
@@ -1050,7 +1050,7 @@ export interface RespostaDoAtendimento {
   sugestoes: string[];
 }
 
-/** Pergunta ao atendimento automático. NÃO leva CPF: o servidor responde
+/** Pergunta ao Proto, o assistente automático. NÃO leva CPF: o servidor responde
  *  sobre quem abriu a sessão, e só sobre ela. */
 export async function perguntar(
   token: string,
