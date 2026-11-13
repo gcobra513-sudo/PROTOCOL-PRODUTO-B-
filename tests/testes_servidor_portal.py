@@ -2424,5 +2424,73 @@ TESTES.extend([
 ])
 
 
+def teste_os_acessos_da_demonstracao_so_saem_em_ensaio():
+    """Visto na primeira demonstração hospedada: a pessoa abria o portal,
+    clicava em "Começar", a tela pedia um CPF — e ela não tinha como saber
+    qual. Os CPFs fictícios estavam no terminal de quem subiu a demo.
+
+    Em ensaio, a entidade de demonstração pode dizer na tela com que CPF
+    entrar. FORA do ensaio isso nunca sai, nem com o arquivo no lugar: seria
+    publicar CPF a quem não tem sessão."""
+    secao("os acessos da demonstração aparecem — e só em ensaio")
+    from fastapi.testclient import TestClient
+
+    from servidor import entidades as mod_entidades
+    from servidor.app import criar_app
+    from servidor.config import carregar
+
+    acessos = [{"quem": "Gestor do sindicato", "cpf": "00000900184",
+                "area": "painel"},
+               {"quem": "Filiado com processo", "cpf": "00000910490",
+                "area": "cadastro"}]
+    c = Cenario()
+    arquivo = c.raiz / "demo-teste" / "acessos_da_demonstracao.json"
+    corpo = c.cliente.get("/api/entidade/demo-teste").json()
+    checa("acessos_da_demonstracao" not in corpo,
+          f"sem o arquivo, inventou acessos: {corpo}")
+    arquivo.write_text(json.dumps(acessos), encoding="utf-8")
+    corpo = c.cliente.get("/api/entidade/demo-teste").json()
+    checa(corpo.get("acessos_da_demonstracao") == acessos,
+          f"em ensaio, os acessos não vieram: {corpo}")
+
+    # Arquivo estragado não derruba a página de entrada.
+    arquivo.write_text("{isto não é json", encoding="utf-8")
+    r = c.cliente.get("/api/entidade/demo-teste")
+    checa(r.status_code == 200
+          and "acessos_da_demonstracao" not in r.json(),
+          f"arquivo estragado: {r.status_code} {r.text[:120]}")
+    # Nem o que não tem a forma certa (um CPF que não é só dígitos).
+    arquivo.write_text(json.dumps([{"quem": "x", "cpf": "<b>1</b>",
+                                    "area": "painel"}]), encoding="utf-8")
+    checa("acessos_da_demonstracao"
+          not in c.cliente.get("/api/entidade/demo-teste").json(),
+          "publicou um acesso que não tem forma de CPF")
+
+    # FORA DO ENSAIO: o mesmo arquivo, e nada sai.
+    raiz = Path(tempfile.mkdtemp(prefix="portal-teste-"))
+    _NASCIDOS.append(raiz)
+    mod_entidades.Cadastro(raiz).criar("demo-prod", "Demonstração")
+    (raiz / "demo-prod").mkdir(parents=True, exist_ok=True)
+    (raiz / "demo-prod" / "acessos_da_demonstracao.json").write_text(
+        json.dumps(acessos), encoding="utf-8")
+    producao = TestClient(criar_app(carregar({
+        "PROTOCOL_RAIZ": str(raiz),
+        "PROTOCOL_SEGREDO": "segredo-de-teste-com-tamanho-suficiente",
+        "PROTOCOL_SMTP_HOST": "smtp.exemplo.invalid",
+        "PROTOCOL_SMTP_REMETENTE": "naoresponda@exemplo.invalid",
+        "PROTOCOL_REGIAO": "sa-east-1",
+        "PROTOCOL_AGENDAR": "0",
+    })))
+    r = producao.get("/api/entidade/demo-prod")
+    checa("acessos_da_demonstracao" not in r.text and "00000900184" not in r.text,
+          f"FORA do ensaio o servidor publicou CPF de acesso: {r.text[:200]}")
+    print("  ok     acessos na tela em ensaio; fora dele, nunca")
+
+
+TESTES.extend([
+    teste_os_acessos_da_demonstracao_so_saem_em_ensaio,
+])
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

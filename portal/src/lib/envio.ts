@@ -87,6 +87,8 @@ export interface Entidade {
    *  erraria no dia em que o endereço mudasse. */
   demonstracao?: boolean;
   aviso_demonstracao?: string;
+  /** Só em demonstração: com que CPF fictício entrar. */
+  acessos_da_demonstracao?: { quem: string; cpf: string; area: string }[];
 }
 
 export async function verEntidade(apelido: string): Promise<Entidade | null> {

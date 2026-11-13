@@ -17,6 +17,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { AcessosDaDemo } from "./componentes/AcessosDaDemo";
 import { Casca } from "./componentes/Casca";
 import { Privacidade } from "./componentes/Privacidade";
 import { Progresso } from "./componentes/Progresso";
@@ -36,6 +37,7 @@ import { Painel } from "./paginas/Painel";
 import * as arquivos from "./lib/arquivos";
 import { camposDoSindicato, jaTemos, preencher } from "./lib/conhecido";
 import * as armazenamento from "./lib/armazenamento";
+import { acessosDaDemonstracao, type AcessoDaDemo } from "./lib/demonstracao";
 import { enderecoDaArea } from "./lib/entrada";
 import * as api from "./lib/envio";
 import { baixar, reciboJson } from "./lib/exportar";
@@ -148,6 +150,7 @@ export function App() {
   );
   const [entidade, setEntidade] = useState<string | undefined>(undefined);
   const [avisoDemo, setAvisoDemo] = useState("");
+  const [acessosDemo, setAcessosDemo] = useState<AcessoDaDemo[]>([]);
   const [comecou, setComecou] = useState(false);
   const [etapa, setEtapa] = useState(0);
   const [token, setToken] = useState("");
@@ -169,6 +172,7 @@ export function App() {
       if (!e) return;
       setEntidade(e.nome);
       if (e.demonstracao) setAvisoDemo(e.aviso_demonstracao ?? "");
+      setAcessosDemo(acessosDaDemonstracao(e));
     });
   }, [apelido]);
 
@@ -358,6 +362,10 @@ export function App() {
         {avisoDemo ? (
           <Aviso tom="alerta">
             <strong>Demonstração.</strong> {avisoDemo}
+            {/* Quem já entrou não precisa mais da lista. */}
+            {!token ? (
+              <AcessosDaDemo acessos={acessosDemo} apelido={apelido} />
+            ) : null}
           </Aviso>
         ) : null}
 
