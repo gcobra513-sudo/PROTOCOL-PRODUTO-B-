@@ -564,9 +564,26 @@ def o_email_errado(servidor, correio, de_fora):
     confere("CERTIFICATE_VERIFY_FAILED" in registro
             or "certificate verify failed" in registro,
             "e o registro do servidor diz por quê")
+    # A PESSOA LEU "código enviado". Quem tem de saber é quem opera, e o
+    # lugar é a saúde — que é o que um monitor de fora consegue ler.
+    saude = json.loads(pedir("GET", "/saude")[2])
+    confere(saude.get("ok") is False and saude.get("envio") == "falhando",
+            "/saude denuncia o envio parado "
+            f"(ok={saude.get('ok')}, envio={saude.get('envio')})")
     env.write_text(texto, "utf-8")
     derruba(servidor)
-    return servico_imitado()
+    servidor = servico_imitado()
+    # De volta ao servidor certo, SEM ninguém pedir código: é a conferência
+    # da conexão, disparada pela própria saúde, que tem de dizer "ok".
+    envio = ""
+    for _ in range(20):
+        envio = json.loads(pedir("GET", "/saude")[2]).get("envio", "")
+        if envio != "conferindo":
+            break
+        time.sleep(0.5)
+    confere(envio == "ok",
+            f"com o servidor de e-mail certo, /saude diz envio ok ({envio})")
+    return servidor
 
 
 def a_copia() -> None:
