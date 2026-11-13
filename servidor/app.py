@@ -505,7 +505,42 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         if cfg.modo_ensaio:
             corpo["demonstracao"] = True
             corpo["aviso_demonstracao"] = AVISO_DEMONSTRACAO
+            acessos = _acessos_da_demonstracao(ent)
+            if acessos:
+                corpo["acessos_da_demonstracao"] = acessos
         return corpo
+
+    def _acessos_da_demonstracao(ent) -> list[dict]:
+        """Com que CPF FICTÍCIO entrar, para a tela dizer.
+
+        Visto na primeira demonstração hospedada: a tela pedia um CPF e
+        quem abria o link não tinha como saber qual — eles estavam no
+        terminal de quem subiu a demo.
+
+        SÓ É CHAMADA EM ENSAIO, e quem a chama é que garante isso: esta
+        rota não exige sessão, e fora do ensaio isto seria publicar CPF. O
+        arquivo é escrito por `ferramentas/demo.py`; o servidor não inventa
+        acesso nenhum. Qualquer coisa fora da forma esperada: nada sai.
+        """
+        try:
+            bruto = json.loads((ent.pasta(cfg.raiz)
+                                / "acessos_da_demonstracao.json")
+                               .read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        if not isinstance(bruto, list):
+            return []
+        limpos = []
+        for item in bruto[:12]:
+            if not isinstance(item, dict):
+                return []
+            quem, cpf, area = (str(item.get(k, "")) for k in
+                               ("quem", "cpf", "area"))
+            if not (cpf.isdigit() and len(cpf) == 11 and 0 < len(quem) <= 60
+                    and area in ("cadastro", "painel")):
+                return []
+            limpos.append({"quem": quem, "cpf": cpf, "area": area})
+        return limpos
 
     # ------------------------------------------------------------------ portão
 

@@ -133,6 +133,15 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
             checa(s == 200 and "token" in json.loads(corpo),
                   f"o acesso impresso {cpf} não entra: {s}")
 
+        # E OS MESMOS ACESSOS ESTÃO NA TELA: quem abre o link não vê o
+        # terminal de quem subiu a demonstração.
+        s, corpo = _pedir(base + f"/api/entidade/{apelido}")
+        na_tela = [x["cpf"] for x in
+                   json.loads(corpo).get("acessos_da_demonstracao", [])]
+        checa(sorted(na_tela)
+              == sorted(re.sub(r"\D", "", c) for c in cpfs[:4]),
+              f"os acessos da tela não são os impressos: {na_tela}")
+
         # SÓ CADASTRO DECLARADAMENTE FICTÍCIO.
         rol = list(csv.DictReader(
             open(pasta / "dados" / apelido / "filiados.csv",

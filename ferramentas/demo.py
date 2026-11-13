@@ -340,10 +340,17 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
         encoding="utf-8")
     agenda.registrar(url, APELIDO, "coletar", ok=True, detalhe="demonstração")
 
-    return [("Gestor do sindicato", gestor),
-            ("Filiado com processo", pessoas[4][0]),
-            ("Filiado que pediu aviso", pessoas[21][0]),
-            ("Filiado que ainda não entrou", pessoas[30][0])]
+    acessos = [("Gestor do sindicato", gestor),
+               ("Filiado com processo", pessoas[4][0]),
+               ("Filiado que pediu aviso", pessoas[21][0]),
+               ("Filiado que ainda não entrou", pessoas[30][0])]
+    # NA TELA TAMBÉM: quem abre o link não vê este terminal. O servidor só
+    # publica este arquivo em modo ensaio.
+    (raiz / APELIDO / "acessos_da_demonstracao.json").write_text(json.dumps([
+        {"quem": quem, "cpf": cpf,
+         "area": "painel" if cpf == gestor else "cadastro"}
+        for quem, cpf in acessos], ensure_ascii=False), encoding="utf-8")
+    return acessos
 
 
 def _cpf(c: str) -> str:
