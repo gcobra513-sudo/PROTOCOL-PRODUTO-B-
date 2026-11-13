@@ -11,6 +11,9 @@ import { describe, expect, it } from "vitest";
 import type { Gargalo } from "./envio";
 import type * as api from "./envio";
 import {
+  ABAS_DO_PAINEL,
+  abaDaAncora,
+  destinoDoQuadro,
   fracao,
   pessoas,
   presosNoTribunal,
@@ -563,5 +566,45 @@ describe("a pendência leva ao lugar onde se resolve", () => {
 
   it("lugar que a tela não conhece não vira link quebrado", () => {
     expect(atalhoDoGargalo({ ...g("CONFERENCIA", "x", 1), onde: "lugar-novo" })).toBeNull();
+  });
+});
+
+describe("o painel em abas", () => {
+  // Medido antes desta mudança: o painel tinha dez telas de rolagem, com o
+  // envio da base e o apagamento no fim de tudo. As abas existem para cada
+  // coisa ter um lugar que se acha sem rolar.
+  it("tem quatro abas, e a primeira é o resumo", () => {
+    expect(ABAS_DO_PAINEL.map((a) => a.id)).toEqual([
+      "resumo", "filiados", "documentos", "envios",
+    ]);
+  });
+
+  it("cada quadro do topo leva à lista que ele conta", () => {
+    expect(destinoDoQuadro("acervo")).toEqual({ aba: "filiados", portal: "", ancora: "" });
+    expect(destinoDoQuadro("cadastrados")).toEqual({ aba: "filiados", portal: "entrou", ancora: "" });
+    expect(destinoDoQuadro("sem_cadastro")).toEqual({ aba: "filiados", portal: "falta", ancora: "" });
+    expect(destinoDoQuadro("inalcancaveis")).toEqual({ aba: "filiados", portal: "", ancora: "nao-alcanca" });
+  });
+
+  it("o atalho de uma pendência diz em que aba ela se resolve", () => {
+    const atalho = atalhoDoGargalo({ onde: "rol-de-substituidos" } as never);
+    expect(atalho?.aba).toBe("envios");
+  });
+
+  it("filtra quem entrou e quem ainda não entrou no portal", () => {
+    const base = [
+      { nome: "A (FICTÍCIO)", cpf: "", cadastrou: true, pode: false, depende_de: [], acoes: [], oportunidades: [] },
+      { nome: "B (FICTÍCIO)", cpf: "", cadastrou: false, pode: false, depende_de: [], acoes: [], oportunidades: [] },
+    ];
+    expect(filtrarPessoas(base, { texto: "", dono: "", portal: "entrou" }).map((p) => p.nome)).toEqual(["A (FICTÍCIO)"]);
+    expect(filtrarPessoas(base, { texto: "", dono: "", portal: "falta" }).map((p) => p.nome)).toEqual(["B (FICTÍCIO)"]);
+    expect(filtrarPessoas(base, { texto: "", dono: "" })).toHaveLength(2);
+  });
+});
+
+describe("a âncora de um atalho sabe em que aba mora", () => {
+  it("o rol de substituídos fica em Envios e pedidos", () => {
+    expect(abaDaAncora("#rol-de-substituidos")).toBe("envios");
+    expect(abaDaAncora("#qualquer-outra")).toBeNull();
   });
 });

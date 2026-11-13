@@ -26,7 +26,7 @@
  * escritório, é a figura que o Provimento 205/2021 do CFOAB descreve como
  * captação por estímulo ao litígio. Ver PRODUTO_SINDICATOS.md, §4.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 
 import { MailX, UserCheck, UserX, Users } from "lucide-react";
 
@@ -42,6 +42,12 @@ import {
 } from "../componentes/ui";
 import * as api from "../lib/envio";
 import {
+  ABAS_DO_PAINEL,
+  abaDaAncora,
+  destinoDoQuadro,
+  type AbaDoPainel,
+  type FiltroDoPortal,
+  type QuadroDoTopo,
   camposDaLeitura,
   faltaNaLeitura,
   fatosDaLeitura,
@@ -655,10 +661,13 @@ function FilaDeConferencia({
   entidade,
   token,
   onMudou,
+  onQuantos,
 }: {
   entidade: string;
   token: string;
   onMudou: () => void;
+  /** Quantos documentos há para ler: é o selo da aba. */
+  onQuantos: (n: number) => void;
 }) {
   const [fila, setFila] = useState<api.Conferencia | null>(null);
   const [erro, setErro] = useState("");
@@ -672,6 +681,9 @@ function FilaDeConferencia({
         setErro(e instanceof Error ? e.message : "não foi possível abrir"),
       );
   }, [entidade, token, versao]);
+
+  const quantos = fila ? fila.pendentes.length + fila.ilegiveis.length : 0;
+  useEffect(() => onQuantos(quantos), [quantos, onQuantos]);
 
   if (erro) return null; // sem banco o painel já diz que não sabe da fila
   if (!fila || (!fila.pendentes.length && !fila.ilegiveis.length)) return null;
@@ -723,9 +735,11 @@ function FilaDeConferencia({
 }
 
 
-/** Quantas linhas a tela mostra de uma vez. A base pode ter milhares; a
- *  busca e o filtro acham quem se procura, e a planilha leva todo mundo. */
-const LINHAS_NA_TELA = 50;
+/** Quantas linhas a tela mostra de cada vez. A base pode ter milhares; a
+ *  busca e o filtro acham quem se procura, e a planilha leva todo mundo.
+ *  Quinze, e não cinquenta: com cinquenta a aba tinha quase cinco telas de
+ *  rolagem (medido), e quem quer ver mais pede mais. */
+const LINHAS_POR_VEZ = 15;
 
 /** A base, NOME POR NOME.
  *
@@ -741,17 +755,26 @@ function NomePorNome({
   entidade,
   token,
   versao,
+  portal,
+  onPortal,
 }: {
   entidade: string;
   token: string;
   /** Sobe quando a base muda (planilha gravada, leitura registrada). */
   versao: number;
+  /** Quem entrou no portal / quem falta. Mora no `Painel` porque os quadros
+   *  do topo também o escolhem. */
+  portal: FiltroDoPortal;
+  onPortal: (f: FiltroDoPortal) => void;
 }) {
   const [lista, setLista] = useState<api.PessoaNaLista[] | null>(null);
   const [texto, setTexto] = useState("");
   const [dono, setDono] = useState("");
   const [erro, setErro] = useState("");
   const [baixando, setBaixando] = useState(false);
+  const [mostrando, setMostrando] = useState(LINHAS_POR_VEZ);
+  // Mudou a busca ou o filtro: a lista é outra, e recomeça do começo.
+  useEffect(() => setMostrando(LINHAS_POR_VEZ), [texto, dono, portal]);
 
   useEffect(() => {
     void api
@@ -783,7 +806,12 @@ function NomePorNome({
   if (!lista) {
     return erro ? <Aviso tom="alerta">{erro}</Aviso> : null;
   }
-  const filtradas = filtrarPessoas(lista, { texto, dono });
+  const filtradas = filtrarPessoas(lista, { texto, dono, portal });
+  const doPortal: [FiltroDoPortal, string][] = [
+    ["", "Todos"],
+    ["entrou", "Já entrou no portal"],
+    ["falta", "Ainda não entrou"],
+  ];
   const filtros: [string, string][] = [
     ["", "Todos"],
     ["PODE", "Já pode"],
@@ -797,13 +825,44 @@ function NomePorNome({
       titulo="Nome por nome"
       explicacao="Cada pessoa da base: o que ela já pode, e de quem depende o resto."
     >
+      {/* A PLANILHA NO TOPO: é com ela que o sindicato sai daqui e liga
+          para as pessoas. Ficava depois de cinquenta nomes. */}
+      <div className="rounded-lg bg-lilas p-4">
+        <Botao disabled={baixando} onClick={() => void baixar()}>
+          {baixando ? "Preparando…" : "Baixar a planilha da base"}
+        </Botao>
+        <p className="mt-2 text-sm text-tinta/70">
+          Abre no Excel. Traz cada pessoa com o CPF inteiro, o e-mail e o
+          telefone que constam — para você entrar em contato. Fica
+          registrado quem baixou.
+        </p>
+      </div>
+      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
+
       <Campo
         rotulo="Procurar pelo nome"
         valor={texto}
         onChange={setTexto}
         placeholder="Ex.: maria"
       />
-      <div className="flex flex-wrap gap-2">
+      <div>
+        <p className="text-sm font-medium text-tinta">No portal</p>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {doPortal.map(([valor, rotulo]) => (
+            <Botao
+              key={valor || "todos"}
+              tipo={portal === valor ? "principal" : "secundario"}
+              tamanho="pequeno"
+              aria-pressed={portal === valor}
+              onClick={() => onPortal(valor)}
+            >
+              {rotulo}
+            </Botao>
+          ))}
+        </div>
+      </div>
+      <p className="text-sm font-medium text-tinta">Situação</p>
+      <div className="-mt-3 flex flex-wrap gap-2">
         {filtros.map(([valor, rotulo]) => (
           <Botao
             key={valor || "todos"}
@@ -822,13 +881,13 @@ function NomePorNome({
         {filtradas.length !== lista.length
           ? ` de ${lista.length} na base`
           : " na base"}
-        {filtradas.length > LINHAS_NA_TELA
-          ? ` — mostrando as primeiras ${LINHAS_NA_TELA}. A planilha traz todas.`
+        {filtradas.length > mostrando
+          ? ` — mostrando as primeiras ${mostrando}. A planilha traz todas.`
           : "."}
       </p>
 
       <div className="space-y-1">
-        {filtradas.slice(0, LINHAS_NA_TELA).map((p) => (
+        {filtradas.slice(0, mostrando).map((p) => (
           <div
             key={`${p.cpf}-${p.nome}`}
             className="border-b border-borda py-2 text-sm"
@@ -847,20 +906,14 @@ function NomePorNome({
         ))}
       </div>
 
-      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
-      <div>
+      {filtradas.length > mostrando ? (
         <Botao
           tipo="secundario"
-          disabled={baixando}
-          onClick={() => void baixar()}
+          onClick={() => setMostrando((n) => n + LINHAS_POR_VEZ)}
         >
-          {baixando ? "Preparando…" : "Baixar a planilha da base"}
+          Mostrar mais {Math.min(LINHAS_POR_VEZ, filtradas.length - mostrando)}
         </Botao>
-        <p className="mt-2 text-sm text-tinta/60">
-          A planilha traz o CPF inteiro de cada pessoa, para você casar com
-          os seus registros. Fica registrado quem baixou.
-        </p>
-      </div>
+      ) : null}
     </Cartao>
   );
 }
@@ -1305,6 +1358,10 @@ export function Painel({
   // tem de mudar junto — número parado ao lado de uma fila que anda parece
   // defeito mesmo quando não é.
   const [versaoDaFila, setVersaoDaFila] = useState(0);
+  const [aba, setAba] = useState<AbaDoPainel>("resumo");
+  const [portal, setPortal] = useState<FiltroDoPortal>("");
+  // Quantos documentos a fila tem NA TELA: é o número do selo da aba.
+  const [filaNaTela, setFilaNaTela] = useState(0);
 
   useEffect(() => {
     if (!token) return;
@@ -1364,24 +1421,55 @@ export function Painel({
 
   const r = dados.retrato;
   const faltas = Object.entries(r.falta_por_campo);
+  const filaDeLeitura = panorama
+    ? resumoDaFilaDeLeitura(panorama.aguardando_leitura)
+    : null;
+
+  /** Abre uma aba e, se houver, rola até um ponto dela. O ponto só existe
+   *  depois de a aba aparecer — por isso a rolagem espera o desenho. */
+  function irPara(qual: AbaDoPainel, ancora = "") {
+    setAba(qual);
+    window.requestAnimationFrame(() => {
+      const alvo = ancora
+        ? document.getElementById(ancora)
+        : document.getElementById("abas-do-painel");
+      alvo?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+  function abrirQuadro(q: QuadroDoTopo) {
+    const d = destinoDoQuadro(q);
+    setPortal(d.portal);
+    irPara(d.aba, d.ancora);
+  }
+  /** O atalho de uma pendência ("Enviar o rol") mora em outra aba. */
+  function seguirAtalho(e: MouseEvent) {
+    const link = (e.target as HTMLElement).closest("a[href^='#']");
+    const ancora = link?.getAttribute("href") ?? "";
+    const destino = abaDaAncora(ancora);
+    if (!destino) return;
+    e.preventDefault();
+    irPara(destino, ancora.slice(1));
+  }
 
   return (
     <div className="space-y-6">
-      {/* OS NÚMEROS DA BASE, antes de tudo: é a primeira coisa que a
-          diretoria quer saber, e eles já vinham no retrato — só estavam
-          três cartões abaixo. Os mesmos valores, do mesmo lugar. */}
+      {/* OS NÚMEROS DA BASE, antes de tudo — e cada um ABRE a lista do que
+          conta. Número que não vira nomes obriga o gestor a procurar por
+          conta própria quem são aquelas pessoas. */}
       <div className="grid gap-4 md:grid-cols-3">
         <Destaque
           cor="roxo"
           icone={<Users className="h-5 w-5" aria-hidden="true" />}
           valor={r.total}
           rotulo="filiados no acervo"
+          onClick={() => abrirQuadro("acervo")}
         />
         <Destaque
           cor="azul"
           icone={<MailX className="h-5 w-5" aria-hidden="true" />}
           valor={r.inalcancaveis}
           rotulo="você não alcança"
+          onClick={() => abrirQuadro("inalcancaveis")}
         />
         <div className="grid gap-4">
           <Mini
@@ -1389,29 +1477,79 @@ export function Painel({
             icone={<UserCheck className="h-5 w-5" aria-hidden="true" />}
             valor={r.cadastrados}
             rotulo="cadastrados no portal"
+            onClick={() => abrirQuadro("cadastrados")}
           />
           <Mini
             cor="claro"
             icone={<UserX className="h-5 w-5" aria-hidden="true" />}
             valor={r.sem_cadastro}
             rotulo="sem cadastro"
+            onClick={() => abrirQuadro("sem_cadastro")}
           />
         </div>
       </div>
+
+      {/* AS ABAS. O painel era uma página só com dez telas de rolagem
+          (medido), e o envio da base ficava no fim. As quatro continuam
+          montadas — a escondida só não aparece —, para que um arquivo já
+          escolhido não se perca ao trocar de aba. */}
+      <div
+        id="abas-do-painel"
+        role="tablist"
+        aria-label="Áreas do painel"
+        className="flex scroll-mt-4 flex-wrap gap-2 rounded-xl bg-carta p-2 shadow-cartao"
+      >
+        {ABAS_DO_PAINEL.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            role="tab"
+            id={`aba-${a.id}`}
+            aria-selected={aba === a.id}
+            aria-controls={`painel-${a.id}`}
+            onClick={() => setAba(a.id)}
+            className={
+              "rounded-lg px-4 py-3 text-base font-medium transition " +
+              (aba === a.id
+                ? "bg-roxo text-white"
+                : "text-tinta hover:bg-lilas")
+            }
+          >
+            {a.rotulo}
+            {a.id === "documentos" && filaNaTela > 0 ? (
+              <span className="ml-2 rounded-full bg-alerta px-2 py-0.5 text-sm text-white">
+                {filaNaTela}
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      {/* ------------------------------------------------------- RESUMO */}
+      <div
+        id="painel-resumo"
+        role="tabpanel"
+        aria-labelledby="aba-resumo"
+        hidden={aba !== "resumo"}
+        className="space-y-6"
+        onClick={seguirAtalho}
+      >
       {panorama ? <MudouDeVeredicto p={panorama} /> : null}
-      {panorama && resumoDaFilaDeLeitura(panorama.aguardando_leitura).mostra ? (
+      {filaDeLeitura?.mostra ? (
         // A FILA DE LEITURA HUMANA, à vista. Sem isto o servidor contava e
         // tela nenhuma mostrava — o mesmo erro de entregar pela metade que
         // já custou uma revisão neste repositório.
         <Aviso tom="neutro">
-          {resumoDaFilaDeLeitura(panorama.aguardando_leitura).frase}
+          {filaDeLeitura.frase}{" "}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => irPara("documentos")}
+          >
+            Abrir os documentos para ler
+          </button>
         </Aviso>
       ) : null}
-      <FilaDeConferencia
-        entidade={entidade}
-        token={token}
-        onMudou={() => setVersaoDaFila((v) => v + 1)}
-      />
       {panorama ? <OQueResolverPrimeiro p={panorama} /> : null}
       {erroPanorama ? (
         <Aviso tom="alerta">
@@ -1437,6 +1575,15 @@ export function Painel({
             Os números abaixo contam só quem se cadastrou pelo portal. Com a
             sua planilha — do jeito que ela estiver — o painel passa a mostrar
             a base inteira, e quem falta.
+          </p>
+          <p className="mt-2">
+            <button
+              type="button"
+              className="underline"
+              onClick={() => irPara("envios")}
+            >
+              Enviar a base agora
+            </button>
           </p>
         </Aviso>
       ) : null}
@@ -1479,56 +1626,106 @@ export function Painel({
         </div>
       ) : null}
 
-      {dados.inalcancaveis.length ? (
-        <div>
-          <p className="text-[15px] font-medium text-tinta">
-            Quem você não alcança, e por quê
-          </p>
-          <p className="mt-1 text-sm text-tinta/70">
-            Contagem não diz a quem ligar. Esta lista diz.
-          </p>
-          <div className="mt-2 space-y-1">
-            {dados.inalcancaveis.slice(0, 50).map((p) => (
-              <div key={p.chave} className="border-b border-borda py-1 text-sm">
-                <span className="text-tinta">
-                  {p.nome || "(sem nome no acervo)"}
-                </span>
-                <span className="ml-2 text-tinta/70">{p.motivo}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       <Aviso tom="neutro">
         A movimentação dos processos é atualizada sozinha, com cerca de um dia
         de atraso — é o que a base pública do CNJ entrega.{" "}
         <strong>Não é intimação e não serve para contar prazo.</strong>
       </Aviso>
     </Cartao>
+      </div>
 
-      <NomePorNome entidade={entidade} token={token} versao={versaoDaFila} />
+      {/* ----------------------------------------------------- FILIADOS */}
+      <div
+        id="painel-filiados"
+        role="tabpanel"
+        aria-labelledby="aba-filiados"
+        hidden={aba !== "filiados"}
+        className="space-y-6"
+      >
+        <NomePorNome
+          entidade={entidade}
+          token={token}
+          versao={versaoDaFila}
+          portal={portal}
+          onPortal={setPortal}
+        />
 
-      <EnviarBase
-        entidade={entidade}
-        token={token}
-        onMudou={() => setVersaoDaFila((v) => v + 1)}
-      />
+        {dados.inalcancaveis.length ? (
+          <div id="nao-alcanca" className="scroll-mt-4">
+            <Cartao
+              titulo="Quem você não alcança, e por quê"
+              explicacao="Contagem não diz a quem ligar. Esta lista diz."
+            >
+              <div className="space-y-1">
+                {dados.inalcancaveis.slice(0, 50).map((p) => (
+                  <div
+                    key={p.chave}
+                    className="border-b border-borda py-1 text-sm"
+                  >
+                    <span className="text-tinta">
+                      {p.nome || "(sem nome no acervo)"}
+                    </span>
+                    <span className="ml-2 text-tinta/70">{p.motivo}</span>
+                  </div>
+                ))}
+              </div>
+            </Cartao>
+          </div>
+        ) : null}
+      </div>
 
-      {/* O `id` é o destino do atalho "Enviar o rol" das pendências. */}
-      <div id="rol-de-substituidos" className="scroll-mt-4">
-        <RolDeSubstituidos
+      {/* --------------------------------------------------- DOCUMENTOS */}
+      <div
+        id="painel-documentos"
+        role="tabpanel"
+        aria-labelledby="aba-documentos"
+        hidden={aba !== "documentos"}
+        className="space-y-6"
+      >
+        <FilaDeConferencia
+          entidade={entidade}
+          token={token}
+          onMudou={() => setVersaoDaFila((v) => v + 1)}
+          onQuantos={setFilaNaTela}
+        />
+        {filaNaTela === 0 ? (
+          <Cartao titulo="Documentos para ler">
+            <Aviso tom="bom">
+              Nenhum documento esperando leitura agora.
+            </Aviso>
+          </Cartao>
+        ) : null}
+      </div>
+
+      {/* ------------------------------------------------------- ENVIOS */}
+      <div
+        id="painel-envios"
+        role="tabpanel"
+        aria-labelledby="aba-envios"
+        hidden={aba !== "envios"}
+        className="space-y-6"
+      >
+        <EnviarBase
           entidade={entidade}
           token={token}
           onMudou={() => setVersaoDaFila((v) => v + 1)}
         />
-      </div>
 
-      <ApagarAPedido
-        entidade={entidade}
-        token={token}
-        jaApagados={dados.apagados_a_pedido}
-      />
+        {/* O `id` é o destino do atalho "Enviar o rol" das pendências. */}
+        <div id="rol-de-substituidos" className="scroll-mt-4">
+          <RolDeSubstituidos
+            entidade={entidade}
+            token={token}
+            onMudou={() => setVersaoDaFila((v) => v + 1)}
+          />
+        </div>
+
+        <ApagarAPedido
+          entidade={entidade}
+          token={token}
+          jaApagados={dados.apagados_a_pedido}
+        />
+      </div>
     </div>
   );
 }

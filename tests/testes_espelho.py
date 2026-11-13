@@ -2675,11 +2675,43 @@ def teste_a_exportacao_e_planilha_que_abre_e_nao_executa():
                              "application/pdf"))],
     )
 
+    # O QUE A PLANILHA DO SINDICATO DIZ sobre o contato de A — diferente,
+    # de propósito, do que A informou no portal.
+    (ent.pasta(raiz) / "acervo.jsonl").write_text(_json.dumps({"pessoas": [{
+        "cpf": A, "linha_no_arquivo": 2, "achados": [],
+        "campos": {"nome_completo": "FULANO (CADASTRO DE EXEMPLO)",
+                   "email": "antigo@exemplo.invalid",
+                   "telefone": "=61900000000"},
+    }]}) + "\n", encoding="utf-8")
+
     r = cliente.get(f"/api/entidade/{entidade}/pessoas.csv",
                     headers=_gestor(cliente, entidade))
     checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
     if r.status_code != 200:
         return
+    # OS CONTATOS VÃO JUNTO: o gestor baixa a planilha para LIGAR para as
+    # pessoas, e sem e-mail nem telefone ele teria de procurar um por um.
+    # E as duas fontes saem lado a lado — quando a planilha do sindicato e
+    # o cadastro do filiado discordam, a gente mostra as duas e não escolhe.
+    import csv as _csv
+    import io as _io
+    tabela = list(_csv.DictReader(
+        _io.StringIO(r.content.decode("utf-8-sig")), delimiter=";"))
+    de_a = next((l for l in tabela if l["cpf"] == A), {})
+    for coluna in ("email_na_planilha_do_sindicato",
+                   "telefone_na_planilha_do_sindicato",
+                   "email_informado_no_portal",
+                   "telefone_informado_no_portal"):
+        checa(coluna in de_a, f"a exportação não traz a coluna {coluna}: "
+              f"{list(de_a)}")
+    checa(de_a.get("email_na_planilha_do_sindicato")
+          == "antigo@exemplo.invalid",
+          f"o e-mail da planilha do sindicato não saiu: {de_a}")
+    checa(de_a.get("email_informado_no_portal") == linha(A)["email"]
+          and de_a.get("email_informado_no_portal") != "antigo@exemplo.invalid",
+          f"o e-mail que o filiado informou não saiu ao lado: {de_a}")
+    checa(de_a.get("telefone_na_planilha_do_sindicato", "").startswith("'="),
+          f"telefone que começa com = saiu como fórmula: {de_a}")
     checa(r.headers["content-type"].startswith("text/csv"),
           f"{r.headers['content-type']}")
     checa("attachment" in r.headers.get("content-disposition", ""),

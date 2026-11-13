@@ -323,11 +323,13 @@ const semAcento = (t: string) =>
  *  esconderia a pessoa de quem filtra por "o que depende de mim". */
 export function filtrarPessoas(
   pessoas: PessoaNaLista[],
-  filtro: { texto: string; dono: string },
+  filtro: { texto: string; dono: string; portal?: FiltroDoPortal },
 ): PessoaNaLista[] {
   const texto = semAcento(filtro.texto.trim());
   return pessoas.filter((p) => {
     if (texto && !semAcento(p.nome).includes(texto)) return false;
+    if (filtro.portal === "entrou" && !p.cadastrou) return false;
+    if (filtro.portal === "falta" && p.cadastrou) return false;
     if (filtro.dono === "PODE") return p.pode;
     if (filtro.dono) return p.depende_de.includes(filtro.dono);
     return true;
@@ -570,12 +572,24 @@ export function resumoDoRolVigente(r: RolVigente): string[] {
 
 /** Os lugares do painel onde uma pendência se resolve. A chave vem do
  *  servidor (`pendencia.NO_ROL`); a âncora é o `id` do cartão. */
-const ONDE_SE_RESOLVE: Record<string, { ancora: string; rotulo: string }> = {
+const ONDE_SE_RESOLVE: Record<
+  string,
+  { ancora: string; rotulo: string; aba: AbaDoPainel }
+> = {
   "rol-de-substituidos": {
     ancora: "#rol-de-substituidos",
     rotulo: "Enviar o rol",
+    aba: "envios",
   },
 };
+
+/** Em que aba mora uma âncora do painel, ou nulo se não é de nenhuma. */
+export function abaDaAncora(ancora: string): AbaDoPainel | null {
+  const achada = Object.values(ONDE_SE_RESOLVE).find(
+    (o) => o.ancora === ancora,
+  );
+  return achada ? achada.aba : null;
+}
 
 /** O atalho para onde esta pendência se resolve, ou nulo.
  *
@@ -583,6 +597,43 @@ const ONDE_SE_RESOLVE: Record<string, { ancora: string; rotulo: string }> = {
  *  lugar que esta tela não conhece não vira link para lugar nenhum. */
 export function atalhoDoGargalo(
   g: Gargalo,
-): { ancora: string; rotulo: string } | null {
+): { ancora: string; rotulo: string; aba: AbaDoPainel } | null {
   return (g.onde && ONDE_SE_RESOLVE[g.onde]) || null;
+}
+
+
+// ------------------------------------------------------------ o painel em abas
+
+/** Quem entrou no portal, quem ainda não — ou tanto faz. */
+export type FiltroDoPortal = "" | "entrou" | "falta";
+
+export type AbaDoPainel = "resumo" | "filiados" | "documentos" | "envios";
+
+/** AS ABAS DO PAINEL, na ordem em que aparecem.
+ *
+ *  O painel era uma página só, com dez telas de rolagem (medido): o envio
+ *  da base e o pedido de apagamento ficavam no fim de tudo, depois de uma
+ *  lista de cinquenta nomes. Cada aba responde a UMA pergunta de quem
+ *  administra: como está a base, quem são as pessoas, o que eu tenho de
+ *  ler, e o que eu tenho de mandar. */
+export const ABAS_DO_PAINEL: { id: AbaDoPainel; rotulo: string }[] = [
+  { id: "resumo", rotulo: "Resumo" },
+  { id: "filiados", rotulo: "Filiados" },
+  { id: "documentos", rotulo: "Documentos para ler" },
+  { id: "envios", rotulo: "Envios e pedidos" },
+];
+
+export type QuadroDoTopo =
+  | "acervo" | "inalcancaveis" | "cadastrados" | "sem_cadastro";
+
+/** Para onde leva cada quadro do topo: a LISTA do que ele conta. Número
+ *  que não abre em nomes obriga o gestor a procurar por conta própria quem
+ *  são aquelas pessoas. */
+export function destinoDoQuadro(
+  q: QuadroDoTopo,
+): { aba: AbaDoPainel; portal: FiltroDoPortal; ancora: string } {
+  if (q === "cadastrados") return { aba: "filiados", portal: "entrou", ancora: "" };
+  if (q === "sem_cadastro") return { aba: "filiados", portal: "falta", ancora: "" };
+  if (q === "inalcancaveis") return { aba: "filiados", portal: "", ancora: "nao-alcanca" };
+  return { aba: "filiados", portal: "", ancora: "" };
 }

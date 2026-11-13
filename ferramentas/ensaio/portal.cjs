@@ -449,6 +449,12 @@ async function faseCadastro(navegador, gritos, resultado) {
  *  arquivo, com a sessão no cabeçalho: é a costura que nenhum teste de
  *  servidor exercita. Depois registra as duas leituras.
  */
+/** O painel é em abas: o que está em outra aba não está na tela, e o que
+ *  não está na tela o gestor não clica — nem o ensaio. */
+async function abaDoPainel(g, nome) {
+  await g.getByRole("tab", { name: nome }).click();
+}
+
 async function faseConferencia(navegador, gritos, resultado) {
   const { contexto, p: g } = await abrirAba(navegador, gritos, "conferencia");
   try {
@@ -456,6 +462,8 @@ async function faseConferencia(navegador, gritos, resultado) {
                  { waitUntil: "networkidle" });
     await entrar(g, cfg.gestor.cpf, "Seu CPF",
                  "Código que chegou no seu e-mail");
+    await g.getByRole("tab", { name: /Resumo/ }).waitFor({ timeout: 20000 });
+    await abaDoPainel(g, /Documentos para ler/);
     await g.getByRole("heading", { name: "Documentos para ler" })
       .waitFor({ timeout: 20000 });
     marco("o gestor vê a fila de leitura");
@@ -493,24 +501,28 @@ async function faseConferencia(navegador, gritos, resultado) {
     await foto.getByLabel("O comprovante cobre de").fill("2022-01");
     await foto.getByLabel("até").fill("2022-12");
     await foto.getByRole("button", { name: "Registrar o que li" }).click();
-    await g.getByRole("heading", { name: "Documentos para ler" })
-      .waitFor({ state: "detached", timeout: 20000 });
+    await g.getByText("Nenhum documento esperando leitura agora.")
+      .waitFor({ timeout: 20000 });
     resultado.conferencia.registradas += 1;
     marco("leitura do comprovante fotografado registrada — a fila esvaziou");
 
     // O SINDICATO MANDA A LISTA. Uma planilha .xlsx de verdade, em duas
     // etapas: conferir, e só então gravar. A pessoa nova tem de aparecer
     // na lista sem recarregar a página.
+    await abaDoPainel(g, /Envios e pedidos/);
     const entrada = g.getByLabel(/A planilha de filiados/);
     await entrada.setInputFiles(cfg.planilha.caminho);
     await g.getByRole("button", { name: "Conferir a planilha" }).click();
     await g.getByText("Confira antes de gravar.").waitFor({ timeout: 20000 });
-    if ((await g.innerText("body")).includes(cfg.planilha.nome)) {
+    // `textContent`, e não o texto visível: a lista de filiados mora em
+    // outra aba, e o que este passo mede é se o nome JÁ ESTÁ na página.
+    if ((await g.textContent("body")).includes(cfg.planilha.nome)) {
       throw new Error("a pessoa da planilha apareceu na base ANTES da confirmação");
     }
     await g.getByRole("button", { name: "Confirmar e gravar a planilha" }).click();
     await g.getByText(/Planilha gravada/).waitFor({ timeout: 20000 });
-    await g.getByText(cfg.planilha.nome).first().waitFor({ timeout: 20000 });
+    await g.getByText(cfg.planilha.nome).first()
+      .waitFor({ state: "attached", timeout: 20000 });
     resultado.planilha = { gravou: true };
     marco("o gestor enviou a planilha .xlsx: conferiu, confirmou, e a base cresceu");
 
@@ -541,6 +553,7 @@ async function faseConferencia(navegador, gritos, resultado) {
     // NOME POR NOME, e a planilha. O gestor vê a pessoa na lista — com o
     // CPF mascarado — e baixa a base. O que se confere do lado de fora é o
     // ARQUIVO que o navegador recebeu: é ele que o sindicato leva embora.
+    await abaDoPainel(g, /Filiados/);
     await g.getByRole("heading", { name: "Nome por nome" }).waitFor({ timeout: 20000 });
     const lista = await g.innerText("body");
     resultado.lista = {
@@ -560,6 +573,7 @@ async function faseConferencia(navegador, gritos, resultado) {
     // responder. Duas etapas, e a caixa "é o rol inteiro" fica como nasce:
     // desmarcada. O que a tela DISSE vai para a conferência, e o que ficou
     // no disco é conferido do lado de fora.
+    await abaDoPainel(g, /Envios e pedidos/);
     const rol = g.locator("section",
       { has: g.getByRole("heading", { name: "Rol de substituídos" }) }).first();
     await rol.waitFor({ timeout: 20000 });
@@ -588,6 +602,8 @@ async function fasePainel(navegador, gritos, resultado) {
                      { waitUntil: "networkidle" });
         await entrar(g, cfg.gestor.cpf, "Seu CPF",
                      "Código que chegou no seu e-mail");
+        await g.getByRole("tab", { name: /Resumo/ }).waitFor({ timeout: 20000 });
+        await abaDoPainel(g, /Envios e pedidos/);
         await g.getByRole("button", { name: /Atender um pedido de apagamento/ })
           .waitFor({ timeout: 20000 });
         marco("o gestor entrou no painel");
