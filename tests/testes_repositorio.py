@@ -22,6 +22,7 @@ aparece.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -463,6 +464,88 @@ def t_os_caminhos_da_implantacao_concordam():
           f"{migracoes}")
 
 
+def _modos_do_passo_a_passo() -> dict[str, int]:
+    """O modo que o passo a passo dá a cada pasta que cria com `install -d`."""
+    passo = (RAIZ / "implantacao" / "LEIAME.md").read_text(encoding="utf-8")
+    modos: dict[str, int] = {}
+    for linha in passo.splitlines():
+        m = re.search(r"install -d .*?-m (\d{3,4}) (.+)$", linha)
+        if m:
+            for caminho in m.group(2).split():
+                modos[caminho] = int(m.group(1), 8)
+    return modos
+
+
+def t_quem_le_cada_pasta_da_implantacao():
+    """O Caddy roda como o usuário `caddy`, que NÃO é do grupo `protocol`.
+
+    Visto ao ensaiar a implantação (13/11/2026): com `/srv/protocol` e
+    `/srv/protocol/portal` em 750, toda página do portal respondia 403 — a
+    API funcionava, e o portal não abria. E o contrário também se fixa: os
+    dados, o ambiente e a cópia NÃO podem abrir para os outros."""
+    modos = _modos_do_passo_a_passo()
+    caddy = (RAIZ / "implantacao" / "Caddyfile").read_text(encoding="utf-8")
+    checa("root * /srv/protocol/portal" in caddy,
+          "o Caddy não entrega mais /srv/protocol/portal — reveja este teste")
+    checa(modos.get("/srv/protocol/portal", 0) & 0o005 == 0o005,
+          "o passo a passo cria /srv/protocol/portal sem leitura para o "
+          "Caddy: toda página responde 403")
+    checa(modos.get("/srv/protocol", 0) & 0o001 == 0o001,
+          "o passo a passo cria /srv/protocol sem passagem para o Caddy "
+          "chegar ao portal: toda página responde 403")
+    checa(modos.get("/srv/protocol", 0o007) & 0o006 == 0,
+          "/srv/protocol só precisa dar PASSAGEM aos outros, não listagem")
+    for fechado in ("/var/lib/protocol", "/var/backups/protocol",
+                    "/etc/protocol"):
+        checa(fechado in modos and modos[fechado] & 0o007 == 0,
+              f"o passo a passo abre {fechado} para outros usuários da "
+              f"máquina (ou não o cria)")
+    # O arquivo de ambiente tem três segredos. O exemplo e o passo a passo
+    # têm de mandar instalá-lo DO MESMO JEITO — eram dois jeitos.
+    jeitos = set()
+    for nome in ("LEIAME.md", "protocol.env.exemplo"):
+        texto = (RAIZ / "implantacao" / nome).read_text(encoding="utf-8")
+        for m in re.finditer(
+                r"install (-m \d+ -o \w+ -g \w+) \S*protocol\.env\.exemplo",
+                texto):
+            jeitos.add(m.group(1))
+    checa(len(jeitos) == 1,
+          f"o arquivo de ambiente é instalado de jeitos diferentes: {jeitos}")
+    for jeito in jeitos:
+        modo = int(re.search(r"-m (\d+)", jeito).group(1), 8)
+        checa(modo & 0o007 == 0,
+              "o arquivo de ambiente, com os segredos, abre para os outros")
+
+
+def t_o_ensaio_conhece_cada_comando_do_passo_a_passo():
+    """`implantacao/ensaio/ensaiar.py` roda os blocos do LEIAME. Se o passo
+    a passo ganhar um comando que o ensaio não conhece, o ensaio deixa de
+    ensaiar o que a pessoa vai digitar — e isto avisa sem precisar de
+    máquina."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "ensaiar", RAIZ / "implantacao" / "ensaio" / "ensaiar.py")
+    ensaiar = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ensaiar)
+    blocos = ensaiar.blocos_do_leiame()
+    checa(len(blocos) >= 25, f"achei só {len(blocos)} blocos no LEIAME")
+    usados = set()
+    for bloco in blocos:
+        c = ensaiar.classificar(bloco)
+        checa(c is not None,
+              f"o ensaio não conhece (ou reconhece duas vezes) o bloco: "
+              f"{bloco[:80]}")
+        if c:
+            usados.add(c[0])
+    sobras = [b[0] for b in ensaiar.BLOCOS if b[0] not in usados]
+    checa(not sobras,
+          f"o ensaio espera blocos que o passo a passo não tem mais: {sobras}")
+    for marca, como, motivo in ensaiar.BLOCOS:
+        checa(como in ("igual", "trocado", "pulado"), f"{marca}: {como}?")
+        checa(como == "igual" or motivo,
+              f"{marca}: trocado ou pulado sem dizer o motivo")
+
+
 TESTES = [
     ("a raiz de dados padrão está ignorada", t_a_raiz_padrao_esta_ignorada),
     ("todo arquivo que a aplicação escreve está ignorado",
@@ -483,6 +566,10 @@ TESTES = [
      t_o_ambiente_de_exemplo_e_o_que_o_servidor_le),
     ("os caminhos da implantação concordam",
      t_os_caminhos_da_implantacao_concordam),
+    ("o Caddy lê o portal, e ninguém mais lê os dados",
+     t_quem_le_cada_pasta_da_implantacao),
+    ("o ensaio conhece cada comando do passo a passo",
+     t_o_ensaio_conhece_cada_comando_do_passo_a_passo),
 ]
 
 

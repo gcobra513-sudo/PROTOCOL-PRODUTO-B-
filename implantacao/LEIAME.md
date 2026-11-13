@@ -5,22 +5,43 @@ em `sa-east-1`** com Ubuntu — a escolha de `docs/hospedagem.md`. Cada passo
 diz como conferir que deu certo, porque um passo que falha calado só aparece
 três passos depois.
 
-## O que NÃO foi conferido, dito antes de tudo
+## O que foi ensaiado, e o que NÃO foi — dito antes de tudo
 
-Esta pasta foi escrita sem uma máquina de verdade na frente. O que foi
-medido e o que não foi:
+Em 13/11/2026 este passo a passo foi **ensaiado do zero** num contêiner
+Ubuntu 24.04: `implantacao/ensaio/ensaiar.py` executa os blocos de comando
+DESTE arquivo, um a um. 22 dos 30 rodam como estão escritos; os outros 8 são
+trocados ou pulados, e o ensaio diz qual e por quê (não há systemd, GitHub
+nem certificado público num contêiner). O ensaio achou dois defeitos que só a
+máquina mostraria, e os dois estão corrigidos:
+
+- **o portal não abria.** As pastas nasciam fechadas ao usuário do Caddy, e
+  toda página respondia 403 (a API funcionava). Passo 2;
+- **o e-mail não conferia para quem ia.** A conexão com o servidor de e-mail
+  era cifrada, mas o certificado dele não era conferido: o código de acesso e
+  a senha do envio foram entregues a um servidor de autoridade desconhecida,
+  sem erro. Agora o envio falha em vez de seguir (`tests/testes_remetente.py`).
 
 | | conferido como |
 |---|---|
-| `servidor/requirements.txt` basta para o servidor e as ferramentas | **medido**, num ambiente Python limpo (faltava o driver do banco, e foi corrigido) |
-| `protocol.env.exemplo` tem toda variável que o servidor lê, e preenchido faz o servidor subir sem aviso | **teste**, em `tests/testes_repositorio.py` |
-| com o exemplo preenchido, o servidor SOBE fora do modo ensaio, lê o banco e não dá aviso de configuração | **medido**: subido de verdade no ambiente limpo, contra o banco de teste |
-| `com-ambiente.sh` entrega a URL do banco inteira, com o `&` | **rodado**. A primeira versão desta prova usava `source`, que partiu a URL ao meio: o servidor subiu SEM banco e sem erro. Por isso o script existe |
-| os caminhos do serviço, do Caddy, da cópia e deste passo a passo concordam | **teste**, no mesmo arquivo |
-| `protocol.service` e o temporizador da cópia | só a SINTAXE, por `systemd-analyze verify`. Nunca rodaram |
-| `copia.sh` | **rodado** numa pasta de teste: gera, confere que abre, grava com modo 600 |
-| `Caddyfile` | **NÃO conferido**: não havia Caddy onde isto foi escrito. Rode `caddy validate` (passo 8) antes de confiar |
-| o conjunto inteiro, numa Lightsail | **nunca**. A primeira subida é o primeiro ensaio |
+| os comandos dos passos 1 a 10 e "Atualizar depois" | **ensaiado**: rodados como estão escritos, na ordem, com o usuário `protocol` |
+| `servidor/requirements.txt` basta para o servidor e as ferramentas | **ensaiado**, num ambiente Python recém-criado |
+| o portal compila com o Node 18 que o Ubuntu 24.04 instala | **ensaiado** |
+| `com-ambiente.sh` entrega a URL do banco inteira, com o `&` | **ensaiado**: o esquema é criado por ele, num banco cuja URL tem `&` |
+| `Caddyfile` | **ensaiado** no Caddy 2.6.2 (o do Ubuntu 24.04): valida como está; entrega as páginas, a API e a saúde; redireciona http; manda os quatro cabeçalhos; recusa pedido de 85 MB |
+| quem lê o quê | **ensaiado**: o usuário do Caddy lê o portal, e NÃO lê o ambiente, os dados nem a cópia |
+| do gestor ao primeiro filiado com código | **ensaiado** por HTTPS: o gestor recebe o código por e-mail, entra, envia a planilha; o filiado recebe o código e entra |
+| o limite de pedidos de código, atrás do Caddy | **medido**: de um mesmo endereço, forjando `X-Forwarded-For` a cada pedido, 20 passam e o 21º é recusado; outro endereço não paga por ele |
+| `copia.sh` | **ensaiado** com o comando do `.service`: gera, fecha aos outros, e restaurada é igual à raiz de dados |
+| o servidor só escreve na raiz de dados | **ensaiado** com o resto do sistema só para leitura |
+| `protocol.service` e o temporizador da cópia | a SINTAXE, por `systemd-analyze verify`; e o servidor foi posto no ar com o usuário, a pasta, o ambiente, o comando, a pasta gravável e a máscara LIDOS do `.service`. **O systemd de verdade nunca os rodou** — nem o reinício em falha, nem o temporizador |
+| o certificado público | **NÃO**: o ensaio usa a autoridade interna do Caddy. Pedir e renovar o certificado de verdade só acontece com o domínio apontado |
+| a chave de implantação e o clone do GitHub | a chave é criada no ensaio; **o clone por ela, NÃO** |
+| um provedor de e-mail de verdade | **NÃO**: o ensaio usa um servidor SMTP local |
+| o conjunto inteiro, numa Lightsail | **nunca**. A primeira subida continua sendo a primeira numa máquina de verdade — mas não é mais o primeiro ensaio |
+
+Para repetir o ensaio (só em máquina descartável):
+
+`sudo python3 implantacao/ensaio/ensaiar.py --maquina-descartavel --banco URL-DE-UM-BANCO-VAZIO`
 
 ## Antes de começar — o que só você contrata
 
@@ -50,20 +71,48 @@ sudo useradd --system --home /srv/protocol --shell /usr/sbin/nologin protocol
 ```
 
 ```bash
-sudo install -d -o protocol -g protocol -m 750 /srv/protocol /srv/protocol/portal /var/lib/protocol /var/backups/protocol
+sudo install -d -o protocol -g protocol -m 750 /var/lib/protocol /var/backups/protocol
+```
+
+```bash
+sudo install -d -o protocol -g protocol -m 751 /srv/protocol
+```
+
+```bash
+sudo install -d -o protocol -g protocol -m 755 /srv/protocol/portal
 ```
 
 ```bash
 sudo install -d -o root -g protocol -m 750 /etc/protocol
 ```
 
+Os modos são diferentes de propósito. O Caddy roda como o usuário `caddy`,
+que não é do grupo `protocol`: ele precisa PASSAR por `/srv/protocol` (751)
+e LER `/srv/protocol/portal` (755) — com 750 nos dois, toda página do portal
+responde 403 (visto no ensaio). Os dados, a cópia e o ambiente ficam
+fechados para ele.
+
 `/var/lib/protocol` é a raiz de dados: o diário de cadastros mora ali, e é
 ele a autoridade. `/var/backups/protocol` recebe a cópia diária.
 
 ## 3. O código
 
-O repositório é privado. Crie no GitHub uma chave de implantação **só de
-leitura** para esta máquina, e clone em `/srv/protocol/app`:
+O repositório é privado, e a máquina o lê com uma chave de implantação
+**só de leitura**, que nasce aqui e não sai daqui:
+
+```bash
+sudo -u protocol ssh-keygen -q -t ed25519 -N '' -C protocol-implantacao -f /srv/protocol/.ssh/id_ed25519
+```
+
+```bash
+sudo cat /srv/protocol/.ssh/id_ed25519.pub
+```
+
+Cole essa linha (a `.pub`, que não é segredo) no GitHub: repositório →
+Settings → Deploy keys → Add deploy key, **sem** marcar "Allow write
+access". Depois clone em `/srv/protocol/app` — na primeira vez o `ssh`
+pergunta se confia no GitHub; confira a impressão digital com a que o
+GitHub publica antes de responder `yes`:
 
 ```bash
 sudo -u protocol git clone git@github.com:gcobra513-sudo/protocol-produto-b-.git /srv/protocol/app
@@ -145,7 +194,8 @@ cd /srv/protocol/app/portal && sudo -u protocol npm ci && sudo -u protocol env V
 
 `VITE_API` é o endereço público do próprio portal: o Caddy entrega as
 páginas e a API pelo mesmo domínio. Confere: `/srv/protocol/portal/index.html`
-existe.
+existe, e o Caddy consegue lê-lo — `sudo -u caddy head -c 20 /srv/protocol/portal/index.html`
+não reclama. O Node 18 que o Ubuntu 24.04 instala basta (medido no ensaio).
 
 ## 8. Os serviços
 

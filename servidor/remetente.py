@@ -18,6 +18,7 @@ from __future__ import annotations
 import datetime as dt
 import pathlib
 import smtplib
+import ssl
 from email.message import EmailMessage
 from typing import Protocol
 
@@ -112,17 +113,27 @@ class PorSmtp:
         self._entregar(msg)
 
     def _entregar(self, msg: EmailMessage) -> None:
+        # O CONTEXTO É DADO AQUI, E NÃO É DETALHE. Sem ele, `smtplib` cifra a
+        # conexão mas não confere o certificado nem o nome de quem responde
+        # (visto ao ensaiar a implantação: o código de acesso e a senha do
+        # envio foram entregues a um servidor de autoridade desconhecida, sem
+        # erro). O contexto padrão confere os dois contra as autoridades da
+        # máquina. Servidor com certificado que não fecha: o envio FALHA —
+        # não há opção para seguir assim mesmo, de propósito.
+        contexto = ssl.create_default_context()
         # 465 é SMTPS do primeiro byte; 587 começa em claro e sobe para TLS.
         # Mandar STARTTLS no 465 falha, e não mandar no 587 passa a senha em
         # claro — por isso a porta decide, e não uma opção a mais.
         if self.porta == 465:
-            with smtplib.SMTP_SSL(self.host, self.porta, timeout=20) as s:
+            with smtplib.SMTP_SSL(
+                self.host, self.porta, timeout=20, context=contexto
+            ) as s:
                 if self.usuario:
                     s.login(self.usuario, self.senha)
                 s.send_message(msg)
             return
         with smtplib.SMTP(self.host, self.porta, timeout=20) as s:
-            s.starttls()
+            s.starttls(context=contexto)
             if self.usuario:
                 s.login(self.usuario, self.senha)
             s.send_message(msg)
