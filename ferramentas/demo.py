@@ -2,7 +2,7 @@
 """
 A demonstração do portal, no seu computador, com um comando.
 
-    python3 ferramentas/demo.py
+    python3 ferramentas/demo.py        (no Windows: python ferramentas/demo.py)
 
 Sobe o servidor e o portal num endereço só (http://127.0.0.1:8080), com um
 sindicato de demonstração já preenchido, e imprime com que CPF entrar. Fica
@@ -174,19 +174,23 @@ def compilar_portal(destino: pathlib.Path) -> None:
     if not (portal / "node_modules").is_dir():
         print("  instalando as dependências do portal (só na primeira vez; "
               "leva um ou dois minutos)...", flush=True)
-        r = subprocess.run(["npm", "ci"], cwd=portal, capture_output=True,
-                           text=True, shell=os.name == "nt")
+        r = subprocess.run([shutil.which("npm") or "npm", "ci"], cwd=portal,
+                           capture_output=True, text=True)
         if r.returncode != 0:
             raise NaoDa("`npm ci` falhou na pasta portal/:\n"
                         + (r.stderr or r.stdout)[-1500:])
-    from ferramentas import ensaio_portal
-
-    try:
-        # "/" como endereço da API: portal e API saem do MESMO endereço, e
-        # por isso a demonstração é uma porta só para abrir.
-        ensaio_portal._compilar_portal("/", destino)
-    except RuntimeError as exc:
-        raise NaoDa(str(exc)[-1500:]) from None
+    # "/" como endereço da API: portal e API saem do MESMO endereço, e por
+    # isso a demonstração é uma porta só para abrir.
+    # O CAMINHO INTEIRO do `npx`, e não só o nome: no Windows ele é
+    # `npx.cmd`, e chamar pelo nome puro não o encontra.
+    r = subprocess.run(
+        [shutil.which("npx") or "npx", "vite", "build", "--outDir",
+         str(destino), "--emptyOutDir"],
+        cwd=portal, env={**os.environ, "VITE_API": "/"},
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        raise NaoDa("a compilação do portal falhou:\n"
+                    + (r.stdout + r.stderr)[-1500:])
 
 
 # ------------------------------------------------------------------ a semente
