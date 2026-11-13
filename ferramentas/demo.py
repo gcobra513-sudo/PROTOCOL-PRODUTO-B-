@@ -2,7 +2,7 @@
 """
 A demonstração do portal, no seu computador, com um comando.
 
-    python3 ferramentas/demo.py        (no Windows: python ferramentas/demo.py)
+    python3 ferramentas/demo.py
 
 Sobe o servidor e o portal num endereço só (http://127.0.0.1:8080), com um
 sindicato de demonstração já preenchido, e imprime com que CPF entrar. Fica
@@ -17,6 +17,8 @@ O BANCO. Sem `--banco`, a demonstração cria um PostgreSQL só dela, numa
 pasta temporária, e o apaga no fim — basta o PostgreSQL estar instalado.
 Com `--banco URL`, usa o banco que você indicar, que tem de estar VAZIO: a
 demonstração não apaga banco de ninguém, nem para se ajeitar.
+
+Roda em Linux e macOS. No Windows, dentro do WSL (ver o README.md).
 
 O que precisa estar instalado: Python 3.11+, Node.js 18+ e PostgreSQL 14+, e
 
@@ -55,6 +57,16 @@ class NaoDa(Exception):
 
 
 def conferir_a_maquina() -> None:
+    # O SERVIDOR É DE LINUX, que é onde ele vai morar: as travas de arquivo
+    # do rol e do apagamento usam `fcntl`, que o Windows não tem. Dito aqui,
+    # antes de tudo — da primeira vez a demonstração criou o banco inteiro e
+    # só então quebrou, com um rastro de erro que não dizia o que fazer.
+    if os.name == "nt":
+        raise NaoDa(
+            "o servidor não roda direto no Windows (ele é feito para Linux, "
+            "onde vai ser hospedado).\n"
+            "  Rode dentro do WSL, o Linux que o próprio Windows instala: "
+            "veja \"No Windows\" no README.md.")
     faltam = [m for m in ("fastapi", "uvicorn", "psycopg", "multipart",
                           "pypdf", "openpyxl", "httpx", "reportlab")
               if importlib.util.find_spec(m) is None]

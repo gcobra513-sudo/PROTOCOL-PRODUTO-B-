@@ -63,6 +63,26 @@ Precisa de Python 3.11+, Node.js 18+ e PostgreSQL 14+ instalados, e de:
 pip install -r servidor/requirements.txt httpx reportlab
 ```
 
+**No Windows**, o servidor não roda direto (ele é feito para Linux, onde vai
+ser hospedado): rode dentro do WSL. Num Prompt de Comando aberto como
+administrador, `wsl --install -d Ubuntu-24.04`, reinicie, e dentro do Ubuntu:
+
+```bash
+sudo apt update && sudo apt install -y git python3-venv nodejs npm postgresql
+```
+
+```bash
+git clone https://github.com/gcobra513-sudo/PROTOCOL-PRODUTO-B-.git protocol && cd protocol
+```
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r servidor/requirements.txt httpx reportlab
+```
+
+```bash
+.venv/bin/python ferramentas/demo.py
+```
+
 A demonstração cria um PostgreSQL só dela, numa pasta temporária. Se preferir
 indicar um banco, ele tem de estar **vazio** (`--banco URL`): ela não apaga
 banco de ninguém. `--porta` troca a porta.
