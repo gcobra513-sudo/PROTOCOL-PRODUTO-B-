@@ -225,7 +225,7 @@ def responder(assunto: str, *, acoes: dict | None = None,
                 "para trocá-lo, fale com o sindicato."]
 
     if assunto == AJUDA:
-        return ["Sou o atendimento automático do portal. Respondo com o que "
+        return ["Sou o Proto, o assistente automático do portal. Respondo com o que "
                 "está no seu cadastro, na hora — não sou uma pessoa, e não "
                 "dou parecer.",
                 "Pode perguntar pelos seus processos, pelos seus documentos, "

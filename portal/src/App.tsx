@@ -32,6 +32,7 @@ import { Voce } from "./etapas/Voce";
 import { Atendimento } from "./paginas/Atendimento";
 import { Landing } from "./paginas/Landing";
 import { MeusProcessos } from "./paginas/MeusProcessos";
+import { MinhaArea } from "./paginas/MinhaArea";
 import { MinhasAcoes } from "./paginas/MinhasAcoes";
 import { Painel } from "./paginas/Painel";
 import * as arquivos from "./lib/arquivos";
@@ -148,6 +149,8 @@ export function App() {
     },
     [apelido],
   );
+  // A pergunta escolhida na Minha área, levada ao Proto. Vale uma vez.
+  const [perguntaAoProto, setPerguntaAoProto] = useState("");
   const [entidade, setEntidade] = useState<string | undefined>(undefined);
   const [avisoDemo, setAvisoDemo] = useState("");
   const [acessosDemo, setAcessosDemo] = useState<AcessoDaDemo[]>([]);
@@ -404,9 +407,19 @@ export function App() {
         ) : tela === "processos" ? (
           <MeusProcessos key={token} entidade={apelido} token={token}
                          onToken={entrou} onSessaoMorta={sessaoMorta} />
+        ) : tela === "area" ? (
+          <MinhaArea key={token} entidade={apelido} token={token}
+                     onToken={entrou} onSessaoMorta={sessaoMorta}
+                     onIr={irPara}
+                     onPerguntar={(p) => {
+                       setPerguntaAoProto(p);
+                       irPara("atendimento");
+                     }} />
         ) : tela === "atendimento" ? (
           <Atendimento key={token} entidade={apelido} token={token}
-                       onToken={entrou} onSessaoMorta={sessaoMorta} />
+                       onToken={entrou} onSessaoMorta={sessaoMorta}
+                       perguntaInicial={perguntaAoProto}
+                       onPerguntaFeita={() => setPerguntaAoProto("")} />
         ) : tela === "painel" ? (
           <Painel key={token} entidade={apelido} token={token}
                   onToken={entrou} onSessaoMorta={sessaoMorta}

@@ -50,8 +50,8 @@ export function AcessosDaDemo({
             <span>
               {a.quem}
               {" — "}
-              <a className="underline" href={enderecoDaArea(a.area, apelido)}>
-                {a.gestor ? "abre o Painel do sindicato" : "abre a área do filiado"}
+              <a className="underline" href={enderecoDaArea(a.gestor ? "painel" : "area", apelido)}>
+                {a.gestor ? "abre o Painel do sindicato" : "abre a Minha área do filiado"}
               </a>
             </span>
           </li>

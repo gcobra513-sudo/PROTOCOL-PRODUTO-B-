@@ -224,7 +224,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
                   </Aviso>
                 ) : null}
                 <div className="flex flex-wrap gap-3">
-                  <Botao disabled={indo} onClick={() => void entrar("cadastro")}>
+                  <Botao disabled={indo} onClick={() => void entrar("area")}>
                     Sou filiado
                   </Botao>
                   <Botao tipo="secundario" disabled={indo} onClick={() => void entrar("painel")}>

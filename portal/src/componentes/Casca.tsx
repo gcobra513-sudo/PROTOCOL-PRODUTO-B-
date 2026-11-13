@@ -9,6 +9,7 @@
 import {
   Gavel,
   Home,
+  CircleUserRound,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -131,6 +132,11 @@ export function Casca({
   const menu = (
     <nav aria-label="Áreas do portal" className="px-3">
       <Grupo titulo="Filiado">
+        {comServidor ? (
+          <Item href={link("area")} atual={tela === "area"} onIr={ir("area")} icone={<CircleUserRound className={classeDoIcone} aria-hidden="true" />}>
+            Minha área
+          </Item>
+        ) : null}
         <Item href={link("cadastro")} atual={tela === "cadastro"} onIr={ir("cadastro")} icone={<UserRound className={classeDoIcone} aria-hidden="true" />}>
           Meu cadastro
         </Item>
@@ -143,7 +149,7 @@ export function Casca({
               Meus processos
             </Item>
             <Item href={link("atendimento")} atual={tela === "atendimento"} onIr={ir("atendimento")} icone={<MessagesSquare className={classeDoIcone} aria-hidden="true" />}>
-              Atendimento
+              Pergunte ao Proto
             </Item>
           </>
         ) : null}
