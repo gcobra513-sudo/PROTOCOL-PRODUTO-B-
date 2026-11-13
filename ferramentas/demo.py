@@ -128,15 +128,29 @@ class BancoProprio:
         if r.returncode != 0:
             raise NaoDa("o PostgreSQL não conseguiu criar o banco da "
                         f"demonstração:\n{r.stdout}\n{r.stderr}")
-        opcoes = (f"-p {self.porta} -c listen_addresses=127.0.0.1 "
-                  "-c unix_socket_directories=''")
+        opcoes = f"-p {self.porta} -c listen_addresses=127.0.0.1"
+        if os.name != "nt":
+            # Sem soquete em arquivo: só a porta em 127.0.0.1. NO WINDOWS
+            # NÃO: lá o padrão já é nenhum, e as aspas simples não são aspas
+            # — o servidor recebia `''` como nome de pasta e não subia
+            # (visto na primeira vez que a demonstração rodou em Windows).
+            opcoes += " -c unix_socket_directories=''"
         r = subprocess.run(
             [self.pg_ctl, "-D", str(self.dados), "-w", "-o", opcoes,
              "-l", str(pasta / "postgres.log"), "start"],
             capture_output=True, text=True)
         if r.returncode != 0:
+            # O REGISTRO VAI NA MENSAGEM: a pasta é temporária e some logo
+            # em seguida, então "examine o arquivo de log" mandaria a
+            # pessoa atrás de um arquivo que já não existe.
+            try:
+                registro = (pasta / "postgres.log").read_text(
+                    encoding="utf-8", errors="replace")[-1500:]
+            except OSError:
+                registro = "(sem registro)"
             raise NaoDa("o PostgreSQL da demonstração não subiu:\n"
-                        f"{r.stdout}\n{r.stderr}")
+                        f"{r.stdout}\n{r.stderr}\n"
+                        f"--- o que o PostgreSQL registrou ---\n{registro}")
         self.url = f"postgresql://postgres@127.0.0.1:{self.porta}/postgres"
 
     def parar(self) -> None:
