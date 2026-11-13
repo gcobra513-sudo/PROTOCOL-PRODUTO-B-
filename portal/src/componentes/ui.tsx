@@ -278,16 +278,27 @@ export function Destaque({
   icone,
   valor,
   rotulo,
+  onClick,
 }: {
   cor: "roxo" | "azul";
   icone: ReactNode;
   valor: ReactNode;
   rotulo: string;
+  /** Com isto o quadro vira botão: abre a lista do que ele conta. */
+  onClick?: () => void;
 }) {
   const fundo = cor === "roxo" ? "bg-roxo" : "bg-azul";
   const bolha = cor === "roxo" ? "bg-roxo-fundo" : "bg-azul-fundo";
+  const Caixa = onClick ? "button" : "div";
   return (
-    <div className={cn("relative overflow-hidden rounded-xl p-5 text-white", fundo)}>
+    <Caixa
+      {...(onClick ? { type: "button" as const, onClick } : {})}
+      className={cn(
+        "relative block w-full overflow-hidden rounded-xl p-5 text-left text-white",
+        fundo,
+        onClick && CLICAVEL,
+      )}
+    >
       <span aria-hidden="true" className={cn("absolute -right-10 -top-16 h-44 w-44 rounded-full opacity-60", bolha)} />
       <span aria-hidden="true" className={cn("absolute -right-24 -top-6 h-44 w-44 rounded-full opacity-40", bolha)} />
       <div className="relative">
@@ -296,10 +307,17 @@ export function Destaque({
         </span>
         <p className="mt-5 text-4xl font-bold leading-none">{valor}</p>
         <p className="mt-2 text-[15px] font-medium text-white/85">{rotulo}</p>
+        {onClick ? <p className="mt-1 text-sm underline">Ver a lista</p> : null}
       </div>
-    </div>
+    </Caixa>
   );
 }
+
+/** Quadro que é botão: a mão, o contorno de foco para quem usa teclado, e
+ *  um leve realce — o suficiente para parecer que se clica. */
+const CLICAVEL =
+  "cursor-pointer transition hover:brightness-110 focus-visible:outline " +
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tinta";
 
 /** O número pequeno, ao lado dos dois grandes. */
 export function Mini({
@@ -307,18 +325,23 @@ export function Mini({
   icone,
   valor,
   rotulo,
+  onClick,
 }: {
   cor: "azul" | "claro";
   icone: ReactNode;
   valor: ReactNode;
   rotulo: string;
+  onClick?: () => void;
 }) {
   const cheio = cor === "azul";
+  const Caixa = onClick ? "button" : "div";
   return (
-    <div
+    <Caixa
+      {...(onClick ? { type: "button" as const, onClick } : {})}
       className={cn(
-        "relative flex items-center gap-4 overflow-hidden rounded-xl p-4",
+        "relative flex w-full items-center gap-4 overflow-hidden rounded-xl p-4 text-left",
         cheio ? "bg-azul text-white" : "bg-carta text-tinta shadow-cartao",
+        onClick && CLICAVEL,
       )}
     >
       <span
@@ -341,7 +364,8 @@ export function Mini({
         <p className={cn("text-sm", cheio ? "text-white/85" : "text-tinta/65")}>
           {rotulo}
         </p>
+        {onClick ? <p className="text-sm underline">Ver a lista</p> : null}
       </div>
-    </div>
+    </Caixa>
   );
 }

@@ -2100,6 +2100,43 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             ],
         }
 
+    def _contatos(ent: entidades.Entidade) -> dict[str, tuple]:
+        """Por CPF: (e-mail e telefone da planilha do sindicato, e-mail e
+        telefone que a pessoa informou no portal).
+
+        Lidos dos ARQUIVOS da entidade — a última planilha ingerida e o
+        último envio de cada pessoa —, que existem com e sem banco. Só a
+        exportação usa isto: é a saída pedida de propósito e registrada.
+        A lista na tela continua sem contato e com o CPF mascarado.
+        """
+        pasta = ent.pasta(cfg.raiz)
+        do_sindicato: dict[str, dict] = {}
+        try:
+            linhas = [l for l in (pasta / "acervo.jsonl")
+                      .read_text("utf-8").splitlines() if l.strip()]
+            ultima = json.loads(linhas[-1]) if linhas else {}
+        except (OSError, ValueError):
+            ultima = {}
+        for bruto in ultima.get("pessoas") or []:
+            campos = bruto.get("campos") or {}
+            acumulado = do_sindicato.setdefault(bruto.get("cpf", ""), {})
+            for coluna in ("email", "telefone"):
+                # Preenchido ganha de vazio: duas linhas da mesma pessoa
+                # podem se completar (a mesma regra do retrato).
+                if campos.get(coluna) and not acumulado.get(coluna):
+                    acumulado[coluna] = str(campos[coluna]).strip()
+        do_portal = completude._ultimo_envio_por_cpf(
+            deposito.ler_diario(pasta))
+        return {
+            cpf: (
+                do_sindicato.get(cpf, {}).get("email", ""),
+                do_sindicato.get(cpf, {}).get("telefone", ""),
+                (do_portal.get(cpf, {}).get("email") or "").strip(),
+                (do_portal.get(cpf, {}).get("telefone") or "").strip(),
+            )
+            for cpf in set(do_sindicato) | set(do_portal) if cpf
+        }
+
     @app.get("/api/entidade/{apelido}/pessoas.csv")
     def exportar_pessoas(apelido: str, pedido: Request) -> Response:
         """A mesma lista, como planilha que o sindicato leva embora.
@@ -2144,8 +2181,18 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
         buffer = io.StringIO(newline="")
         escritor = csv.writer(buffer, delimiter=";", lineterminator="\r\n")
+        contatos = _contatos(ent)
         escritor.writerow([
-            "cpf", "nome", "cadastrou_no_portal", "pode",
+            "cpf", "nome",
+            # OS CONTATOS, e as DUAS fontes lado a lado. O gestor baixa esta
+            # planilha para ligar para as pessoas. Quando a planilha do
+            # sindicato e o cadastro do filiado dizem coisas diferentes, as
+            # duas saem — escolher uma seria resolver a divergência sozinho.
+            "email_na_planilha_do_sindicato",
+            "telefone_na_planilha_do_sindicato",
+            "email_informado_no_portal",
+            "telefone_informado_no_portal",
+            "cadastrou_no_portal", "pode",
             # Os três donos com o nome que a casa já usa em
             # `pendencia.ROTULO_CURTO`: a mesma pendência com outro nome na
             # planilha faria o gestor achar que são coisas diferentes.
@@ -2156,6 +2203,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             escritor.writerow([deposito._sem_formula(str(c)) for c in (
                 a.cpf,
                 a.nome,
+                *contatos.get(a.cpf, ("", "", "", "")),
                 "sim" if a.cadastrou else "não",
                 " | ".join(f"{o.trilha}: {o.referencia}"
                            for o in a.oportunidades
