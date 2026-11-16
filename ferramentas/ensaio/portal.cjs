@@ -597,6 +597,16 @@ async function faseConferencia(navegador, gritos, resultado) {
     resultado.rol.depois = await rol.innerText();
     resultado.rol.gravou = true;
     marco("o gestor enviou o rol de substituídos: conferiu, confirmou, e o painel mostra o rol que vale");
+
+    // O PROTO DO GESTOR, na aba dele: a pergunta pronta é respondida com
+    // o que o painel diz — e a resposta é conferida do lado de fora.
+    await abaDoPainel(g, /Pergunte ao Proto/);
+    await g.getByRole("button", { name: "Quantos filiados estão na base?" }).click();
+    await g.waitForFunction(
+      () => document.querySelectorAll('[role="log"] > div').length >= 4,
+      null, { timeout: 15000 });
+    resultado.protoDoGestor = await g.getByRole("log").innerText();
+    marco("o gestor perguntou ao Proto quantos filiados há na base, e ele respondeu");
   } finally {
     await contexto.close();
   }

@@ -43,6 +43,8 @@ import {
 import * as api from "../lib/envio";
 import {
   ABAS_DO_PAINEL,
+  ABERTURA_DO_PROTO_DO_GESTOR,
+  PERGUNTAS_DO_GESTOR_AO_PROTO,
   abaDaAncora,
   destinoDoQuadro,
   type AbaDoPainel,
@@ -71,6 +73,7 @@ import {
 } from "../lib/painel";
 import { conferirCpf, formatarCpf } from "../lib/validacao";
 import { sessaoMorreu } from "../lib/sessao";
+import { Conversa } from "../componentes/Conversa";
 import { Portao } from "./Portao";
 
 function Numero({
@@ -1725,6 +1728,28 @@ export function Painel({
           token={token}
           jaApagados={dados.apagados_a_pedido}
         />
+      </div>
+
+      {/* -------------------------------------------------------- PROTO */}
+      <div
+        id="painel-proto"
+        role="tabpanel"
+        aria-labelledby="aba-proto"
+        hidden={aba !== "proto"}
+        className="space-y-6"
+      >
+        <Cartao
+          titulo="Pergunte ao Proto"
+          explicacao="O assistente automático do portal: responde com o que está neste painel. A sua pergunta não fica guardada."
+        >
+          <Conversa
+            abertura={ABERTURA_DO_PROTO_DO_GESTOR}
+            sugestoesIniciais={PERGUNTAS_DO_GESTOR_AO_PROTO}
+            perguntar={(p) => api.perguntarComoGestor(entidade, token, p)}
+            consultando="Consultando o painel…"
+            onSessaoMorta={onSessaoMorta}
+          />
+        </Cartao>
       </div>
     </div>
   );

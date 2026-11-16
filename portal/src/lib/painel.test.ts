@@ -573,10 +573,11 @@ describe("o painel em abas", () => {
   // Medido antes desta mudança: o painel tinha dez telas de rolagem, com o
   // envio da base e o apagamento no fim de tudo. As abas existem para cada
   // coisa ter um lugar que se acha sem rolar.
-  it("tem quatro abas, e a primeira é o resumo", () => {
+  it("tem cinco abas: a primeira é o resumo, a última é o Proto", () => {
     expect(ABAS_DO_PAINEL.map((a) => a.id)).toEqual([
-      "resumo", "filiados", "documentos", "envios",
+      "resumo", "filiados", "documentos", "envios", "proto",
     ]);
+    expect(ABAS_DO_PAINEL.at(-1)?.rotulo).toBe("Pergunte ao Proto");
   });
 
   it("cada quadro do topo leva à lista que ele conta", () => {

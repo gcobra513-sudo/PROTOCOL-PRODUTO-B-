@@ -4590,6 +4590,70 @@ def _atender(cliente, token: str, pergunta: str, **extra):
                         if token else {})
 
 
+def teste_o_proto_do_gestor_diz_o_que_o_painel_diz():
+    """O Proto do gestor NÃO APURA NADA: pergunta às mesmas rotas do painel.
+    Então os números da conversa têm de ser os da tela — e só gestor
+    pergunta."""
+    secao("o Proto do gestor")
+    entidade = "demo-proto-g"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    gestor = _gestor(cliente, entidade)
+
+    def perguntar(pergunta, cabecalho=gestor):
+        return cliente.post(f"/api/entidade/{entidade}/atendimento",
+                            json={"pergunta": pergunta}, headers=cabecalho)
+
+    painel = cliente.get(f"/api/entidade/{entidade}/completude",
+                         headers=gestor).json()
+    panorama_ = cliente.get(f"/api/entidade/{entidade}/panorama",
+                            headers=gestor).json()
+
+    r = perguntar("Quantos filiados estão na base?")
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    if r.status_code != 200:
+        return
+    corpo = r.json()
+    texto = " ".join(corpo["resposta"])
+    checa(corpo["assunto"] == "base", f"{corpo}")
+    checa(painel["manchete"] in texto,
+          f"a conversa não diz a manchete do painel: {texto!r} contra "
+          f"{painel['manchete']!r}")
+    checa(bool(corpo.get("sugestoes")), "veio sem sugestões")
+
+    texto = " ".join(perguntar("o que resolver primeiro?").json()["resposta"])
+    do_sindicato = next((g for g in panorama_["gargalos"]
+                         if g["quem"] == "CONFERENCIA"), None)
+    if do_sindicato:
+        checa(do_sindicato["o_que"] in texto
+              and str(do_sindicato["pessoas"]) in texto,
+              f"não apontou o maior gargalo do sindicato: {texto!r}")
+
+    # NADA DE CPF NEM NOME na conversa.
+    for pergunta in ("quantos estão sem contato", "quais as pendências",
+                     "quantos já podem", "quantos entraram no portal"):
+        texto = " ".join(perguntar(pergunta).json()["resposta"])
+        checa(A not in texto and "FULANO" not in texto,
+              f"a conversa do gestor trouxe CPF ou nome: {texto[:200]}")
+
+    # SÓ GESTOR. O filiado tem o Proto dele, que fala só dele.
+    filiado = {"Authorization": f"Bearer {_token(cliente, A, entidade)}"}
+    r = perguntar("quantos filiados estão na base?", filiado)
+    checa(r.status_code == 403,
+          f"um filiado perguntou ao Proto do gestor e levou {r.status_code}")
+    # Também nas perguntas que não consultam nada (ajuda, onde enviar): a
+    # recusa é da ROTA, e não um efeito de ela chamar o painel.
+    for pergunta in ("bom dia", "como envio a planilha?", "qual o valor?"):
+        r = perguntar(pergunta, filiado)
+        checa(r.status_code == 403,
+              f"um filiado perguntou {pergunta!r} ao Proto do gestor e "
+              f"levou {r.status_code}")
+    r = perguntar("quantos filiados estão na base?", {})
+    checa(r.status_code == 401, f"sem sessão: {r.status_code}")
+    print("  ok     o Proto do gestor diz o que o painel diz, e só a gestor")
+
+
+
 def teste_o_atendimento_responde_com_o_que_as_telas_dizem():
     """O filiado liga para a sede perguntando em que processo está, se os
     documentos chegaram, o que falta. O atendimento responde a mesma coisa
@@ -5120,6 +5184,7 @@ TESTES = [
     teste_dominio_concentrado_segura_a_entrada,
     teste_dominio_confiado_por_quem_opera_libera,
     teste_o_atendimento_responde_com_o_que_as_telas_dizem,
+    teste_o_proto_do_gestor_diz_o_que_o_painel_diz,
     teste_o_atendimento_so_fala_de_quem_perguntou,
     teste_o_gestor_envia_o_rol_e_as_superficies_mudam_juntas,
     teste_o_painel_mostra_o_rol_de_cada_acao,
