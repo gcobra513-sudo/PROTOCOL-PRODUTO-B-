@@ -19,7 +19,7 @@ psql "$PROTOCOL_DATABASE_URL" -f servidor/migracoes/<arquivo>.sql
 |---|---|
 | `2026-11-03-oportunidade-origem-do-catalogo.sql` | **sim — 12/11/2026** |
 | `2026-11-10-documento-origem-e-leitura-humana.sql` | **sim — 12/11/2026** |
-| `2026-11-16-endurecimento-do-esquema.sql` (e, depois dela, reaplicar `esquema.sql`) | **NÃO** — conferida só em banco local |
+| `2026-11-16-endurecimento-do-esquema.sql` (e, depois dela, reaplicar `esquema.sql`) | **sim — 16/11/2026** |
 
 **Conferido em 12/11/2026, depois de aplicar:** a forma do banco de São Paulo
 é IDÊNTICA à de um banco recém-criado por `banco.criar_esquema` — mesma
@@ -32,12 +32,16 @@ Antes de aplicar a primeira, que remove uma coluna, foi medido que
 exige. O banco inteiro estava vazio: 0 em `pessoa`, `documento`,
 `recebimento`, `achado`, `tombstone` e `execucao`.
 
-**Em 16/11/2026 a forma mudou** (migração de endurecimento). Conferido em
-banco LOCAL: um banco criado pelo esquema antigo, depois da migração e de
-reaplicar `esquema.sql`, tem a mesma impressão de um banco recém-criado —
-`conferir_forma.sql` com 127 itens e `conferir_politicas.sql` com 13
-políticas. **O banco de São Paulo ainda está na forma anterior** (126 itens)
-até a migração ser aplicada lá.
+**Em 16/11/2026 a forma mudou** (migração de endurecimento), e foi aplicada
+em São Paulo no mesmo dia, nas duas etapas. Antes de aplicar, medido: as 13
+tabelas de sempre, e o banco vazio (0 em `recebimento`, `pessoa`,
+`pessoa_afirmacao`, `documento`, `tombstone` e `execucao`). **Conferido
+depois de aplicar:** a forma de São Paulo é IDÊNTICA à de um banco
+recém-criado — `conferir_forma.sql` dá `e35251eeedce599152c02c16297a9be2`
+(127 itens) nos dois, e `conferir_politicas.sql` dá
+`51f41bfcd2a9545375575d71fff9303c` (13 políticas, 48 permissões). Lá, o
+papel da aplicação usa a sequência e não a lê, e nenhuma tabela está
+aberta aos papéis da Data API.
 
 Para conferir de novo, a qualquer momento — impressões iguais nos dois
 lados querem dizer que não falta migração:
