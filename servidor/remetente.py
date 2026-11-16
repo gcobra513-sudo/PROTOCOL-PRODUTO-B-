@@ -336,7 +336,17 @@ def pelo_ambiente(raiz: pathlib.Path) -> Remetente:
     """
     import os
 
-    if os.environ.get("PROTOCOL_SMTP_HOST"):
+    host = os.environ.get("PROTOCOL_SMTP_HOST", "").strip()
+    de = os.environ.get("PROTOCOL_SMTP_REMETENTE", "").strip()
+    # A MESMA REGRA DO SERVIDOR (`Config.tem_remetente`): SMTP só com HOST
+    # **e** REMETENTE. Olhando só o HOST, a ferramenta abria SMTP de verdade
+    # com o campo "De" vazio enquanto `/saude` dizia "arquivo".
+    if host and not de:
+        raise SemComoEnviar(
+            "PROTOCOL_SMTP_HOST está definido e PROTOCOL_SMTP_REMETENTE não: "
+            "sem remetente a mensagem sairia com o campo \"De\" vazio. "
+            "Defina os dois.")
+    if host:
         return PorSmtp(
             os.environ.get("PROTOCOL_SMTP_HOST", ""),
             int(os.environ.get("PROTOCOL_SMTP_PORTA", "587")),

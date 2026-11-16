@@ -583,6 +583,101 @@ def teste_sem_o_papel_da_aplicacao_a_consulta_nao_roda():
 TESTES.append(teste_sem_o_papel_da_aplicacao_a_consulta_nao_roda)
 
 
+def teste_o_esquema_endurecido():
+    """Os itens de banco da auditoria de segurança (h4-2 a h4-7), todos
+    medidos NO BANCO — o esquema é o que o banco diz, não o que o arquivo
+    promete."""
+    import psycopg
+
+    from servidor import banco
+
+    def como_app(entidade, sql, args=()):
+        with banco.sessao(URL, entidade) as cur:
+            cur.execute(sql, args)
+            return cur.fetchall() if cur.description else None
+
+    # h4-2 — A POLÍTICA NÃO CASA COM ENTIDADE VAZIA. O Postgres devolve ''
+    # (e não NULL) para `app.entidade` depois de uma transação que a usou; a
+    # política comparava direto, e uma linha de entidade '' casaria.
+    with psycopg.connect(URL) as con, con.cursor() as cur:
+        cur.execute("SELECT tablename, qual, with_check FROM pg_policies "
+                    "WHERE schemaname = 'public'")
+        for tabela, usando, checando in cur.fetchall():
+            checa("NULLIF" in (usando or "").upper()
+                  and "NULLIF" in (checando or "").upper(),
+                  f"a política de {tabela} compara com a variável crua: "
+                  f"{usando}")
+
+    # h4-3 — A SEQUÊNCIA NÃO É LEITURA. `last_value` é o contador GLOBAL: de
+    # dentro de um sindicato lia-se o volume de recebimentos de TODOS.
+    try:
+        como_app("demo-a", "SELECT last_value FROM recebimento_id_seq")
+        checa(False, "o papel da aplicação lê o contador global de "
+              "recebimentos")
+    except psycopg.errors.InsufficientPrivilege:
+        pass
+
+    # h4-4 — A CHAVE ESTRANGEIRA NÃO ATRAVESSA SINDICATOS. Apontar para o
+    # recebimento de OUTRA entidade era aceito, e para um id inexistente era
+    # recusado: dava para saber o que o vizinho recebeu.
+    doutro = como_app(
+        "demo-b",
+        "INSERT INTO recebimento (entidade, tipo, payload, sha256) VALUES "
+        "('demo-b', 'acervo', '{}', %s) RETURNING id",
+        (f"teste-fk-{os.getpid()}",))[0][0]
+    try:
+        como_app(
+            "demo-a",
+            "INSERT INTO pessoa_afirmacao (entidade, cpf, campo, valor, "
+            "fonte, recebimento_id) VALUES ('demo-a', '00000000191', "
+            "'teste_fk', 'x', 'acervo', %s)", (doutro,))
+        checa(False, "uma afirmação de demo-a apontou para o recebimento de "
+              "demo-b e o banco aceitou")
+    except psycopg.errors.ForeignKeyViolation:
+        pass
+
+    # h4-5 — O MESMO RECEBIMENTO NÃO ENTRA DUAS VEZES. A idempotência da
+    # recuperação era "olha e depois grava", sem nada no banco que impedisse
+    # duas execuções ao mesmo tempo de gravarem as duas.
+    marca = f"teste-unico-{os.getpid()}"
+    sql = ("INSERT INTO recebimento (entidade, tipo, payload, sha256) "
+           "VALUES ('demo-a', 'acervo', '{}', %s)")
+    como_app("demo-a", sql, (marca,))
+    try:
+        como_app("demo-a", sql, (marca,))
+        checa(False, "o mesmo recebimento entrou duas vezes")
+    except psycopg.errors.UniqueViolation:
+        pass
+    # E quem não tem impressão digital (vazia) continua podendo repetir.
+    for _ in range(2):
+        como_app("demo-a", "INSERT INTO recebimento (entidade, tipo, payload) "
+                 "VALUES ('demo-a', 'acervo', '{}')")
+
+    # h4-7 — TABELA NOVA NASCE FECHADA, mesmo que ninguém lembre de pô-la
+    # numa lista: o esquema varre as tabelas que EXISTEM.
+    with psycopg.connect(URL, autocommit=True) as con, con.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS tabela_esquecida")
+        cur.execute("CREATE TABLE tabela_esquecida "
+                    "(entidade text NOT NULL, x int)")
+    try:
+        banco.criar_esquema(URL)
+        with psycopg.connect(URL) as con, con.cursor() as cur:
+            cur.execute("SELECT relrowsecurity, relforcerowsecurity FROM "
+                        "pg_class WHERE relname = 'tabela_esquecida'")
+            checa(cur.fetchone() == (True, True),
+                  "uma tabela fora das listas ficou SEM isolamento")
+            cur.execute("SELECT count(*) FROM pg_policies "
+                        "WHERE tablename = 'tabela_esquecida'")
+            checa(cur.fetchone()[0] == 1, "tabela fora das listas sem política")
+    finally:
+        with psycopg.connect(URL, autocommit=True) as con, con.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS tabela_esquecida")
+    print("  ok     esquema: política, sequência, chave, unicidade e varredura")
+
+
+TESTES.append(teste_o_esquema_endurecido)
+
+
 def main() -> int:
     print("=" * 70)
     print("BANCO — isolamento entre entidades e trava de região")

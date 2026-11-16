@@ -161,8 +161,9 @@ arquivo com `source`**: a URL do banco tem `&`, e o shell a parte ao meio
 sem avisar.
 
 Banco que **já existe**: `criar_esquema` NÃO altera tabela existente. O de
-São Paulo já recebeu as duas migrações abaixo em 12/11/2026, e a forma dele
-foi conferida (`servidor/migracoes/LEIA.md`) — **não as rode de novo ali**.
+São Paulo já recebeu as duas primeiras migrações abaixo em 12/11/2026, e a
+forma dele foi conferida (`servidor/migracoes/LEIA.md`) — **não rode essas
+duas de novo ali**. A terceira, de 16/11, **ainda falta em São Paulo**.
 Para qualquer outro banco antigo, aplique na ordem, uma vez:
 
 ```bash
@@ -171,6 +172,15 @@ cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh sh -c 'psql
 
 ```bash
 cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh sh -c 'psql "$PROTOCOL_DATABASE_URL" -v ON_ERROR_STOP=1 -f servidor/migracoes/2026-11-10-documento-origem-e-leitura-humana.sql'
+```
+
+A terceira muda três restrições e é em **duas etapas**: o arquivo, e depois
+`criar_esquema` de novo (o primeiro comando deste passo), que refaz as
+políticas e as permissões. O cabeçalho do arquivo traz a consulta que tem de
+vir vazia antes de rodá-lo.
+
+```bash
+cd /srv/protocol/app && sudo -u protocol implantacao/com-ambiente.sh sh -c 'psql "$PROTOCOL_DATABASE_URL" -v ON_ERROR_STOP=1 -f servidor/migracoes/2026-11-16-endurecimento-do-esquema.sql'
 ```
 
 **Confere a forma**, em qualquer dos dois casos: a impressão digital do

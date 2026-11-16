@@ -27,6 +27,16 @@ import { linhaDoCadastro, nomearDocumentos } from "./exportar";
 const DECLARADA: string = (import.meta.env.VITE_API ?? "").trim();
 const BASE: string = DECLARADA.replace(/\/+$/, "");
 
+/** Descarta o corpo de uma resposta que não vai ser lida.
+ *
+ *  As respostas da API não ficam em cache (`no-store`), e sem cache o
+ *  navegador não "termina" sozinho de receber um corpo que ninguém lê: a
+ *  resposta fica em aberto, com a conexão presa. Quem não vai ler, descarta.
+ */
+function descartar(r: Response): void {
+  void r.body?.cancel().catch(() => undefined);
+}
+
 export function servidorLigado(): boolean {
   return DECLARADA.length > 0;
 }
@@ -95,7 +105,10 @@ export async function verEntidade(apelido: string): Promise<Entidade | null> {
   if (!servidorLigado() || !apelido) return null;
   try {
     const r = await fetch(`${BASE}/api/entidade/${encodeURIComponent(apelido)}`);
-    if (!r.ok) return null;
+    if (!r.ok) {
+      descartar(r);
+      return null;
+    }
     return (await r.json()) as Entidade;
   } catch {
     return null;
@@ -140,7 +153,10 @@ export async function verPapeis(
     const r = await fetch(`${BASE}/api/acesso/papeis`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      descartar(r);
+      return null;
+    }
     const d = await r.json();
     return { filiado: Boolean(d.filiado), gestor: Boolean(d.gestor) };
   } catch {
@@ -153,10 +169,10 @@ export async function verPapeis(
 export async function sair(token: string): Promise<void> {
   if (!DECLARADA || !token) return;
   try {
-    await fetch(`${BASE}/api/acesso/sair`, {
+    descartar(await fetch(`${BASE}/api/acesso/sair`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
-    });
+    }));
   } catch {
     // Sem rede: a sessão vence sozinha no servidor.
   }

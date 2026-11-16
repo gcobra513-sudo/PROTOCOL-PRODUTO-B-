@@ -187,14 +187,12 @@ def _campos_do_contrato() -> tuple[str, ...]:
 def _digitos(valor) -> str:
     """Só os dígitos. Era esta expressão, embutida em quatro lugares.
 
-    Quatro cópias de uma normalização é a forma de divergirem. (Há ainda
-    duas implementações de `so_digitos` FORA deste módulo, em
-    `nucleo/cadastro.py` e `servidor/validacao.py`, e elas divergem de
-    verdade: uma usa `isdigit()`, que aceita caracteres como o expoente
-    dois, e a outra uma expressão regular de não-dígito, que não. Unificar as três é
-    conserto de outro dia; aqui pelo menos não acrescento a quinta.)
+    Uma normalização só: a de `nucleo/cadastro.py`.
     """
-    return "".join(c for c in str(valor or "") if c.isdigit())
+    # A da casa (`nucleo/cadastro.py`), que só aceita os dez algarismos.
+    from nucleo import cadastro as _conta
+
+    return _conta.so_digitos(valor)
 
 
 def _impressao(registro: dict) -> str:
@@ -302,24 +300,28 @@ def reconstruir(url: str, entidade: str, registros,
             marca = _impressao(registro)
             quando = str(registro.get("recebido_em") or "") or None
 
+            # GRAVA SE AINDA NÃO HÁ, numa instrução só. Era "olha e depois
+            # grava": duas recuperações ao mesmo tempo viam as duas a tabela
+            # vazia e gravavam as duas. O índice único é quem decide.
             cur.execute(
-                "SELECT id FROM recebimento WHERE entidade = %s AND sha256 = %s",
-                (entidade, marca),
+                "INSERT INTO recebimento (entidade, tipo, recebido_em, "
+                "origem, payload, sha256) VALUES "
+                "(%s, 'cadastro', COALESCE(%s::timestamptz, now()), %s, "
+                "%s::jsonb, %s) "
+                "ON CONFLICT (entidade, sha256) WHERE sha256 <> '' "
+                "DO NOTHING RETURNING id",
+                (entidade, quando, str(registro.get("protocolo") or ""),
+                 json.dumps(registro, ensure_ascii=False), marca),
             )
-            ja = cur.fetchone()
-            if ja:
-                recebimento_id = ja[0]
+            novo = cur.fetchone()
+            if novo:
+                recebimento_id = novo[0]
+                gravados += 1
             else:
                 cur.execute(
-                    "INSERT INTO recebimento (entidade, tipo, recebido_em, "
-                    "origem, payload, sha256) VALUES "
-                    "(%s, 'cadastro', COALESCE(%s::timestamptz, now()), %s, "
-                    "%s::jsonb, %s) RETURNING id",
-                    (entidade, quando, str(registro.get("protocolo") or ""),
-                     json.dumps(registro, ensure_ascii=False), marca),
-                )
+                    "SELECT id FROM recebimento "
+                    "WHERE entidade = %s AND sha256 = %s", (entidade, marca))
                 recebimento_id = cur.fetchone()[0]
-                gravados += 1
 
             # CAMADA 2 — toda afirmação sobrevive. Gravar por cima apagaria a
             # anterior, e a divergência sumiria junto com ela.
@@ -522,20 +524,20 @@ def projetar_acervo(url: str, entidade: str, pessoas) -> int:
 
     with sessao(url, entidade) as cur:
         cur.execute(
-            "SELECT id FROM recebimento WHERE entidade = %s AND sha256 = %s",
-            (entidade, marca),
+            "INSERT INTO recebimento (entidade, tipo, origem, payload, "
+            "sha256) VALUES (%s, 'acervo', %s, %s::jsonb, %s) "
+            "ON CONFLICT (entidade, sha256) WHERE sha256 <> '' "
+            "DO NOTHING RETURNING id",
+            (entidade, f"{len(linhas)} linha(s)",
+             json.dumps({"linhas": len(linhas)}), marca),
         )
-        ja = cur.fetchone()
-        if ja:
-            recebimento_id = ja[0]
+        novo = cur.fetchone()
+        if novo:
+            recebimento_id = novo[0]
         else:
             cur.execute(
-                "INSERT INTO recebimento (entidade, tipo, origem, payload, "
-                "sha256) VALUES (%s, 'acervo', %s, %s::jsonb, %s) "
-                "RETURNING id",
-                (entidade, f"{len(linhas)} linha(s)",
-                 json.dumps({"linhas": len(linhas)}), marca),
-            )
+                "SELECT id FROM recebimento "
+                "WHERE entidade = %s AND sha256 = %s", (entidade, marca))
             recebimento_id = cur.fetchone()[0]
 
         from nucleo import cadastro as conta

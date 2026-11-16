@@ -106,39 +106,71 @@ caminho do pedido — mudança de desenho, não ajuste de ramo, e não em
 módulo de autenticação de passagem. Está registrado no docstring de
 `servidor/app.py`.
 
-### 40 itens de endurecimento
+### 40 itens de endurecimento — o estado de cada um, em 16/11/2026
 
-Não são vulnerabilidades: não têm principal afetado nem fronteira
-atravessada. São o que merece conserto quando houver folga. Os que eu
-consideraria primeiro:
+Não eram vulnerabilidades: não tinham principal afetado nem fronteira
+atravessada. Foram revistos um a um; o código entre parênteses é o do livro
+da auditoria.
 
-- ~~`PROTOCOL_SEGREDO` aceita qualquer valor não vazio — um caractere
-  passa, e dele derivam os três marcadores HMAC do portão.~~ **Fechado em
-  16/11/2026:** menos de 24 caracteres não sobe.
-- ~~`/api/entidade/{apelido}/completude` devolve lista nominal sem teto e
-  sem registro de leitura.~~ **Fechado em 16/11/2026:** a lista tem teto de
-  200, a leitura fica registrada, e o retrato deixou de devolver os três
-  dicionários indexados por CPF, que tela nenhuma lia.
-- ~~`SET LOCAL ROLE` é no-op silencioso fora de transação.~~ **Fechado em
-  16/11/2026:** depois de pedir o papel, confere-se `current_user`; se não
-  pegou, nenhuma consulta roda.
-- O Postgres reseta `app.entidade` para **string vazia**, não NULL. Hoje
-  inócuo; deixa de ser no dia em que aparecer um pool de conexões.
-  **Continua aberto.**
-- ~~`texto_extraivel` aprova quando `pypdf` não está instalado.~~ **Fechado
-  em 16/11/2026:** sem `pypdf` o servidor não sobe.
-- ~~Nenhuma dependência Python está fixada.~~ **Em parte, em 16/11/2026:**
-  as do servidor ganharam teto na versão maior. Não há arquivo de trava com
-  as versões exatas.
-- ~~Duas implementações de `so_digitos` divergem.~~ **Fechado em
-  16/11/2026:** uma só, e só de 0 a 9.
-- ~~`ParaArquivo` é selecionado só pela ausência de `PROTOCOL_SMTP_HOST`.~~
-  **Fechado em 16/11/2026:** fora do modo ensaio, uma ferramenta sem
-  servidor de e-mail configurado se recusa a rodar. O arquivo, quando usado
-  em ensaio, continua sem rotação.
+**Fechados (34), cada um com teste que falhou antes do conserto:**
 
-Dos 40 itens, estes oito eram os que a auditoria apontou primeiro. **Os
-outros 32 não foram revistos um a um.**
+| item | o que era | como ficou |
+|---|---|---|
+| h1-1 | `PROTOCOL_SEGREDO` aceitava um caractere | menos de 24 não sobe |
+| h1-2 | em ensaio o segredo é por processo | o aviso de subida diz para rodar um processo só |
+| h1-3 | `codigos` e `emissoes` nunca eram podadas | cada emissão poda o que já não conta (e as sessões vencidas) |
+| h1-4 | `/api/acesso/conferir` sem teto por origem | 5 tentativas por código que a origem pode pedir |
+| h1-5 | `/conferir` não conferia o CPF | CPF malformado não chega ao portão |
+| h1-6 | só quem está FORA do rol deixava linha no registro | os dois ramos deixam a mesma linha |
+| H1, H2 | `/completude` sem registro, sem teto e com CPF | registra, teto de 200, sem os dicionários por CPF |
+| H3 | 403 "suspensa" e 404 "não existe" para anônimo | suspensa responde como inexistente |
+| H4 | duas `so_digitos` divergentes (eram quatro) | uma só, de 0 a 9 |
+| h3 | documento do sindicato gravado sem a trava e por cima do do filiado | com a trava do depósito, e nunca sobrescreve |
+| h4-1 | `SET LOCAL ROLE` podia não pegar, calado | confere `current_user`; sem o papel, não roda |
+| h4-2 | política casava com entidade vazia | `NULLIF` nas políticas |
+| h4-3 | a sequência entregava o contador global | só `USAGE` |
+| h4-4 | chave estrangeira atravessava sindicatos | chave composta com a entidade |
+| h4-5 | o mesmo recebimento podia entrar duas vezes | índice único e `ON CONFLICT` |
+| h4-7 | três listas de tabelas à mão | o esquema varre as tabelas que existem |
+| h4-8 | `EXCEPTION WHEN OTHERS` engolia qualquer erro | só as causas esperadas |
+| h5-1 | URL do banco na linha de comando do filho | vai pelo ambiente (já estava) |
+| h5-2 | `/saude` listava e contava os sindicatos | sem lista; a contagem, só com a chave do monitor |
+| h5-3 | ferramentas escolhiam SMTP por outra regra | a mesma do servidor: HOST e REMETENTE |
+| h5-5 | atraso medido pelo relógio da instância | pelo relógio do banco |
+| h5-6 | chave do aviso podia colidir | campos escapados; a chave comum não muda |
+| h5-7 | nome do andamento ia cru para o e-mail | numa linha, com teto de 200 |
+| h5-8 | `@app.on_event`, descontinuado e sem teste | ciclo de vida do app, com teste |
+| h6-1 | sem `pypdf` a conferência aprovava | sem `pypdf` o servidor não sobe |
+| h6-4 | acervo estragado virava erro 500 cru | recusa que diz o que fazer |
+| h6-5 | o 503 de região devolvia a região configurada | explica, sem o valor |
+| h6-6 | nenhum cabeçalho de proteção | `nosniff`, `X-Frame-Options`, `Referrer-Policy`, `no-store` |
+| h6-7 | validação do manifesto do Produto A, sem uso | removida |
+| h6-9 | teste de região vermelho sem banco | (já estava corrigido) |
+| h6-10 | filtro de esquema do link sem teste | função própria, com teste |
+| h6-11 | rascunho no navegador sem prazo | 30 dias, e é apagado |
+| h6-12 | limite por origem burlável pelo cabeçalho | proxies confiáveis (já estava) |
+
+**Fechados em parte (3):**
+
+- **h4-6** — o papel `protocol_app` continua com `LOGIN`. O comentário do
+  esquema deixou de afirmar que "sem senha ele não loga": isso só vale onde
+  a hospedagem exige senha, e é coisa a conferir na implantação.
+- **h6-2** — as dependências do servidor têm teto na versão maior, e o
+  `requirements.txt` da raiz deixou de instalar o que era do Produto A.
+  **Não há arquivo de trava com versões exatas e impressões digitais.**
+- **h6-3** — o `vite` subiu para 5.4.21. O que vai para o navegador não tem
+  vulnerabilidade conhecida (`npm audit --omit=dev`: zero). **As ferramentas
+  de desenvolvimento ainda têm 8 avisos** (esbuild, vitest, postcss,
+  tinypool), que só se resolvem trocando de versão maior.
+
+**Aceitos como estão (2):**
+
+- **h5-4** — o envio para arquivo continua sem rotação. Só existe em modo
+  ensaio, onde não há dado de pessoa.
+- **h6-8** — `portal/dist/` local pode ficar velho. A pasta é ignorada pelo
+  git, e a imagem e o passo a passo compilam o portal na hora.
+
+**Não era pendência (1):** h1-7 lista o que a auditoria CONFIRMOU.
 
 ## Uma correção ao relatório recebido
 

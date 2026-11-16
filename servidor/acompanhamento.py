@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterable
 
 
-from nucleo import processo_cnj  # noqa: E402
+from nucleo import aviso, processo_cnj  # noqa: E402
 
 #: Código de tribunal da Justiça Estadual (e da Eleitoral regional) por UF,
 #: na ordem alfabética de sigla que a Res. CNJ 65/2008 adota. Conferido
@@ -123,7 +123,9 @@ class Movimento:
         separados do mesmo `numeroProcesso`: sem ele, cada coleta
         "descobriria" de novo todos os movimentos do outro grau.
         """
-        return f"{self.numero}|{self.grau}|{self.data}|{self.nome}"
+        # UM CÁLCULO SÓ, o do aviso: a coleta e o aviso têm de concordar
+        # sobre o que é "o mesmo andamento".
+        return aviso.chave_de(self.numero, self.grau, self.data, self.nome)
 
 
 def alias_do_numero(numero: str) -> str:

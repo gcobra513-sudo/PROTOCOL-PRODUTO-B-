@@ -167,3 +167,15 @@ export function resumo(
   }
   return partes.join(", ").replace(/, e há/, " e há") + ".";
 }
+
+
+/** O endereço da fonte, SE for da web — senão, vazio (e não há link).
+ *
+ *  É o único controle de esquema de endereço do portal: `fonte` vem do
+ *  catálogo, pelo servidor, e um link é o único lugar onde texto de fora
+ *  vira coisa clicável. `javascript:`, `data:` e caminho relativo não
+ *  passam; o que não passa aparece como texto, ou não aparece.
+ */
+export function fonteQueViraLink(fonte: string | null | undefined): string {
+  return typeof fonte === "string" && /^https?:\/\//.test(fonte) ? fonte : "";
+}

@@ -45,8 +45,18 @@ CREATE TABLE IF NOT EXISTS recebimento (
     origem      text NOT NULL DEFAULT '',
     payload     jsonb NOT NULL,
     -- Impressão digital do que chegou, para provar que não mudou.
-    sha256      text NOT NULL DEFAULT ''
+    sha256      text NOT NULL DEFAULT '',
+    -- (entidade, id) é o alvo da chave estrangeira de `pessoa_afirmacao`:
+    -- com a entidade DENTRO da chave, uma linha de um sindicato não tem
+    -- como apontar para o recebimento de outro.
+    CONSTRAINT recebimento_entidade_id_unico UNIQUE (entidade, id)
 );
+-- O MESMO RECEBIMENTO NÃO ENTRA DUAS VEZES. A recuperação é idempotente
+-- pela impressão digital, e era só "olha e depois grava": duas execuções ao
+-- mesmo tempo viam as duas a tabela vazia e gravavam as duas. Parcial
+-- porque há recebimento sem impressão ('') — e esse pode repetir.
+CREATE UNIQUE INDEX IF NOT EXISTS recebimento_sem_repetir
+    ON recebimento (entidade, sha256) WHERE sha256 <> '';
 CREATE INDEX IF NOT EXISTS recebimento_por_entidade
     ON recebimento (entidade, recebido_em DESC);
 
@@ -73,12 +83,21 @@ CREATE TABLE IF NOT EXISTS pessoa_afirmacao (
     campo          text NOT NULL,
     valor          text NOT NULL DEFAULT '',
     fonte          text NOT NULL CHECK (fonte IN ('acervo', 'cadastro')),
-    recebimento_id bigint REFERENCES recebimento (id) ON DELETE SET NULL,
+    recebimento_id bigint,
     afirmado_em    timestamptz NOT NULL DEFAULT now(),
     -- NULLS NOT DISTINCT para que a afirmação sem recebimento também não
     -- duplique: com o padrão do SQL, NULL nunca colide com NULL e a
     -- reprojeção criaria uma linha nova a cada execução.
-    UNIQUE NULLS NOT DISTINCT (entidade, cpf, campo, fonte, recebimento_id)
+    UNIQUE NULLS NOT DISTINCT (entidade, cpf, campo, fonte, recebimento_id),
+    -- A CHAVE LEVA A ENTIDADE JUNTO. A checagem de chave estrangeira roda
+    -- por fora das políticas: com a chave só no `id`, apontar para o
+    -- recebimento de OUTRO sindicato era aceito e apontar para um id que não
+    -- existe era recusado — dava para saber o que o vizinho recebeu. E o
+    -- `SET NULL` só da coluna do recebimento: a entidade nunca fica nula.
+    CONSTRAINT pessoa_afirmacao_recebimento_fk
+        FOREIGN KEY (entidade, recebimento_id)
+        REFERENCES recebimento (entidade, id)
+        ON DELETE SET NULL (recebimento_id)
 );
 
 CREATE TABLE IF NOT EXISTS pessoa (
@@ -327,11 +346,14 @@ CREATE TABLE IF NOT EXISTS tombstone (
 DO $$
 DECLARE t text;
 BEGIN
-    FOREACH t IN ARRAY ARRAY[
-        'recebimento', 'pessoa_afirmacao', 'pessoa', 'documento', 'achado',
-        'processo', 'vinculo', 'movimento', 'oportunidade', 'leitura',
-        'aviso_enviado', 'execucao', 'tombstone'
-    ]
+    -- TODA TABELA QUE EXISTE, e não uma lista escrita à mão. Eram três
+    -- listas (esta, a do bloco da Supabase e `banco.TABELAS`): uma tabela
+    -- acrescentada a duas e esquecida na terceira nascia sem isolamento, ou
+    -- aberta na internet. Varrendo o que existe, tabela nova nasce fechada
+    -- — e tabela sem a coluna `entidade` faz o esquema FALHAR aqui, que é
+    -- o certo: neste banco não há tabela que não seja de um sindicato.
+    FOR t IN
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
     LOOP
         -- O log de leitura e o tombstone são só INSERT e SELECT: a aplicação
         -- não reescreve a própria auditoria. As demais são derivadas do
@@ -356,9 +378,15 @@ BEGIN
         -- USING filtra a LEITURA; WITH CHECK impede escrever linha marcada
         -- com outra entidade. Sem o WITH CHECK o vazamento seria para dentro.
         EXECUTE format(
+            -- NULLIF: sem entidade declarada, a variável vale NULL numa
+            -- conexão nova e '' (vazio!) depois de uma transação que a
+            -- usou. Comparar direto fazia o vazio casar com uma linha de
+            -- entidade ''. Com NULLIF os dois casos dão NULL: nada casa.
             'CREATE POLICY por_entidade ON %I '
-            'USING (entidade = current_setting(''app.entidade'', true)) '
-            'WITH CHECK (entidade = current_setting(''app.entidade'', true))',
+            'USING (entidade = '
+            '  NULLIF(current_setting(''app.entidade'', true), '''')) '
+            'WITH CHECK (entidade = '
+            '  NULLIF(current_setting(''app.entidade'', true), ''''))',
             t
         );
     END LOOP;
@@ -372,7 +400,11 @@ BEGIN
     FOR t IN
         SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
     LOOP
-        EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %I TO protocol_app', t);
+        -- SÓ `USAGE` (que é o `nextval` do INSERT). O `SELECT` dava
+        -- `last_value`, e sequência não tem política: de dentro de um
+        -- sindicato lia-se o contador GLOBAL — o volume de todos os outros.
+        EXECUTE format('REVOKE ALL ON SEQUENCE %I FROM protocol_app', t);
+        EXECUTE format('GRANT USAGE ON SEQUENCE %I TO protocol_app', t);
     END LOOP;
 END $$;
 
@@ -397,8 +429,14 @@ END $$;
 DO $$
 BEGIN
     EXECUTE format('GRANT protocol_app TO %I', current_user);
-EXCEPTION WHEN OTHERS THEN
-    -- Já é membro, ou é superusuário e não precisa. Seguir é o certo.
+-- SÓ AS CAUSAS ESPERADAS. Era `WHEN OTHERS`, que engolia qualquer erro: o
+-- esquema "passava" e a aplicação quebrava na primeira consulta, longe da
+-- linha que tinha falhado. Outra causa agora falha AQUI, na migração.
+EXCEPTION WHEN duplicate_object OR insufficient_privilege
+               OR invalid_grant_operation THEN
+    -- Já é membro, ou é superusuário e não precisa. Seguir é o certo: se o
+    -- papel de fato não puder ser assumido, `banco._assumir_papel` recusa
+    -- toda consulta.
     NULL;
 END $$;
 
@@ -409,7 +447,11 @@ END $$;
 --   conectar DIRETO como `protocol_app`  -> não há o que esquecer
 --
 -- A SENHA NÃO É DEFINIDA AQUI. Segredo em arquivo versionado é segredo
--- queimado. Sem senha o papel não loga, e a aplicação segue pelo SET ROLE.
+-- queimado. Sem senha o papel não loga POR SENHA — e é só isso que este
+-- arquivo garante. Num banco que aceita conexão sem senha (`trust` no
+-- `pg_hba`), ele loga, como qualquer outro papel: quem impede isso é a
+-- configuração de autenticação da HOSPEDAGEM, e é coisa a conferir na
+-- implantação, não a supor daqui. (Medido na auditoria de 31/10/2026.)
 ALTER ROLE protocol_app WITH LOGIN;
 GRANT USAGE ON SCHEMA public TO protocol_app;
 
@@ -435,11 +477,9 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
         RETURN;   -- não é Supabase; nada a fechar
     END IF;
-    FOREACH t IN ARRAY ARRAY[
-        'recebimento', 'pessoa_afirmacao', 'pessoa', 'documento', 'achado',
-        'processo', 'vinculo', 'movimento', 'oportunidade', 'leitura',
-        'aviso_enviado', 'execucao', 'tombstone'
-    ]
+    -- Também pelo que EXISTE, pelo mesmo motivo do laço das políticas.
+    FOR t IN
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public'
     LOOP
         EXECUTE format(
             'REVOKE ALL ON %I FROM anon, authenticated, service_role', t

@@ -9,7 +9,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apagar, carregarDe, limpoPara, salvar } from "./armazenamento";
+import {
+  DIAS_DO_RASCUNHO, apagar, carregarDe, limpoPara, salvar } from "./armazenamento";
 import { RASCUNHO_VAZIO, type Rascunho } from "./tipos";
 
 const DELA = "862.883.667-57";
@@ -84,5 +85,36 @@ describe("trocar de pessoa na mesma aba", () => {
     expect(limpo.identificacao.nome).toBe("");
     expect(limpo.documentos).toEqual([]);
     expect(limpo.etapa).toBe(0);
+  });
+});
+
+describe("o rascunho tem prazo", () => {
+  // h6-11 da auditoria de segurança: o rascunho ficava no navegador para
+  // sempre — nome, CPF, e-mail, telefone e processos de quem começou a
+  // preencher num computador da sede e nunca voltou.
+  const guardarComData = (quando: Date) => {
+    salvar(rascunhoDe(DELA, "SICRANA (CADASTRO DE EXEMPLO)"));
+    const [chave, bruto] = [...guardado.entries()][0]!;
+    guardado.set(chave, JSON.stringify({ ...JSON.parse(bruto), atualizadoEm: quando.toISOString() }));
+  };
+  const haDias = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+
+  it("dentro do prazo, a dona reencontra", () => {
+    guardarComData(haDias(DIAS_DO_RASCUNHO - 1));
+    expect(carregarDe(DELA)?.identificacao.nome).toBe("SICRANA (CADASTRO DE EXEMPLO)");
+  });
+
+  it("vencido, não volta — e é APAGADO, não só escondido", () => {
+    guardarComData(haDias(DIAS_DO_RASCUNHO + 1));
+    expect(carregarDe(DELA)).toBeNull();
+    expect(guardado.size).toBe(0);
+  });
+
+  it("sem data legível, conta como vencido", () => {
+    salvar(rascunhoDe(DELA, "SICRANA (CADASTRO DE EXEMPLO)"));
+    const [chave, bruto] = [...guardado.entries()][0]!;
+    guardado.set(chave, JSON.stringify({ ...JSON.parse(bruto), atualizadoEm: "ontem" }));
+    expect(carregarDe(DELA)).toBeNull();
+    expect(guardado.size).toBe(0);
   });
 });

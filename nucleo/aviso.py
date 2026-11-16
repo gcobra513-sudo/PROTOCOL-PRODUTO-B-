@@ -104,7 +104,41 @@ class Resultado:
 def chave(m: Movimento) -> str:
     """O que identifica um movimento. Mesmo critério da coleta: número, grau,
     data e nome — o DataJud não dá identificador estável."""
-    return f"{m.numero}|{m.grau}|{m.data}|{m.nome}"
+    return chave_de(m.numero, m.grau, m.data, m.nome)
+
+
+def chave_de(numero: str, grau: str, data: str, nome: str) -> str:
+    """Os quatro campos numa chave só, SEM COLISÃO.
+
+    Eram só juntados com `|`, e os campos vêm crus do tribunal: com um `|`
+    dentro de um deles, dois andamentos diferentes davam a mesma chave — e o
+    segundo ficava marcado como avisado sem nunca ter sido. Silêncio, que é
+    o defeito que este módulo existe para impedir.
+
+    Escapa-se a barra e o `|` DENTRO de cada campo. Um campo sem nenhum dos
+    dois sai igual ao que sempre saiu — e é o caso de todo andamento já
+    registrado: mudar a chave deles faria todo mundo ser avisado de novo.
+    """
+    def campo(v: str) -> str:
+        return str(v).replace("\\", "\\\\").replace("|", "\\|")
+
+    return "|".join(campo(v) for v in (numero, grau, data, nome))
+
+
+#: O nome de um andamento no e-mail tem teto. Ele vem do tribunal, cru.
+TETO_DO_NOME = 200
+
+
+def _numa_linha(texto: str) -> str:
+    """O texto do tribunal, numa linha só e com teto.
+
+    O e-mail sai em nome do sindicato. Um nome de andamento com quebras de
+    linha escreveria parágrafos próprios nele — que leriam como instrução
+    ou endereço vindos do sindicato.
+    """
+    limpo = " ".join("".join(
+        c if c.isprintable() else " " for c in str(texto)).split())
+    return limpo if len(limpo) <= TETO_DO_NOME else limpo[:TETO_DO_NOME] + "…"
 
 
 def _corpo(nome: str, por_processo: dict, endereco: str) -> str:
@@ -117,7 +151,7 @@ def _corpo(nome: str, por_processo: dict, endereco: str) -> str:
     for numero, movimentos in por_processo.items():
         linhas.append(f"Processo {numero}")
         for m in movimentos:
-            linhas.append(f"  {m.data} — {m.nome}")
+            linhas.append(f"  {_numa_linha(m.data)} — {_numa_linha(m.nome)}")
         linhas.append("")
     if endereco:
         linhas += [f"Para ver o restante, entre em {endereco}", ""]
