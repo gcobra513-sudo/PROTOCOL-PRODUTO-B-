@@ -23,10 +23,10 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { Marca } from "../componentes/Casca";
 import { Aviso, Botao, Campo } from "../componentes/ui";
 import { codigoDoSindicato, enderecoDaArea } from "../lib/entrada";
 import * as api from "../lib/envio";
+import { Moldura, OQueNaoFazemos } from "./Publica";
 
 const DEMONSTRACAO = "demo-sindicato";
 
@@ -85,25 +85,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
   }
 
   return (
-    <div className="min-h-screen bg-papel">
-      <header className="bg-carta">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <Marca />
-          <nav aria-label="Nesta página" className="hidden gap-6 text-[15px] text-tinta/75 md:flex">
-            <a href="#como-funciona" className="hover:text-acento">Como funciona</a>
-            <a href="#sindicato" className="hover:text-acento">Para o sindicato</a>
-            <a href="#filiado" className="hover:text-acento">Para o filiado</a>
-          </nav>
-          <a
-            href="#acesso"
-            className="inline-flex h-10 items-center rounded-lg bg-acento px-4 text-[15px] font-medium text-carta shadow-sm hover:bg-acento/90"
-          >
-            Acessar
-          </a>
-        </div>
-      </header>
-
-      <main>
+    <Moldura atual="" onPrivacidade={onPrivacidade}>
         <section className="mx-auto max-w-6xl px-4 pt-6 sm:px-6 sm:pt-10">
           <div className="relative overflow-hidden rounded-2xl bg-roxo px-6 py-12 text-white sm:px-12 sm:py-16">
             <span aria-hidden="true" className="absolute -right-16 -top-24 h-80 w-80 rounded-full bg-roxo-fundo opacity-60" />
@@ -171,6 +153,9 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
               <li>Nome por nome: o que cada filiado já pode e de quem depende o resto.</li>
               <li>Um sindicato nunca vê o dado de outro, e os dados ficam no Brasil.</li>
             </ul>
+            <a href="?pagina=sindicato" className="mt-5 inline-flex items-center gap-2 text-[16px] font-semibold text-acento underline">
+              Ver como funciona para o sindicato <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </a>
           </div>
           <div id="filiado" className="rounded-xl bg-carta p-7 shadow-cartao">
             <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-lilas text-acento">
@@ -182,8 +167,13 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
               <li>Se os documentos chegaram, e o que ainda falta.</li>
               <li>O Proto, um assistente que responde na hora, sem ligar para a sede.</li>
             </ul>
+            <a href="?pagina=filiado" className="mt-5 inline-flex items-center gap-2 text-[16px] font-semibold text-acento underline">
+              Ver como funciona para o filiado <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </a>
           </div>
         </section>
+
+        <OQueNaoFazemos />
 
         <section id="acesso" className="mx-auto max-w-6xl px-4 pb-14 sm:px-6">
           <div className="rounded-2xl bg-carta p-7 shadow-cartao sm:p-10">
@@ -235,16 +225,6 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
             </div>
           </div>
         </section>
-      </main>
-
-      <footer className="bg-carta">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-sm text-tinta/65 sm:px-6">
-          <span>PROTOCOL — para sindicatos e cooperativas.</span>
-          <button type="button" onClick={onPrivacidade} className="text-acento underline">
-            Como tratamos os seus dados
-          </button>
-        </div>
-      </footer>
-    </div>
+    </Moldura>
   );
 }

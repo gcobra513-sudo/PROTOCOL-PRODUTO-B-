@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { codigoDoSindicato, enderecoDaArea } from "./entrada";
+import { codigoDoSindicato, enderecoDaArea, paginaDoLink } from "./entrada";
 
 describe("o código do sindicato, do jeito que a pessoa colar", () => {
   it("aceita o código puro, com espaço e maiúscula", () => {
@@ -38,5 +38,22 @@ describe("o endereço de cada área", () => {
 
   it("sem sindicato, volta para a página de entrada", () => {
     expect(enderecoDaArea("cadastro", "")).toBe("./");
+  });
+});
+
+describe("as páginas públicas, pelo endereço", () => {
+  it("reconhece as duas páginas de apresentação", () => {
+    expect(paginaDoLink("?pagina=sindicato")).toBe("sindicato");
+    expect(paginaDoLink("?pagina=Filiado")).toBe("filiado");
+  });
+  it("qualquer outra coisa é a página inicial", () => {
+    expect(paginaDoLink("")).toBe("");
+    expect(paginaDoLink("?pagina=admin")).toBe("");
+    expect(paginaDoLink("?pagina=../../x")).toBe("");
+  });
+  it("dentro do portal de um sindicato não há página pública", () => {
+    // Quem chegou pelo link do sindicato está no portal DELE: um `pagina=`
+    // perdido no endereço não pode tirá-lo de lá.
+    expect(paginaDoLink("?entidade=sind-df&pagina=sindicato")).toBe("");
   });
 });

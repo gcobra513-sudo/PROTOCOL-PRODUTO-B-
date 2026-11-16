@@ -491,8 +491,22 @@ async function faseConferencia(navegador, gritos, resultado) {
       .filter({ has: g.getByRole("button", { name: "Abrir o documento" }) })
       .last();
 
+    // UM DOCUMENTO ABERTO POR VEZ: o que está fechado mostra só o nome, e
+    // o gestor (e o ensaio) abre antes de mexer. PELO CABEÇALHO, e não pelo
+    // `cartao`: o cartão se reconhece pelo botão "Abrir o documento", que
+    // num documento fechado não está na tela — procurá-lo por ali achava o
+    // documento vizinho.
+    const desdobrar = async (rotulo) => {
+      const cabecalho = g.locator("button[aria-expanded]")
+        .filter({ hasText: rotulo }).first();
+      if ((await cabecalho.getAttribute("aria-expanded")) === "false") {
+        await cabecalho.click();
+      }
+    };
+
     // ABRIR. O arquivo vem por `fetch` com Authorization — CORS, sessão e
     // tipo do conteúdo, de uma vez.
+    await desdobrar("Sentença, se você tiver");
     const sentenca = cartao("Sentença, se você tiver");
     const [resposta] = await Promise.all([
       g.waitForResponse((r) => r.url().includes("/arquivo"), { timeout: 20000 }),
@@ -514,6 +528,7 @@ async function faseConferencia(navegador, gritos, resultado) {
     resultado.conferencia.registradas += 1;
     marco("leitura da sentença registrada: procedente");
 
+    await desdobrar("Comprovantes de contribuição ao sindicato");
     const foto = cartao("Comprovantes de contribuição ao sindicato");
     await foto.getByLabel("O comprovante cobre de").fill("2022-01");
     await foto.getByLabel("até").fill("2022-12");

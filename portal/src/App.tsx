@@ -31,6 +31,7 @@ import { Processos } from "./etapas/Processos";
 import { Voce } from "./etapas/Voce";
 import { Atendimento } from "./paginas/Atendimento";
 import { Landing } from "./paginas/Landing";
+import { ParaOFiliado, ParaOSindicato } from "./paginas/Publica";
 import { MeusProcessos } from "./paginas/MeusProcessos";
 import { MinhaArea } from "./paginas/MinhaArea";
 import { MinhasAcoes } from "./paginas/MinhasAcoes";
@@ -39,7 +40,7 @@ import * as arquivos from "./lib/arquivos";
 import { camposDoSindicato, jaTemos, preencher } from "./lib/conhecido";
 import * as armazenamento from "./lib/armazenamento";
 import { acessosDaDemonstracao, type AcessoDaDemo } from "./lib/demonstracao";
-import { enderecoDaArea } from "./lib/entrada";
+import { enderecoDaArea, paginaDoLink } from "./lib/entrada";
 import * as api from "./lib/envio";
 import { baixar, reciboJson } from "./lib/exportar";
 import { gruposDoMenu, telaDeChegada, type Papeis } from "./lib/perfil";
@@ -360,9 +361,17 @@ export function App() {
   // de entrada, que pergunta de qual sindicato ela é. O cadastro sem
   // sindicato não leva a lugar nenhum — não há a quem pedir o código.
   if (!apelido && tela === "cadastro") {
+    const pagina = paginaDoLink();
+    const abrirPrivacidade = () => setVerPrivacidade(true);
     return (
       <>
-        <Landing onPrivacidade={() => setVerPrivacidade(true)} />
+        {pagina === "sindicato" ? (
+          <ParaOSindicato onPrivacidade={abrirPrivacidade} />
+        ) : pagina === "filiado" ? (
+          <ParaOFiliado onPrivacidade={abrirPrivacidade} />
+        ) : (
+          <Landing onPrivacidade={abrirPrivacidade} />
+        )}
         {verPrivacidade ? (
           <Privacidade onFechar={() => setVerPrivacidade(false)} />
         ) : null}
