@@ -43,6 +43,8 @@ import {
 import * as api from "../lib/envio";
 import {
   ABAS_DO_PAINEL,
+  linhasPorVez,
+  pendenciasAVista,
   ABERTURA_DO_PROTO_DO_GESTOR,
   PERGUNTAS_DO_GESTOR_AO_PROTO,
   abaDaAncora,
@@ -103,6 +105,8 @@ function Numero({
 
 /** O que o sindicato resolve primeiro. É esta a parte que vale a reunião. */
 function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
+  const [todas, setTodas] = useState(false);
+  const pendencias = pendenciasAVista(p.gargalos, todas);
   const alvo = primeiroAcionavel(p.gargalos);
   const noTribunal = presosNoTribunal(p.gargalos);
   return (
@@ -174,7 +178,7 @@ function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
             Do que segura mais gente para o que segura menos.
           </p>
           <div className="mt-2 space-y-1">
-            {p.gargalos.map((g) => (
+            {pendencias.visiveis.map((g) => (
               <div
                 key={`${g.quem}-${g.o_que}`}
                 className="flex items-baseline justify-between gap-4 border-b border-borda py-1.5 text-[15px]"
@@ -199,6 +203,17 @@ function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
               </div>
             ))}
           </div>
+          {pendencias.guardadas > 0 ? (
+            <div className="mt-3">
+              <Botao
+                tipo="secundario"
+                tamanho="pequeno"
+                onClick={() => setTodas(true)}
+              >
+                Ver as outras {pendencias.guardadas}
+              </Botao>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -738,11 +753,11 @@ function FilaDeConferencia({
 }
 
 
-/** Quantas linhas a tela mostra de cada vez. A base pode ter milhares; a
- *  busca e o filtro acham quem se procura, e a planilha leva todo mundo.
- *  Quinze, e não cinquenta: com cinquenta a aba tinha quase cinco telas de
- *  rolagem (medido), e quem quer ver mais pede mais. */
-const LINHAS_POR_VEZ = 15;
+/** Quantas linhas a tela mostra de cada vez — `linhasPorVez` decide pela
+ *  largura. A base pode ter milhares; a busca e o filtro acham quem se
+ *  procura, e a planilha leva todo mundo. */
+const LINHAS_POR_VEZ =
+  typeof window === "undefined" ? 15 : linhasPorVez(window.innerWidth);
 
 /** A base, NOME POR NOME.
  *
@@ -1365,6 +1380,7 @@ export function Painel({
   const [portal, setPortal] = useState<FiltroDoPortal>("");
   // Quantos documentos a fila tem NA TELA: é o número do selo da aba.
   const [filaNaTela, setFilaNaTela] = useState(0);
+  const [todosForaDeAlcance, setTodosForaDeAlcance] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -1459,7 +1475,7 @@ export function Painel({
       {/* OS NÚMEROS DA BASE, antes de tudo — e cada um ABRE a lista do que
           conta. Número que não vira nomes obriga o gestor a procurar por
           conta própria quem são aquelas pessoas. */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
         <Destaque
           cor="roxo"
           icone={<Users className="h-5 w-5" aria-hidden="true" />}
@@ -1474,7 +1490,9 @@ export function Painel({
           rotulo="você não alcança"
           onClick={() => abrirQuadro("inalcancaveis")}
         />
-        <div className="grid gap-4">
+        {/* No celular os dois pequenos ficam lado a lado, na linha de baixo:
+            os quatro números cabem numa tela só. */}
+        <div className="col-span-2 grid grid-cols-2 gap-3 md:col-span-1 md:grid-cols-1 md:gap-4">
           <Mini
             cor="azul"
             icone={<UserCheck className="h-5 w-5" aria-hidden="true" />}
@@ -1500,7 +1518,7 @@ export function Painel({
         id="abas-do-painel"
         role="tablist"
         aria-label="Áreas do painel"
-        className="flex scroll-mt-4 flex-wrap gap-2 rounded-xl bg-carta p-2 shadow-cartao"
+        className="grid scroll-mt-4 grid-cols-3 gap-2 rounded-xl bg-carta p-2 shadow-cartao md:flex md:flex-wrap"
       >
         {ABAS_DO_PAINEL.map((a) => (
           <button
@@ -1510,17 +1528,19 @@ export function Painel({
             id={`aba-${a.id}`}
             aria-selected={aba === a.id}
             aria-controls={`painel-${a.id}`}
+            aria-label={a.rotulo}
             onClick={() => setAba(a.id)}
             className={
-              "rounded-lg px-4 py-3 text-base font-medium transition " +
+              "rounded-lg px-2 py-3 text-[15px] font-medium transition md:px-4 md:text-base " +
               (aba === a.id
                 ? "bg-roxo text-white"
                 : "text-tinta hover:bg-lilas")
             }
           >
-            {a.rotulo}
+            <span className="md:hidden">{a.curto}</span>
+            <span className="hidden md:inline">{a.rotulo}</span>
             {a.id === "documentos" && filaNaTela > 0 ? (
-              <span className="ml-2 rounded-full bg-alerta px-2 py-0.5 text-sm text-white">
+              <span className="ml-1 rounded-full bg-alerta px-2 py-0.5 text-sm text-white md:ml-2">
                 {filaNaTela}
               </span>
             ) : null}
@@ -1660,7 +1680,9 @@ export function Painel({
               explicacao="Contagem não diz a quem ligar. Esta lista diz."
             >
               <div className="space-y-1">
-                {dados.inalcancaveis.slice(0, 50).map((p) => (
+                {dados.inalcancaveis
+                  .slice(0, todosForaDeAlcance ? 50 : 5)
+                  .map((p) => (
                   <div
                     key={p.chave}
                     className="border-b border-borda py-1 text-sm"
@@ -1672,6 +1694,15 @@ export function Painel({
                   </div>
                 ))}
               </div>
+              {!todosForaDeAlcance && dados.inalcancaveis.length > 5 ? (
+                <Botao
+                  tipo="secundario"
+                  tamanho="pequeno"
+                  onClick={() => setTodosForaDeAlcance(true)}
+                >
+                  Ver os outros {Math.min(dados.inalcancaveis.length, 50) - 5}
+                </Botao>
+              ) : null}
             </Cartao>
           </div>
         ) : null}

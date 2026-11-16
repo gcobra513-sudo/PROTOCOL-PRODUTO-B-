@@ -294,7 +294,7 @@ export function Destaque({
     <Caixa
       {...(onClick ? { type: "button" as const, onClick } : {})}
       className={cn(
-        "relative block w-full overflow-hidden rounded-xl p-5 text-left text-white",
+        "relative block w-full overflow-hidden rounded-xl p-4 text-left text-white sm:p-5",
         fundo,
         onClick && CLICAVEL,
       )}
@@ -302,10 +302,12 @@ export function Destaque({
       <span aria-hidden="true" className={cn("absolute -right-10 -top-16 h-44 w-44 rounded-full opacity-60", bolha)} />
       <span aria-hidden="true" className={cn("absolute -right-24 -top-6 h-44 w-44 rounded-full opacity-40", bolha)} />
       <div className="relative">
-        <span className={cn("flex h-11 w-11 items-center justify-center rounded-lg", bolha)}>
+        {/* No celular o ícone some: são quatro quadros lado a lado, dois a
+            dois, e o que a pessoa lê é o número. */}
+        <span className={cn("hidden h-11 w-11 items-center justify-center rounded-lg sm:flex", bolha)}>
           {icone}
         </span>
-        <p className="mt-5 text-4xl font-bold leading-none">{valor}</p>
+        <p className="text-3xl font-bold leading-none sm:mt-5 sm:text-4xl">{valor}</p>
         <p className="mt-2 text-[15px] font-medium text-white/85">{rotulo}</p>
         {onClick ? <p className="mt-1 text-sm underline">Ver a lista</p> : null}
       </div>
@@ -353,7 +355,7 @@ export function Mini({
       />
       <span
         className={cn(
-          "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg",
+          "relative hidden h-11 w-11 shrink-0 items-center justify-center rounded-lg sm:flex",
           cheio ? "bg-azul-fundo" : "bg-ambar text-tinta",
         )}
       >
