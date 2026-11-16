@@ -24,6 +24,7 @@ caminho do pedido, e isso é mudança de desenho, não ajuste de ramo.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import dataclasses
 import hashlib
@@ -321,6 +322,12 @@ class CabecalhosDeProtecao:
     def __init__(self, app, nao_indexar: bool = False) -> None:
         self.app = app
         self.extra = [
+            # NADA DAQUI FICA GUARDADO: as respostas da API levam dado de
+            # pessoa, e um computador compartilhado ou um proxy no caminho
+            # não pode devolver à pessoa seguinte o que a anterior viu. Só
+            # vale para o que ainda não disse o contrário — os arquivos do
+            # portal (JS, CSS) são servidos pelo Caddy, não por aqui.
+            (b"cache-control", b"no-store"),
             (b"x-content-type-options", b"nosniff"),
             (b"x-frame-options", b"DENY"),
             (b"referrer-policy", b"no-referrer"),
@@ -396,11 +403,26 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     # Em ensaio continua ligado porque lá não há dado de pessoa e quem
     # desenvolve precisa dele. Desligar nos dois seria pagar conveniência
     # por nada.
+    # O QUE SOBE E DESCE COM O SERVIDOR. Cada item é `(comecar, parar)`; a
+    # lista é preenchida logo abaixo e lida só quando o servidor sobe.
+    ciclo: list[tuple] = []
+
+    @contextlib.asynccontextmanager
+    async def vida(_app):
+        for comecar, _ in ciclo:
+            comecar()
+        try:
+            yield
+        finally:
+            for _, parar in ciclo:
+                parar()
+
     app = FastAPI(
-        title="Portal de execução",
+        title="Portal do sindicato",
         docs_url=None,
         redoc_url=None,
         openapi_url="/openapi.json" if cfg.modo_ensaio else None,
+        lifespan=vida,
     )
 
     # O TRABALHO DE FUNDO SOBE COM O SERVIDOR.
@@ -418,7 +440,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     # registro de execução — e agendador sem registro é agendador que morre
     # calado.
     if cfg.tem_banco and cfg.agendar:
-        agenda.subir(app, cfg)
+        ciclo.append(agenda.subir(cfg))
     app.state.cfg = cfg
     app.state.cadastro = cadastro
     app.state.portao = portao
@@ -459,9 +481,13 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         except entidades.EntidadeDesconhecida:
             raise _problema(404, "entidade não encontrada") from None
         except entidades.EntidadeSuspensa:
-            raise _problema(
-                403, "esta entidade não está recebendo cadastros agora"
-            ) from None
+            # A MESMA RESPOSTA DE QUEM NÃO EXISTE. Com 403 aqui, um anônimo
+            # enumerava quem é cliente e quem está suspenso — e suspensão,
+            # num produto por contrato, costuma querer dizer inadimplência.
+            # Quem opera vê no registro.
+            log.info("entidade suspensa pedida: %s",
+                     (apelido or "").strip().lower()[:64])
+            raise _problema(404, "entidade não encontrada") from None
         # AS TRÊS TRAVAS VIVEM EM `entidades.atendivel`, e não aqui.
         #
         # Viviam aqui, e por isso valiam só no HTTP: o laço do agendador
@@ -553,7 +579,6 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "modo_ensaio": cfg.modo_ensaio,
             "envio_de_email": "smtp" if cfg.tem_remetente else "arquivo",
             "envio": envio,
-            "entidades": len(cadastro.todas()),
         }
         # COM A CHAVE DO MONITOR, a entrega aparece e entra no `ok`. Chave
         # errada ou ausente recebe a MESMA resposta de quem não mandou nada:
@@ -565,6 +590,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             entrega = correio.entrega()
             corpo["entrega"] = entrega
             corpo["ok"] = corpo["ok"] and entrega != "falhando"
+            # QUANTOS SINDICATOS HÁ é número de clientes: só para o monitor.
+            corpo["entidades"] = len(cadastro.todas())
         return corpo
 
     #: O que a tela mostra quando o servidor é de demonstração. Texto aqui,
@@ -742,8 +769,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                               ent.apelido, marca)
                 destino = None
 
+        # UMA LINHA POR PEDIDO, IGUAL NOS DOIS RAMOS. Só o ramo de quem
+        # está FORA do rol escrevia aqui ("codigo sem destino"): um registro
+        # que só fala de um dos lados é, por omissão, a lista do outro — e
+        # registro é o que um dia sai da máquina. O que distingue os ramos
+        # fica no campo, para quem opera diagnosticar "não recebi o código".
+        log.info("codigo pedido ent=%s cpf=%s destino=%s", ent.apelido,
+                 marca, "sim" if destino is not None else "nao")
         if destino is None:
-            log.info("codigo sem destino ent=%s cpf=%s", ent.apelido, marca)
             return JSONResponse(resposta, status_code=202)
 
         try:
@@ -821,12 +854,18 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 "gestor": consta(rol.carregar_gestores)}
 
     @app.post("/api/acesso/conferir")
-    def conferir_codigo(corpo: dict) -> dict:
+    def conferir_codigo(corpo: dict, pedido: Request) -> dict:
         ent = _entidade(str(corpo.get("entidade", "")))
         cpf = str(corpo.get("cpf", ""))
         codigo = str(corpo.get("codigo", "")).strip()
+        # O QUE NÃO É CPF NÃO CHEGA AO PORTÃO — como na rota irmã, que emite.
+        # A resposta é a de código errado: dizer "CPF inválido" aqui seria
+        # uma terceira resposta numa rota que só pode ter duas.
+        if not validacao.cpf_valido(cpf):
+            raise _problema(401, "código inválido ou expirado")
         try:
-            token = portao.conferir(ent.apelido, cpf, codigo)
+            token = portao.conferir(ent.apelido, cpf, codigo,
+                                    _origem(pedido, cfg))
         except acesso.ExcessoDeTentativas as e:
             raise _problema(429, str(e)) from None
         except acesso.CodigoInvalido as e:
@@ -2530,17 +2569,29 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             if linhas:
                 # A última ingestão vence: o diário guarda o histórico, o
                 # retrato é do acervo vigente.
-                ultima = json.loads(linhas[-1])
-                for bruto in ultima.get("pessoas") or []:
-                    pessoas.append(acervo.Pessoa(
-                        cpf=bruto.get("cpf", ""),
-                        linha_no_arquivo=bruto.get("linha_no_arquivo", 0),
-                        campos=bruto.get("campos") or {},
-                        achados=tuple(
-                            acervo.Achado(**a)
-                            for a in bruto.get("achados") or []
-                        ),
-                    ))
+                try:
+                    ultima = json.loads(linhas[-1])
+                    for bruto in ultima.get("pessoas") or []:
+                        pessoas.append(acervo.Pessoa(
+                            cpf=bruto.get("cpf", ""),
+                            linha_no_arquivo=bruto.get("linha_no_arquivo", 0),
+                            campos=bruto.get("campos") or {},
+                            achados=tuple(
+                                acervo.Achado(**a)
+                                for a in bruto.get("achados") or []
+                            ),
+                        ))
+                except (ValueError, TypeError, AttributeError):
+                    # ARQUIVO TRUNCADO OU DE OUTRA FORMA. Virava 500 "Internal
+                    # Server Error", que não diz nada a quem pode consertar.
+                    # Não se inventa um retrato: recusa, e diz o que fazer.
+                    log.exception("acervo ilegível ent=%s", ent.apelido)
+                    raise _problema(
+                        503,
+                        "a planilha gravada deste sindicato não pôde ser "
+                        "lida. Envie a planilha de novo em Envios e pedidos; "
+                        "se continuar, avise quem administra o portal",
+                    ) from None
 
         retrato = completude.retratar(pessoas, deposito.ler_diario(pasta))
 

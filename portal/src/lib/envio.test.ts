@@ -39,6 +39,7 @@ function fingirFetch(corpo: unknown = RESPOSTA, ok = true, status = 200) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("apagarFiliado, no fio", () => {
@@ -163,5 +164,53 @@ describe("o envio do sindicato, no fio", () => {
                             problemas: ["base.csv não tem coluna de CPF"] } },
                 false, 422);
     await expect(enviarPlanilha("sind-x", "T", ARQ)).rejects.toThrow("coluna de CPF");
+  });
+});
+
+describe("resposta de erro que a página não lê", () => {
+  // Achado ao proibir cache nas respostas da API (auditoria, h6-6): sem
+  // cache, uma resposta cujo corpo ninguém lê fica EM ABERTO no navegador —
+  // a conexão presa, a aba "carregando". Quem não vai ler o corpo, descarta.
+  // Com servidor declarado: sem ele estas funções nem chegam a pedir.
+  const comServidor = async () => {
+    vi.stubEnv("VITE_API", "http://api.exemplo.invalid");
+    vi.resetModules();
+    return import("./envio");
+  };
+  const comResposta = (ok: boolean) => {
+    const cancelar = vi.fn(async () => undefined);
+    vi.stubGlobal("fetch", vi.fn(async () => ({
+      ok, status: ok ? 200 : 404, json: async () => ({ apelido: "x", nome: "X" }),
+      body: { cancel: cancelar },
+    })));
+    return cancelar;
+  };
+
+  it("sindicato que não existe: devolve nulo e descarta o corpo", async () => {
+    const api = await comServidor();
+    const cancelar = comResposta(false);
+    expect(await api.verEntidade("nao-existe")).toBeNull();
+    expect(cancelar).toHaveBeenCalledTimes(1);
+  });
+
+  it("papéis que o servidor não disse: nulo, e descarta o corpo", async () => {
+    const api = await comServidor();
+    const cancelar = comResposta(false);
+    expect(await api.verPapeis("t")).toBeNull();
+    expect(cancelar).toHaveBeenCalledTimes(1);
+  });
+
+  it("sair não lê a resposta — e por isso a descarta", async () => {
+    const api = await comServidor();
+    const cancelar = comResposta(true);
+    await api.sair("t");
+    expect(cancelar).toHaveBeenCalledTimes(1);
+  });
+
+  it("resposta boa é lida, não descartada", async () => {
+    const api = await comServidor();
+    const cancelar = comResposta(true);
+    expect((await api.verEntidade("x"))?.nome).toBe("X");
+    expect(cancelar).not.toHaveBeenCalled();
   });
 });

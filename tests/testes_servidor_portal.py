@@ -2860,5 +2860,349 @@ TESTES.extend([
 ])
 
 
+# =====================================================================
+# O RESTO DOS 40 ITENS DE ENDURECIMENTO da auditoria de segurança de
+# 31/10/2026. Cada teste diz qual item fecha (hN-M é o código dele lá).
+# =====================================================================
+
+def _sqlite_do_portao(c):
+    import sqlite3
+    return sqlite3.connect(next(c.raiz.glob("*.sqlite3")))
+
+
+def teste_o_portao_poda_o_que_ja_nao_conta():
+    """h1-3. `codigos` e `emissoes` nunca eram podadas, e a rota que as
+    alimenta é anônima: o arquivo crescia para sempre a partir de pedidos de
+    qualquer um."""
+    c = Cenario()
+    c.token(CPF)
+    velho = "2020-01-01T00:00:00+00:00"
+    with _sqlite_do_portao(c) as cx:
+        cx.execute("INSERT INTO emissoes (origem_hash, criado_em) "
+                   "VALUES ('velha', ?)", (velho,))
+        cx.execute("INSERT INTO codigos (entidade, cpf_hash, codigo_hash, "
+                   "criado_em, expira_em, usado_em) VALUES "
+                   "('demo-teste', 'h', 'c', ?, ?, ?)", (velho, velho, velho))
+        cx.execute("INSERT INTO sessoes (token_hash, entidade, cpf_hash, "
+                   "criado_em, expira_em) VALUES ('t-velho', 'demo-teste', "
+                   "'h', ?, ?)", (velho, velho))
+    t = c.token(CPF)            # qualquer emissão nova dispara a poda
+    with _sqlite_do_portao(c) as cx:
+        def conta(tabela, coluna):
+            return cx.execute(f"SELECT count(*) FROM {tabela} WHERE "
+                              f"{coluna} = ?", (velho,)).fetchone()[0]
+        checa(conta("emissoes", "criado_em") == 0, "emissão de 2020 ficou")
+        checa(conta("codigos", "criado_em") == 0, "código de 2020 ficou")
+        checa(conta("sessoes", "criado_em") == 0, "sessão vencida em 2020 ficou")
+    r = c.cliente.get("/api/acesso/papeis",
+                      headers={"Authorization": f"Bearer {t}"})
+    checa(r.status_code == 200, "a poda levou a sessão que acabou de nascer")
+    print("  ok     o portão poda o que já não conta")
+
+
+def teste_conferir_codigo_tem_teto_por_origem_e_confere_o_cpf():
+    """h1-4 e h1-5. `/api/acesso/conferir` não tinha teto por origem (medido:
+    267 tentativas por segundo) nem conferia o CPF, ao contrário da rota
+    irmã. Cada código aceita 5 tentativas; o teto é 5 por código que aquela
+    origem pode pedir."""
+    c = Cenario(limite_por_origem=2)
+    estados = []
+    for i in range(14):
+        r = c.cliente.post("/api/acesso/conferir", json={
+            "entidade": "demo-teste", "cpf": CPF, "codigo": f"{i:06d}"})
+        estados.append(r.status_code)
+    checa(estados[:10] == [401] * 10,
+          f"as 10 primeiras tinham de ser só 'código inválido': {estados}")
+    checa(estados[10:] == [429] * 4,
+          f"depois de 10 (2 códigos x 5), a origem tinha de parar: {estados}")
+
+    # CPF que não é CPF: a mesma resposta de código errado, e o portão nem é
+    # consultado.
+    from servidor import acesso
+    c2 = Cenario()
+    chamadas = []
+    original = acesso.Portao.conferir
+    acesso.Portao.conferir = lambda self, *a, **k: (
+        chamadas.append(a), original(self, *a, **k))[1]
+    try:
+        r = c2.cliente.post("/api/acesso/conferir", json={
+            "entidade": "demo-teste", "cpf": "123", "codigo": "000000"})
+    finally:
+        acesso.Portao.conferir = original
+    checa(r.status_code == 401 and not chamadas,
+          f"CPF malformado chegou ao portão: {r.status_code}, {chamadas}")
+    print("  ok     conferir: teto por origem, e CPF conferido antes")
+
+
+def teste_sindicato_suspenso_responde_como_inexistente():
+    """h2-H3. 404 era "não existe" e 403 era "existe e está suspenso": um
+    anônimo enumerava assim quem é cliente e quem está inadimplente."""
+    from servidor import entidades as mod
+
+    c = Cenario(entidades_extra=(("demo-suspenso", "Sindicato Suspenso"),))
+    mod.Cadastro(c.raiz).alterar("demo-suspenso", ativa=False)
+    a = c.cliente.get("/api/entidade/demo-suspenso")
+    b = c.cliente.get("/api/entidade/demo-nunca-existiu")
+    checa(a.status_code == b.status_code == 404 and a.json() == b.json(),
+          f"suspenso e inexistente respondem diferente: {a.status_code} "
+          f"{a.text[:80]} / {b.status_code} {b.text[:80]}")
+    print("  ok     suspenso responde como inexistente")
+
+
+def teste_a_saude_so_conta_os_sindicatos_para_o_monitor():
+    """h5-2. A lista de apelidos já tinha saído de `/saude`; ficou o TOTAL de
+    sindicatos, que é número de clientes — informação comercial numa rota
+    sem sessão."""
+    from fastapi.testclient import TestClient
+
+    from servidor.app import criar_app
+    from servidor.config import carregar
+
+    chave = "chave-do-monitor-de-teste-0123456789"
+    c = Cenario()
+    cliente = TestClient(criar_app(carregar({
+        "PROTOCOL_MODO_ENSAIO": "1", "PROTOCOL_RAIZ": str(c.raiz),
+        "PROTOCOL_CHAVE_DO_MONITOR": chave})))
+    checa("entidades" not in cliente.get("/saude").json(),
+          "a saúde anônima ainda diz quantos sindicatos há")
+    com = cliente.get("/saude", headers={"Authorization": f"Bearer {chave}"})
+    checa(com.json().get("entidades") == 1, f"o monitor não vê: {com.json()}")
+    print("  ok     quantos sindicatos: só o monitor")
+
+
+def teste_as_ferramentas_escolhem_o_envio_pela_regra_do_servidor():
+    """h5-3. O servidor só usa SMTP com HOST **e** REMETENTE; as ferramentas
+    olhavam só o HOST, e com o REMETENTE vazio abriam SMTP de verdade com o
+    campo "De" vazio enquanto `/saude` dizia "arquivo"."""
+    import os
+
+    from servidor import remetente
+
+    raiz = Path(tempfile.mkdtemp(prefix="portal-teste-"))
+    _NASCIDOS.append(raiz)
+    nomes = ("PROTOCOL_SMTP_HOST", "PROTOCOL_SMTP_REMETENTE",
+             "PROTOCOL_MODO_ENSAIO")
+    guardado = {k: os.environ.pop(k, None) for k in nomes}
+    try:
+        os.environ["PROTOCOL_SMTP_HOST"] = "smtp.exemplo.invalid"
+        try:
+            remetente.pelo_ambiente(raiz)
+            checa(False, "com HOST e sem REMETENTE, abriria SMTP com 'De' vazio")
+        except remetente.SemComoEnviar as e:
+            checa("PROTOCOL_SMTP_REMETENTE" in str(e), f"não diz o que falta: {e}")
+        os.environ["PROTOCOL_SMTP_REMETENTE"] = "portal@exemplo.invalid"
+        checa(isinstance(remetente.pelo_ambiente(raiz), remetente.PorSmtp),
+              "com os dois, não escolheu SMTP")
+    finally:
+        for k, v in guardado.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+    print("  ok     ferramentas e servidor escolhem o envio pela mesma regra")
+
+
+def teste_o_aviso_de_movimentacao_nao_confunde_nem_obedece_o_tribunal():
+    """h5-6 e h5-7. A chave que diz "este andamento já foi avisado" juntava
+    os campos com `|` sem escapar: dois andamentos diferentes podiam dar a
+    MESMA chave, e o segundo nunca era avisado. E o nome do andamento, que
+    vem do tribunal, ia cru para o corpo do e-mail."""
+    from nucleo import aviso
+    from servidor import acompanhamento
+
+    M = aviso.Movimento
+    a = M(numero="1", grau="G1", data="2026-01-01", nome="x|y")
+    b = M(numero="1", grau="G1|2026-01-01", data="x", nome="y")
+    checa(aviso.chave(a) != aviso.chave(b),
+          f"dois andamentos diferentes, uma chave só: {aviso.chave(a)!r}")
+    comum = M(numero="00103912420064013400", grau="G1", data="2026-11-10",
+              nome="Conclusos para decisão")
+    checa(aviso.chave(comum)
+          == "00103912420064013400|G1|2026-11-10|Conclusos para decisão",
+          "a chave dos andamentos comuns MUDOU: todo mundo seria avisado de "
+          f"novo de tudo: {aviso.chave(comum)!r}")
+    igual = acompanhamento.Movimento(numero="1", grau="G1",
+                                     data="2026-01-01", nome="x|y")
+    checa(igual.chave == aviso.chave(a),
+          "a coleta e o aviso calculam chaves diferentes para o mesmo andamento")
+
+    hostil = M(numero="1", grau="G1", data="2026-01-01",
+               nome="Juntada\r\n\r\nClique em http://golpe.exemplo.invalid "
+                    + "A" * 2000)
+    corpo = aviso._corpo("Fulana", {"1": [hostil]}, "")
+    linhas = [l for l in corpo.split("\n") if "Juntada" in l]
+    checa(len(linhas) == 1 and len(linhas[0]) < 300,
+          f"o nome do andamento quebrou linha ou veio sem teto: {linhas!r:.300}")
+    checa(all("golpe" not in l or "Juntada" in l for l in corpo.split("\n")),
+          "texto do tribunal virou linha própria no e-mail do sindicato")
+    print("  ok     chave sem colisão (e a comum não muda); nome com teto")
+
+
+def teste_planilha_gravada_estragada_nao_vira_erro_cru():
+    """h6-4. `acervo.jsonl` truncado ou com chave a mais fazia o painel do
+    gestor devolver 500 "Internal Server Error", sem dizer o que fazer."""
+    c = Cenario()
+    gestor = "529.982.247-25"
+    c.escrever_gestores("demo-teste", [(gestor, "g@exemplo.org")])
+    cab = {"Authorization": f"Bearer {c.token(gestor)}"}
+    for estragado in ('{"pessoas": [{"cpf": "1", "achados": [{"x": 1}]}]}\n',
+                      '{"pessoas": [{"cpf"\n'):
+        (c.raiz / "demo-teste" / "acervo.jsonl").write_text(estragado)
+        r = c.cliente.get("/api/entidade/demo-teste/completude", headers=cab)
+        checa(r.status_code == 503 and "planilha" in r.text.lower(),
+              f"acervo estragado: {r.status_code} {r.text[:120]}")
+    print("  ok     planilha gravada estragada: recusa que diz o que fazer")
+
+
+def teste_a_recusa_por_regiao_nao_devolve_a_regiao_configurada():
+    """h6-5. O 503 da trava de região devolvia `PROTOCOL_REGIAO` cru a quem
+    pedia — anônimo. A explicação fica; o valor configurado não."""
+    from fastapi.testclient import TestClient
+
+    from servidor import entidades as mod_entidades
+    from servidor.app import criar_app
+    from servidor.config import carregar
+
+    raiz = Path(tempfile.mkdtemp(prefix="portal-teste-"))
+    _NASCIDOS.append(raiz)
+    mod_entidades.Cadastro(raiz).criar("sind-real", "Sindicato Real")
+    cliente = TestClient(criar_app(carregar({
+        "PROTOCOL_RAIZ": str(raiz),
+        "PROTOCOL_SEGREDO": "segredo-de-teste-com-tamanho-suficiente",
+        "PROTOCOL_SMTP_HOST": "smtp.exemplo.invalid",
+        "PROTOCOL_SMTP_REMETENTE": "naoresponda@exemplo.invalid",
+        "PROTOCOL_REGIAO": "us-west-2-cluster-interno-7",
+        "PROTOCOL_AGENDAR": "0"})))
+    r = cliente.get("/api/entidade/sind-real")
+    checa(r.status_code == 503, f"{r.status_code}")
+    checa("cluster-interno" not in r.text and "us-west-2" not in r.text,
+          f"a recusa devolveu a região configurada: {r.text[:200]}")
+    checa("região brasileira" in r.text,
+          f"a recusa deixou de dizer por quê: {r.text[:200]}")
+    print("  ok     recusa por região: explica, sem devolver a configuração")
+
+
+def teste_a_api_nao_fica_em_cache():
+    """h6-6. As respostas da API levam dado de pessoa, e nenhuma dizia para
+    não guardar: um computador compartilhado, ou um proxy no caminho, podia
+    devolver à pessoa seguinte o que a anterior viu."""
+    c = Cenario()
+    for rota in ("/api/entidade/demo-teste", "/saude", "/api/acesso/papeis"):
+        cc = c.cliente.get(rota).headers.get("cache-control", "")
+        checa("no-store" in cc, f"{rota}: sem `no-store` ({cc!r})")
+    print("  ok     nenhuma resposta da API fica em cache")
+
+
+def teste_o_servidor_avisa_que_ensaio_e_um_processo_so():
+    """h1-2. Em ensaio o segredo é sorteado POR PROCESSO: com dois, o código
+    emitido por um não é reconhecido pelo outro, e o portão falha sem erro
+    que explique."""
+    from servidor.config import carregar
+
+    raiz = Path(tempfile.mkdtemp(prefix="portal-teste-"))
+    _NASCIDOS.append(raiz)
+    cfg = carregar({"PROTOCOL_MODO_ENSAIO": "1", "PROTOCOL_RAIZ": str(raiz)})
+    checa(any("um processo" in a.lower() for a in cfg.avisos),
+          f"o aviso do ensaio não fala de processo único: {cfg.avisos}")
+    print("  ok     ensaio: o aviso diz que é um processo só")
+
+
+def teste_os_dois_ramos_do_pedido_de_codigo_ficam_no_registro():
+    """h1-6. Só o ramo de quem está FORA do rol escrevia no registro
+    ("codigo sem destino"). Um registro que só fala de um dos lados é, por
+    omissão, uma lista do outro."""
+    import logging
+
+    c = Cenario()
+    visto: list[str] = []
+
+    class Escuta(logging.Handler):
+        def emit(self, r):
+            visto.append(r.getMessage())
+
+    escuta = Escuta()
+    logging.getLogger("protocol.portal").addHandler(escuta)
+    antes = logging.getLogger("protocol.portal").level
+    logging.getLogger("protocol.portal").setLevel(logging.INFO)
+    try:
+        for cpf in (CPF, "111.444.777-35"):
+            c.cliente.post("/api/acesso/codigo",
+                           json={"entidade": "demo-teste", "cpf": cpf})
+    finally:
+        logging.getLogger("protocol.portal").removeHandler(escuta)
+        logging.getLogger("protocol.portal").setLevel(antes)
+    pedidos = [m for m in visto if m.startswith("codigo pedido ")]
+    checa(len(pedidos) == 2,
+          f"cada pedido de código tinha de deixar UMA linha igual: {visto}")
+    checa(not any("sem destino" in m for m in visto),
+          "o registro ainda tem uma linha só de quem está fora do rol")
+    print("  ok     pedido de código: os dois ramos deixam a mesma linha")
+
+
+def teste_o_documento_do_sindicato_nao_passa_por_cima_do_do_filiado():
+    """h3. A gravação dos documentos que o sindicato manda escrevia direto
+    na pasta da pessoa, sem a trava do depósito — e sobrescrevia o documento
+    que o filiado já tinha enviado, se fosse do mesmo tipo."""
+    import types
+
+    from servidor import entidades as mod
+    from servidor import ingestao
+
+    c = Cenario()
+    ent = mod.Cadastro(c.raiz).resolver("demo-teste")
+    pasta = ent.entrega(c.raiz) / CPF_DIGITOS
+    pasta.mkdir(parents=True)
+    (pasta / "sentenca.pdf").write_bytes(b"DO FILIADO")
+    doc = types.SimpleNamespace(tipo="sentenca", corpo=b"DO SINDICATO")
+    n = ingestao._gravar_documentos(ent, c.raiz, {CPF_DIGITOS: [doc]}, "")
+    checa(n == 1, f"gravou {n}")
+    checa((pasta / "sentenca.pdf").read_bytes() == b"DO FILIADO",
+          "o documento do sindicato passou por cima do que o filiado enviou")
+    checa(any(f.read_bytes() == b"DO SINDICATO" for f in pasta.iterdir()),
+          "o documento do sindicato não foi gravado em lugar nenhum")
+    # O mesmo arquivo, de novo: não multiplica.
+    ingestao._gravar_documentos(ent, c.raiz, {CPF_DIGITOS: [doc]}, "")
+    checa(len(list(pasta.iterdir())) == 2,
+          f"reenviar o mesmo documento criou outra cópia: "
+          f"{sorted(f.name for f in pasta.iterdir())}")
+    print("  ok     documento do sindicato não sobrescreve o do filiado")
+
+
+def teste_o_que_era_do_produto_A_saiu():
+    """h6-7 e h6-2. Três funções de `validacao.py` conferiam o manifesto do
+    PRODUTO A e nada no B as chamava; e o `requirements.txt` da raiz trazia
+    pandas, Jinja2, python-docx e playwright, do motor de lá."""
+    from servidor import validacao
+
+    for nome in ("conferir_linha", "normalizar_linha", "conferir_pacote"):
+        checa(not hasattr(validacao, nome),
+              f"`validacao.{nome}` valida o manifesto do Produto A e "
+              "continua aqui")
+    # Só as linhas que INSTALAM: o comentário do arquivo conta a história.
+    raiz = "\n".join(
+        l.split("#")[0] for l in
+        (RAIZ / "requirements.txt").read_text("utf-8").lower().splitlines())
+    for pacote in ("pandas", "jinja2", "python-docx", "playwright"):
+        checa(pacote not in raiz,
+              f"requirements.txt da raiz ainda instala {pacote}")
+    print("  ok     o que era do Produto A saiu")
+
+
+TESTES.extend([
+    teste_o_portao_poda_o_que_ja_nao_conta,
+    teste_conferir_codigo_tem_teto_por_origem_e_confere_o_cpf,
+    teste_sindicato_suspenso_responde_como_inexistente,
+    teste_a_saude_so_conta_os_sindicatos_para_o_monitor,
+    teste_as_ferramentas_escolhem_o_envio_pela_regra_do_servidor,
+    teste_o_aviso_de_movimentacao_nao_confunde_nem_obedece_o_tribunal,
+    teste_planilha_gravada_estragada_nao_vira_erro_cru,
+    teste_a_recusa_por_regiao_nao_devolve_a_regiao_configurada,
+    teste_a_api_nao_fica_em_cache,
+    teste_o_servidor_avisa_que_ensaio_e_um_processo_so,
+    teste_os_dois_ramos_do_pedido_de_codigo_ficam_no_registro,
+    teste_o_documento_do_sindicato_nao_passa_por_cima_do_do_filiado,
+    teste_o_que_era_do_produto_A_saiu,
+])
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

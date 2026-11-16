@@ -31,6 +31,7 @@ import {
   comoFrase,
   explicacaoDaTrilha,
   periodo,
+  fonteQueViraLink,
   resumo,
   rotuloDaTrilha,
   rotuloDoEstado,
@@ -194,10 +195,10 @@ function Trilha({
             ) : null}
             {/* A fonte fica na tela, não no rodapé: quem quiser conferir o
                 que dizemos tem de poder ir ao texto do tribunal. */}
-            {o.fonte && /^https?:\/\//.test(o.fonte) ? (
+            {fonteQueViraLink(o.fonte) ? (
               <p className="mt-3 text-[14px]">
                 <a
-                  href={o.fonte}
+                  href={fonteQueViraLink(o.fonte)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium text-tinta underline"

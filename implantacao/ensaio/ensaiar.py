@@ -76,6 +76,8 @@ BLOCOS: list[tuple[str, str, str]] = [
      "o banco do ensaio é novo: migração é para banco antigo"),
     ("2026-11-10-documento-origem-e-leitura-humana.sql", "pulado",
      "o banco do ensaio é novo: migração é para banco antigo"),
+    ("2026-11-16-endurecimento-do-esquema.sql", "pulado",
+     "o banco do ensaio é novo: já nasce na forma de hoje"),
     ("conferir_forma.sql", "igual", ""),
     ("npx vite build", "igual", ""),
     ("/etc/systemd/system/", "igual", ""),

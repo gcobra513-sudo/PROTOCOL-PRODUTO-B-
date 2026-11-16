@@ -26,6 +26,7 @@ import {
   semPrefixo,
   tomDoEstado,
   tomDoVeredicto,
+  fonteQueViraLink,
 } from "./veredicto";
 import { TELAS, telaDoLink } from "./envio";
 
@@ -223,5 +224,23 @@ describe("a lista lê como lista", () => {
 
   it("acento na primeira letra sobrevive", () => {
     expect(comoFrase("órgão julgador ausente")).toBe("Órgão julgador ausente");
+  });
+});
+
+describe("a fonte que vira link", () => {
+  // h6-10 da auditoria de segurança: este filtro é o único controle de
+  // esquema de endereço do portal, e vivia dentro de um componente, sem
+  // teste. O valor vem do catálogo, pelo servidor — e um link é o único
+  // lugar do portal onde texto de fora vira coisa clicável.
+  it("aceita endereço http e https", () => {
+    expect(fonteQueViraLink("https://www.stj.jus.br/tema/1410")).toBe("https://www.stj.jus.br/tema/1410");
+    expect(fonteQueViraLink("http://exemplo.org/x")).toBe("http://exemplo.org/x");
+  });
+  it("não vira link o que não é endereço da web", () => {
+    for (const ruim of ["javascript:alert(1)", "JAVASCRIPT:alert(1)", " javascript:alert(1)",
+                        "data:text/html,<script>", "//exemplo.org", "/caminho", "file:///etc/passwd",
+                        "Tema 1.410 do STJ", "", undefined, null]) {
+      expect(fonteQueViraLink(ruim as string)).toBe("");
+    }
   });
 });

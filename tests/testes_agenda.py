@@ -289,6 +289,81 @@ def teste_a_ordem_e_coletar_depois_avisar():
 
 # ------------------------------------- as travas valem em TODO caminho
 
+def teste_o_atraso_se_mede_pelo_relogio_do_banco():
+    """h5-5. O arrendamento já usava o relógio do BANCO; o atraso e o
+    vencimento usavam o da instância. Com o relógio da máquina torto, o
+    campo `atrasado` de `/saude` — a manchete deste módulo — mentia."""
+    from servidor import agenda
+
+    ent = "demo-relogio"
+    agenda.registrar(URL, ent, "coletar", ok=True, detalhe="ok")
+
+    class Torto:
+        """O `datetime` de uma máquina dez anos adiantada."""
+
+        timedelta = agenda.dt.timedelta
+        UTC = agenda.dt.UTC
+
+        class datetime(agenda.dt.datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return super().now(tz) + agenda.dt.timedelta(days=3650)
+
+    original = agenda.dt
+    agenda.dt = Torto
+    try:
+        estado = {e["tarefa"]: e for e in agenda.estado(URL, ent)}
+        vencida = agenda._vencida(URL, ent, "coletar")
+    finally:
+        agenda.dt = original
+    checa(estado["coletar"]["atrasado"] is False,
+          "com o relógio da INSTÂNCIA adiantado, a tarefa que acabou de "
+          "rodar apareceu como atrasada")
+    checa(vencida is False,
+          "com o relógio da instância adiantado, a tarefa rodaria de novo")
+    checa(estado["avisar"]["atrasado"] is True,
+          "tarefa que nunca rodou deixou de aparecer como atrasada")
+    print("  ok     atraso e vencimento pelo relógio do banco")
+
+
+def teste_o_agendador_sobe_e_desce_com_o_servidor():
+    """h5-8. O agendador era ligado por `@app.on_event`, que o FastAPI
+    descontinuou, e esse caminho não tinha teste: no dia em que sumisse, o
+    agendador deixaria de subir e o único aviso seria o atraso em `/saude`."""
+    import tempfile
+    import threading
+    import warnings
+    from pathlib import Path as _Path
+
+    from fastapi.testclient import TestClient
+
+    from servidor.app import criar_app
+    from servidor.config import carregar
+
+    raiz = _Path(tempfile.mkdtemp(prefix="agenda-vida-"))
+    with warnings.catch_warnings(record=True) as avisos:
+        warnings.simplefilter("always")
+        app = criar_app(carregar({
+            "PROTOCOL_MODO_ENSAIO": "1", "PROTOCOL_RAIZ": str(raiz),
+            "PROTOCOL_DATABASE_URL": URL, "PROTOCOL_AGENDAR": "1"}))
+
+        def vivas():
+            return [t for t in threading.enumerate()
+                    if t.name == "protocol-agenda" and t.is_alive()]
+
+        antes = len(vivas())
+        with TestClient(app):
+            checa(len(vivas()) == antes + 1,
+                  "o servidor subiu e o agendador não subiu com ele")
+            fio = vivas()[-1]
+        fio.join(timeout=10)
+        checa(not fio.is_alive(),
+              "o servidor desceu e o agendador continuou rodando")
+    antigos = [str(a.message) for a in avisos if "on_event" in str(a.message)]
+    checa(not antigos, f"ainda usa o gancho descontinuado: {antigos[:1]}")
+    print("  ok     o agendador sobe e desce com o servidor")
+
+
 def _cfg(raiz, *, modo_ensaio: bool, regiao: str, banco: str = ""):
     from servidor import config
 
@@ -410,6 +485,8 @@ def teste_a_trava_e_uma_so_decisao_para_os_dois_caminhos():
 
 
 TESTES = [
+    teste_o_atraso_se_mede_pelo_relogio_do_banco,
+    teste_o_agendador_sobe_e_desce_com_o_servidor,
     teste_duas_instancias_so_uma_roda,
     teste_o_arrendamento_expira,
     teste_entidades_nao_disputam_o_mesmo_arrendamento,

@@ -314,9 +314,13 @@ def atendivel(ent: "Entidade", cfg) -> Recusa | None:
     if not banco.regiao_e_brasileira(cfg.regiao):
         return Recusa(
             "regiao", 503,
-            f"este servidor roda na região "
-            f"{cfg.regiao or '(não declarada)'}, e entidade real só é "
-            f"atendida em região brasileira. Dado de filiado em nuvem "
+            # SEM O VALOR DECLARADO. Esta frase chega a quem pede, que é
+            # anônimo, e devolvia a região configurada — nome de cluster
+            # interno incluído — a qualquer um. O valor vai para o registro
+            # de quem opera, na rota que recusa.
+            f"este servidor não está declarado numa região brasileira, e "
+            f"entidade real só é atendida em região brasileira. Dado de "
+            f"filiado em nuvem "
             f"estrangeira é transferência internacional, que desde "
             f"23/08/2025 exige as cláusulas-padrão da ANPD (Res. CD/ANPD "
             f"19/2024). Declare PROTOCOL_REGIAO como uma região brasileira "

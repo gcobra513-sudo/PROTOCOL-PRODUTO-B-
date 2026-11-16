@@ -42,6 +42,12 @@ export function salvar(r: Rascunho): boolean {
   }
 }
 
+/** Por quantos dias um rascunho parado fica guardado no navegador. Trinta:
+ *  cabe quem começou, foi atrás de um documento e voltou; não cabe quem
+ *  esqueceu. (Escolha de quem implementou — não há decisão de produto
+ *  sobre o número.) */
+export const DIAS_DO_RASCUNHO = 30;
+
 export function soDigitos(v: string): string {
   return (v ?? "").replace(/\D/g, "");
 }
@@ -97,6 +103,15 @@ function carregar(): Rascunho | null {
     // produziria um rascunho meio preenchido com campos que não existem
     // mais, e a pessoa descobriria no envio.
     if (lido.versao !== RASCUNHO_VAZIO.versao) return null;
+    // O RASCUNHO TEM PRAZO. Ficava para sempre: nome, CPF, e-mail, telefone
+    // e processos de quem começou a preencher num computador da sede e
+    // nunca voltou. Vencido — ou sem data que dê para ler — é APAGADO, não
+    // só ignorado: o que ficasse guardado ficaria para quem soubesse olhar.
+    const idade = Date.now() - Date.parse(String(lido.atualizadoEm ?? ""));
+    if (!(idade <= DIAS_DO_RASCUNHO * 24 * 60 * 60 * 1000)) {
+      apagar();
+      return null;
+    }
     return {
       ...RASCUNHO_VAZIO,
       ...lido,

@@ -86,6 +86,14 @@ CREATE TABLE IF NOT EXISTS emissoes (
 );
 CREATE INDEX IF NOT EXISTS ix_emissoes_origem
   ON emissoes (origem_hash, criado_em);
+
+CREATE TABLE IF NOT EXISTS conferencias (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  origem_hash   TEXT NOT NULL,
+  criado_em     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_conferencias_origem
+  ON conferencias (origem_hash, criado_em);
 """
 
 
@@ -204,6 +212,7 @@ class Portao:
 
         with self._conectar() as cx:
             cx.execute("BEGIN IMMEDIATE")
+            self._podar(cx, agora)
             por_origem = self._contar(
                 cx,
                 "SELECT COUNT(*) FROM emissoes "
@@ -281,12 +290,53 @@ class Portao:
 
     # --------------------------------------------------------------- conferir
 
-    def conferir(self, entidade: str, cpf: str, codigo: str) -> str:
-        """Confere o código e devolve o token da sessão."""
+    def _podar(self, cx, agora: dt.datetime) -> None:
+        """Apaga o que já não conta para nada.
+
+        Estas tabelas só cresciam, e quem as alimenta é rota ANÔNIMA: cada
+        pedido de código de qualquer CPF válido deixava uma linha para
+        sempre. As contagens olham uma hora; código e sessão vencidos há
+        mais de um dia não servem nem para diagnóstico. A poda roda dentro
+        da transação de quem emite — não há tarefa de fundo para esquecer.
+        """
+        hora = _iso(agora - dt.timedelta(hours=1))
+        dia = _iso(agora - dt.timedelta(days=1))
+        cx.execute("DELETE FROM emissoes WHERE criado_em < ?", (hora,))
+        cx.execute("DELETE FROM conferencias WHERE criado_em < ?", (hora,))
+        cx.execute("DELETE FROM codigos WHERE expira_em < ?", (dia,))
+        cx.execute("DELETE FROM sessoes WHERE expira_em < ?", (dia,))
+
+    def conferir(self, entidade: str, cpf: str, codigo: str,
+                 origem: str | None = None) -> str:
+        """Confere o código e devolve o token da sessão.
+
+        COM `origem`, CONTA A TENTATIVA. Esta rota só tinha o contador de 5
+        do próprio código — e quem tenta códigos em série troca de CPF, não
+        insiste no mesmo. O teto é 5 por código que aquela origem pode
+        pedir na hora: mais tentativas que isso não é gente errando o
+        código. Sem `origem` (ferramenta, teste de unidade), não conta.
+        """
         agora = _agora()
         cpf_hash = self.marcar_cpf(cpf)
         with self._conectar() as cx:
             cx.execute("BEGIN IMMEDIATE")
+            if origem is not None:
+                origem_hash = self.marcar(origem)
+                feitas = self._contar(
+                    cx,
+                    "SELECT COUNT(*) FROM conferencias "
+                    "WHERE origem_hash = ? AND criado_em >= ?",
+                    (origem_hash, _iso(agora - dt.timedelta(hours=1))),
+                )
+                if feitas >= self._por_origem * TENTATIVAS_DO_CODIGO:
+                    cx.execute("COMMIT")
+                    raise ExcessoDeTentativas(
+                        "muitas tentativas de código desta conexão na "
+                        "última hora"
+                    )
+                cx.execute(
+                    "INSERT INTO conferencias (origem_hash, criado_em) "
+                    "VALUES (?, ?)", (origem_hash, _iso(agora)))
             linha = cx.execute(
                 "SELECT id, codigo_hash, tentativas FROM codigos "
                 "WHERE entidade = ? AND cpf_hash = ? AND usado_em IS NULL "

@@ -185,7 +185,9 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
         segredo = secrets.token_urlsafe(32)
         avisos.append(
             "MODO ENSAIO: segredo gerado na hora e códigos de acesso "
-            "devolvidos na resposta HTTP. Não use com dados de pessoas."
+            "devolvidos na resposta HTTP. Não use com dados de pessoas. "
+            "O segredo é DESTE processo: rode um processo só — com dois, o "
+            "código que um emite o outro não reconhece."
         )
 
     # NÃO é "dados": essa pasta já existe no repositório com os catálogos

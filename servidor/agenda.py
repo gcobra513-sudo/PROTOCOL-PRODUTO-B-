@@ -124,20 +124,22 @@ def estado(url: str, entidade: str) -> list[dict]:
     perigoso é o que parece vazio: uma lista sem a tarefa faria quem lê
     concluir que não há nada a fazer.
     """
+    # O ATRASO É MEDIDO PELO RELÓGIO DO BANCO, como o arrendamento. Era pelo
+    # da instância: com o relógio da máquina torto, o campo `atrasado` de
+    # `/saude` — a manchete deste módulo — mentia.
     with sessao(url, entidade) as cur:
         cur.execute(
-            "SELECT tarefa, ultima_boa, ultima_em, ultima_ok FROM execucao"
+            "SELECT tarefa, ultima_boa, ultima_em, ultima_ok, "
+            "       now() - ultima_boa > make_interval(hours => %s) "
+            "FROM execucao", (TOLERANCIA_HORAS,)
         )
-        por_tarefa = {t: (b, e, k) for t, b, e, k in cur.fetchall()}
+        por_tarefa = {t: (b, e, k, a) for t, b, e, k, a in cur.fetchall()}
 
-    agora = dt.datetime.now(dt.UTC)
     saida = []
     for tarefa in TAREFAS:
-        boa, em, ok = por_tarefa.get(tarefa, (None, None, None))
-        atrasado = (
-            boa is None
-            or (agora - boa) > dt.timedelta(hours=TOLERANCIA_HORAS)
-        )
+        boa, em, ok, passou = por_tarefa.get(tarefa, (None, None, None, None))
+        # Nunca rodou bem (`boa` nulo, e a conta do banco dá nulo): atrasada.
+        atrasado = boa is None or bool(passou)
         # `ultimo_detalhe` NÃO SAI DAQUI, e a coluna continua existindo.
         # Esta função alimenta `/saude`, que não exige sessão, e o detalhe
         # era o stdout cru do subprocesso: o de `avisar_movimentacao.py`
@@ -218,14 +220,15 @@ INTERVALO_HORAS = 20
 
 
 def _vencida(url: str, entidade: str, tarefa: str) -> bool:
-    import datetime as _dt
-
-    boa = ultima_boa(url, entidade, tarefa)
-    if boa is None:
-        return True
-    return (_dt.datetime.now(_dt.UTC) - boa) >= _dt.timedelta(
-        hours=INTERVALO_HORAS
-    )
+    """Já passou o intervalo desde a última execução boa? Pelo relógio do
+    BANCO — o mesmo que escreveu `ultima_boa`."""
+    with sessao(url, entidade) as cur:
+        cur.execute(
+            "SELECT now() - ultima_boa >= make_interval(hours => %s) "
+            "FROM execucao WHERE tarefa = %s", (INTERVALO_HORAS, tarefa))
+        linha = cur.fetchone()
+    # Sem linha, ou sem execução boa (a conta dá nulo): vencida.
+    return linha is None or linha[0] is None or bool(linha[0])
 
 
 def tarefas_padrao(cfg):
@@ -352,8 +355,12 @@ def uma_rodada(cfg, tarefas) -> None:
             rodar_uma_vez(cfg.banco_url, ent.apelido, pendentes)
 
 
-def subir(app, cfg) -> None:
-    """Põe o laço para rodar junto com o servidor.
+def subir(cfg):
+    """O laço que roda junto com o servidor: devolve `(comecar, parar)`.
+
+    QUEM LIGA E DESLIGA É O CICLO DE VIDA DO APP (`criar_app`). Era
+    `@app.on_event`, que o FastAPI descontinuou e que não tinha teste: no dia
+    em que sumisse, o agendador deixaria de subir calado.
 
     EM THREAD, nunca no laço de eventos: a coleta leva de 22 a 43 s por
     processo, medidos, e isso dentro do laço travaria o portal inteiro
@@ -384,11 +391,8 @@ def subir(app, cfg) -> None:
 
     thread = threading.Thread(target=laco, name="protocol-agenda", daemon=True)
 
-    @app.on_event("startup")
-    def _comecar() -> None:  # pragma: no cover - ciclo de vida do servidor
+    def comecar() -> None:
         thread.start()
         log.info("agendador no ar: acorda a cada %ds", ACORDAR_SEGUNDOS)
 
-    @app.on_event("shutdown")
-    def _parar() -> None:  # pragma: no cover
-        parar.set()
+    return comecar, parar.set

@@ -442,21 +442,40 @@ def gravar_documentos(ent: Entidade, raiz: pathlib.Path,
             "apagadas": apagadas}
 
 
+def _nome_livre(destino: pathlib.Path, d) -> str:
+    """O nome com que este documento entra na pasta da pessoa.
+
+    NUNCA O DE UM ARQUIVO QUE JÁ ESTÁ LÁ COM OUTRO CONTEÚDO. O sindicato
+    mandar a sentença de alguém não pode apagar a sentença que a própria
+    pessoa enviou pelo portal — eram o mesmo `sentenca.pdf`, e o segundo
+    passava por cima do primeiro. Se o MESMO arquivo já está lá, o nome é o
+    dele: reenviar não multiplica.
+    """
+    indice = 1
+    while True:
+        nome = (f"{d.tipo}.pdf" if indice == 1 and d.tipo != lote.OUTRO
+                else f"{d.tipo}-{indice}.pdf")
+        alvo = destino / nome
+        if not alvo.exists() or alvo.read_bytes() == d.corpo:
+            return nome
+        indice += 1
+
+
 def _gravar_documentos(ent: Entidade, raiz: pathlib.Path, casados: dict,
                        banco_url: str) -> int:
     entrega = ent.entrega(raiz)
     gravados = 0
     for cpf, docs in casados.items():
-        destino = entrega / cpf
-        destino.mkdir(parents=True, exist_ok=True)
-        por_tipo: dict[str, int] = {}
-        for d in docs:
-            indice = por_tipo.get(d.tipo, 0) + 1
-            por_tipo[d.tipo] = indice
-            nome = (f"{d.tipo}.pdf" if indice == 1 and d.tipo != lote.OUTRO
-                    else f"{d.tipo}-{indice}.pdf")
-            (destino / nome).write_bytes(d.corpo)
-            gravados += 1
+        # COM A TRAVA DO DEPÓSITO, a mesma do envio do filiado. Sem ela esta
+        # gravação corria com um reenvio pelo portal, que MOVE a pasta da
+        # pessoa para o histórico enquanto se escreve nela. (A ordem das
+        # travas é a do apagamento: primeiro a dele, depois a do depósito.)
+        with deposito._travada(ent.pasta(raiz)):
+            destino = entrega / cpf
+            destino.mkdir(parents=True, exist_ok=True)
+            for d in docs:
+                (destino / _nome_livre(destino, d)).write_bytes(d.corpo)
+                gravados += 1
 
         if banco_url:
             from . import banco
