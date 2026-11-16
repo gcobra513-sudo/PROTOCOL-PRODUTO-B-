@@ -523,12 +523,17 @@ function DocumentoParaLer({
   doc,
   dispositivos,
   onFeito,
+  aberto,
+  onAbrir,
 }: {
   entidade: string;
   token: string;
   doc: api.DocumentoNaFila;
   dispositivos: string[];
   onFeito: () => void;
+  /** Só um documento fica aberto por vez; os outros mostram só o nome. */
+  aberto: boolean;
+  onAbrir: () => void;
 }) {
   const [valores, setValores] = useState<Record<string, string>>({});
   const [observacao, setObservacao] = useState("");
@@ -576,11 +581,26 @@ function DocumentoParaLer({
   }
 
   return (
-    <div className="space-y-4 rounded-lg border border-borda bg-carta p-4">
-      <div>
-        <p className="text-[15px] font-medium text-tinta">{doc.nome}</p>
-        <p className="mt-0.5 text-sm text-tinta/70">{doc.rotulo}</p>
-      </div>
+    <div className="rounded-lg border border-borda bg-carta p-4">
+      {/* UM ABERTO POR VEZ. Cada documento traz um formulário inteiro, e
+          três deles abertos eram mais de três telas de rolagem no celular.
+          Fechado, o formulário continua montado — só escondido —, para que
+          o que já foi digitado não se perca ao abrir outro. */}
+      <button
+        type="button"
+        aria-expanded={aberto}
+        onClick={onAbrir}
+        className="flex w-full items-start justify-between gap-3 text-left"
+      >
+        <span>
+          <span className="block text-[15px] font-medium text-tinta">{doc.nome}</span>
+          <span className="mt-0.5 block text-sm text-tinta/70">{doc.rotulo}</span>
+        </span>
+        <span className="shrink-0 text-sm font-medium text-acento underline">
+          {aberto ? "Aberto" : "Abrir para ler"}
+        </span>
+      </button>
+      <div hidden={!aberto} className="mt-4 space-y-4">
       <Botao tipo="secundario" tamanho="pequeno" onClick={() => void abrir()}>
         Abrir o documento
       </Botao>
@@ -661,6 +681,7 @@ function DocumentoParaLer({
       {falta.length ? (
         <p className="text-sm text-tinta/60">Falta: {falta.join("; ")}.</p>
       ) : null}
+      </div>
     </div>
   );
 }
@@ -688,6 +709,7 @@ function FilaDeConferencia({
   onQuantos: (n: number) => void;
 }) {
   const [fila, setFila] = useState<api.Conferencia | null>(null);
+  const [abertoNaFila, setAbertoNaFila] = useState("");
   const [erro, setErro] = useState("");
   const [versao, setVersao] = useState(0);
 
@@ -720,13 +742,20 @@ function FilaDeConferencia({
         </>
       }
     >
-      {fila.pendentes.map((doc) => (
+      {fila.pendentes.map((doc, i) => (
         <DocumentoParaLer
           key={doc.id}
           entidade={entidade}
           token={token}
           doc={doc}
           dispositivos={fila.dispositivos}
+          // O escolhido; ou, se ele já saiu da fila, o primeiro.
+          aberto={
+            fila.pendentes.some((d) => d.id === abertoNaFila)
+              ? doc.id === abertoNaFila
+              : i === 0
+          }
+          onAbrir={() => setAbertoNaFila(doc.id)}
           onFeito={() => {
             setVersao((v) => v + 1);
             onMudou();

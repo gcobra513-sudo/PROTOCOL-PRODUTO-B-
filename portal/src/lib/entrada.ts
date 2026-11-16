@@ -39,3 +39,23 @@ export function enderecoDaArea(tela: Tela, apelido: string): string {
   const busca = q.toString();
   return busca ? `?${busca}` : "./";
 }
+
+/** As páginas de apresentação, abertas a quem ainda não é de sindicato
+ *  nenhum: uma para a diretoria, uma para o filiado. */
+export type PaginaPublica = "" | "sindicato" | "filiado";
+
+/** Qual página pública o endereço pede — ou vazio, que é a inicial.
+ *
+ *  Lista fechada: o valor vem do endereço, e o que não é uma das duas não
+ *  vira página nenhuma. E só fora do portal de um sindicato: quem chegou
+ *  pelo link do sindicato está no portal DELE. */
+export function paginaDoLink(busca?: string): PaginaPublica {
+  try {
+    const q = new URLSearchParams(busca ?? window.location.search);
+    if (q.get("entidade")) return "";
+    const pedida = (q.get("pagina") ?? "").trim().toLowerCase();
+    return pedida === "sindicato" || pedida === "filiado" ? pedida : "";
+  } catch {
+    return "";
+  }
+}
