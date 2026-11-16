@@ -43,7 +43,7 @@ from fastapi.responses import JSONResponse, Response
 
 # `conta` e não `cadastro`: `entidades.Cadastro` já ocupa esse nome aqui,
 # e a colisão deixava o módulo do contrato invisível em silêncio.
-from nucleo import atendimento
+from nucleo import atendimento, atendimento_do_gestor
 from nucleo import cadastro as conta
 from nucleo import entendimentos, leitura, motor, panorama
 from nucleo import dito, participacao, pendencia
@@ -2676,6 +2676,40 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "assunto": assunto,
             "resposta": atendimento.responder(assunto, **dados),
             "sugestoes": list(atendimento.SUGESTOES),
+        }
+
+    @app.post("/api/entidade/{apelido}/atendimento")
+    def atender_o_gestor(apelido: str, pedido: Request,
+                         corpo: dict = Body(default_factory=dict)) -> dict:
+        """O Proto do gestor: as perguntas da diretoria, respondidas com o
+        que o painel já diz.
+
+        SÓ GESTOR, e a conferência é a das rotas do painel: esta rota CHAMA
+        `ver_completude` e `ver_panorama`, que recusam quem não é gestor
+        daquele sindicato. Não há um segundo portão para esquecer de fechar,
+        nem uma segunda apuração para dar outro número.
+
+        COMO NO PROTO DO FILIADO: a pergunta não é guardada nem logada (só o
+        assunto reconhecido), e não há modelo de linguagem.
+        """
+        ent = _gestor_de(apelido, pedido)
+        assunto = atendimento_do_gestor.entender(
+            str(corpo.get("pergunta") or "")[:500])
+        dados: dict = {}
+        if assunto in (atendimento_do_gestor.BASE,
+                       atendimento_do_gestor.CONTATO,
+                       atendimento_do_gestor.PORTAL):
+            dados["completude"] = ver_completude(apelido, pedido)
+        if assunto in (atendimento_do_gestor.LEITURA,
+                       atendimento_do_gestor.PRIMEIRO,
+                       atendimento_do_gestor.PENDENCIAS,
+                       atendimento_do_gestor.PODEM):
+            dados["panorama"] = ver_panorama(apelido, pedido)
+        log.info("proto do gestor ent=%s assunto=%s", ent.apelido, assunto)
+        return {
+            "assunto": assunto,
+            "resposta": atendimento_do_gestor.responder(assunto, **dados),
+            "sugestoes": list(atendimento_do_gestor.SUGESTOES),
         }
 
     # AS PÁGINAS, POR ÚLTIMO — depois de TODAS as rotas. Montado antes, o

@@ -456,6 +456,8 @@ def main() -> int:
                 falhas += _conferir_a_planilha(raiz, da_fila.get("planilha"),
                                                da_fila.get("lista"))
                 falhas += _conferir_o_rol(raiz, da_fila.get("rol"))
+                falhas += _conferir_o_proto_do_gestor(
+                    da_fila.get("protoDoGestor"))
 
         if banco_url and not falhas:
             print("  dirigindo o Chromium — o gestor…")
@@ -739,6 +741,21 @@ def _conferir_a_sessao(da_tela) -> list[str]:
     elif da_tela.get("depoisDeSair") != 401:
         problemas.append(f"depois de Sair, o token antigo ainda é aceito "
                          f"pelo servidor (respondeu {da_tela.get('depoisDeSair')})")
+    return problemas
+
+
+def _conferir_o_proto_do_gestor(conversa) -> list[str]:
+    """O que o Proto DISSE ao gestor, lido da tela: a resposta sobre a base
+    chegou, aponta a aba onde a lista está, e não traz CPF de ninguém."""
+    if not conversa:
+        return ["o gestor não chegou a perguntar nada ao Proto pelo painel"]
+    problemas = []
+    if "aba Filiados" not in conversa:
+        problemas.append("o Proto não respondeu a pergunta sobre a base, ou "
+                         f"não disse onde está a lista: {conversa[-300:]!r}")
+    if CPF_FILIADO in conversa or CPF_FILIADO.replace(".", "").replace(
+            "-", "") in conversa:
+        problemas.append("a conversa do gestor com o Proto trouxe um CPF")
     return problemas
 
 

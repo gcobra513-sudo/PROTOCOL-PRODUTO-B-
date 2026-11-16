@@ -2492,5 +2492,103 @@ TESTES.extend([
 ])
 
 
+def teste_o_proto_do_gestor_entende_as_perguntas_da_diretoria():
+    """O Proto também responde ao gestor do sindicato. As perguntas são as
+    da diretoria — quantos são, com quantos consigo falar, o que resolvo
+    primeiro — e a regra é a mesma do filiado: reconhece PELAS PALAVRAS,
+    numa lista fechada, e o que não reconhece diz que não entendeu."""
+    from nucleo import atendimento_do_gestor as proto
+
+    secao("o Proto do gestor")
+    casos = {
+        "Quantos filiados estão na base?": "base",
+        "quantas pessoas eu tenho no acervo": "base",
+        "Com quantos eu não consigo falar?": "contato",
+        "quantos estão sem contato": "contato",
+        "Quantos já entraram no portal?": "portal",
+        "quantos filiados ainda não se cadastraram": "portal",
+        "Quantos documentos esperam leitura?": "leitura",
+        "tem documento para eu ler?": "leitura",
+        "O que resolver primeiro?": "primeiro",
+        "por onde eu começo": "primeiro",
+        "quais são as pendências da base": "pendencias",
+        "o que depende do tribunal": "pendencias",
+        "Quantos já podem fazer alguma coisa?": "podem",
+        "quantos têm sentença pronta para cobrar": "podem",
+        "Como envio a planilha?": "envios",
+        "onde eu mando o rol de substituídos": "envios",
+        "como atendo um pedido de apagamento": "envios",
+        "quanto o sindicato vai receber": "valor",
+        "qual o valor total das ações": "valor",
+        "bom dia": "ajuda",
+        "": "ajuda",
+        "qual a previsão do tempo": "nao_entendi",
+    }
+    for pergunta, esperado in casos.items():
+        checa(proto.entender(pergunta) == esperado,
+              f"{pergunta!r}: entendeu {proto.entender(pergunta)!r}, "
+              f"esperava {esperado!r}")
+    # Toda sugestão que ele oferece é uma pergunta que ele entende.
+    for sugestao in proto.SUGESTOES:
+        checa(proto.entender(sugestao) not in ("nao_entendi", "ajuda"),
+              f"oferece {sugestao!r} e não a entende")
+
+    # AS FRASES SAEM DOS NÚMEROS QUE RECEBE, e de mais nada.
+    completude = {"manchete": "Você tem 42 filiados no acervo.",
+                  "retrato": {"total": 42, "inalcancaveis": 7,
+                              "cadastrados": 19, "sem_cadastro": 23,
+                              "falta_por_campo": {"email": 5}}}
+    panorama = {"manchete": "42 pessoa(s) na base.", "aptos": 0,
+                "por_acao": [{"rotulo": "Ação X", "participam": 30,
+                              "indeterminados": 12}],
+                "gargalos": [
+                    {"quem": "VOCE", "o_que": "enviar a sentença",
+                     "pessoas": 40, "onde": "",
+                     "exemplos": ["FULANA DE TAL (CADASTRO DE EXEMPLO)"]},
+                    {"quem": "CONFERENCIA", "o_que": "o rol de substituídos",
+                     "pessoas": 35, "onde": "rol-de-substituidos",
+                     "exemplos": ["FULANA DE TAL (CADASTRO DE EXEMPLO)"]},
+                ],
+                "aguardando_leitura": {"documentos": 3, "pessoas": 2,
+                                       "ilegiveis": 0, "sem_banco": False}}
+    dados = {"completude": completude, "panorama": panorama}
+    contato = " ".join(proto.responder("contato", **dados))
+    checa("7" in contato and "Filiados" in contato,
+          f"contato: não diz quantos, ou onde está a lista: {contato}")
+    portal_ = " ".join(proto.responder("portal", **dados))
+    checa("19" in portal_ and "23" in portal_, f"portal: {portal_}")
+    leitura = " ".join(proto.responder("leitura", **dados))
+    checa("3" in leitura and "Documentos para ler" in leitura,
+          f"leitura: {leitura}")
+    primeiro = " ".join(proto.responder("primeiro", **dados))
+    checa("o rol de substituídos" in primeiro and "35" in primeiro,
+          "o que resolver primeiro tem de ser o maior que o SINDICATO "
+          f"destrava, não o maior da base: {primeiro}")
+    checa("enviar a sentença" not in primeiro.split(".")[0],
+          f"apontou como primeiro o que depende do filiado: {primeiro}")
+    # NOME DE GENTE NÃO ENTRA NA CONVERSA: é contagem, e a lista fica na aba.
+    for assunto in proto.ASSUNTOS:
+        texto = " ".join(proto.responder(assunto, **dados))
+        checa("FULANA" not in texto,
+              f"o Proto do gestor escreveu nome de filiado ({assunto})")
+    # SEM SABER, NÃO DIZ ZERO.
+    sem = {"completude": completude,
+           "panorama": {**panorama, "aguardando_leitura": {
+               "documentos": 0, "pessoas": 0, "ilegiveis": 0,
+               "sem_banco": True}}}
+    leitura = " ".join(proto.responder("leitura", **sem))
+    checa("não" in leitura.lower() and "nenhum documento" not in leitura.lower(),
+          f"sem banco, disse que não há nada para ler: {leitura}")
+    valor = " ".join(proto.responder("valor", **dados))
+    checa("não calculamos" in valor.lower() and "R$" not in valor,
+          f"valor: {valor}")
+    print("  ok     entende as perguntas da diretoria, conta e não nomeia")
+
+
+TESTES.extend([
+    teste_o_proto_do_gestor_entende_as_perguntas_da_diretoria,
+])
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

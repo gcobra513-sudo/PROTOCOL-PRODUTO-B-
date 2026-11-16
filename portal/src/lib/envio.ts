@@ -1056,7 +1056,29 @@ export async function perguntar(
   token: string,
   pergunta: string,
 ): Promise<RespostaDoAtendimento> {
-  const r = await fetch(`${BASE}/api/atendimento`, {
+  return perguntarEm("/api/atendimento", token, pergunta);
+}
+
+/** Pergunta ao Proto DO GESTOR: responde sobre a base do sindicato, com o
+ *  que o painel já diz. O servidor recusa quem não é gestor dele. */
+export async function perguntarComoGestor(
+  entidade: string,
+  token: string,
+  pergunta: string,
+): Promise<RespostaDoAtendimento> {
+  return perguntarEm(
+    `/api/entidade/${encodeURIComponent(entidade)}/atendimento`,
+    token,
+    pergunta,
+  );
+}
+
+async function perguntarEm(
+  caminho: string,
+  token: string,
+  pergunta: string,
+): Promise<RespostaDoAtendimento> {
+  const r = await fetch(`${BASE}${caminho}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1066,7 +1088,14 @@ export async function perguntar(
   });
   const corpo = await r.json().catch(() => ({}));
   if (!r.ok) {
-    throw new Error(corpo?.detail ?? "o atendimento não respondeu");
+    // COM O ESTADO, para a tela saber que a sessão morreu e voltar ao
+    // portão — sem ele, sessão vencida virava "o Proto não respondeu".
+    const detalhe = corpo?.detail;
+    throw new ErroDoServidor(
+      (typeof detalhe === "string" ? detalhe : detalhe?.erro) ??
+        "o Proto não respondeu",
+      r.status,
+    );
   }
   return corpo as RespostaDoAtendimento;
 }

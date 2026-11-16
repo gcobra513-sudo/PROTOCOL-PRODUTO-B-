@@ -607,7 +607,8 @@ export function atalhoDoGargalo(
 /** Quem entrou no portal, quem ainda não — ou tanto faz. */
 export type FiltroDoPortal = "" | "entrou" | "falta";
 
-export type AbaDoPainel = "resumo" | "filiados" | "documentos" | "envios";
+export type AbaDoPainel =
+  | "resumo" | "filiados" | "documentos" | "envios" | "proto";
 
 /** AS ABAS DO PAINEL, na ordem em que aparecem.
  *
@@ -621,6 +622,23 @@ export const ABAS_DO_PAINEL: { id: AbaDoPainel; rotulo: string }[] = [
   { id: "filiados", rotulo: "Filiados" },
   { id: "documentos", rotulo: "Documentos para ler" },
   { id: "envios", rotulo: "Envios e pedidos" },
+  // Por último: é o atalho para tudo que está nas outras, para quem
+  // prefere perguntar a procurar.
+  { id: "proto", rotulo: "Pergunte ao Proto" },
+];
+
+/** Como o Proto se apresenta ao gestor. */
+export const ABERTURA_DO_PROTO_DO_GESTOR = [
+  "Olá. Sou o Proto, o assistente automático do portal: respondo na hora, com o que está neste painel.",
+  "Não sou uma pessoa e não dou parecer. Eu conto e digo em que aba está a lista — nomes de filiados não aparecem nesta conversa.",
+];
+
+export const PERGUNTAS_DO_GESTOR_AO_PROTO = [
+  "Quantos filiados estão na base?",
+  "Com quantos eu não consigo falar?",
+  "Quantos já entraram no portal?",
+  "Quantos documentos esperam leitura?",
+  "O que resolver primeiro?",
 ];
 
 export type QuadroDoTopo =
