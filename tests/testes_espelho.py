@@ -3858,12 +3858,21 @@ def _rodar_ferramenta(nome: str, raiz, entidade: str, *extra: str):
     antigo, saida = sys.argv, io.StringIO()
     sys.argv = [nome, "--entidade", entidade, "--raiz", str(raiz),
                 "--banco", URL, *extra]
+    # EM ENSAIO, que é o que estes servidores de teste são: fora dele, uma
+    # ferramenta sem servidor de e-mail configurado se recusa a rodar, em
+    # vez de gravar e-mail de filiado num arquivo.
+    antes = os.environ.get("PROTOCOL_MODO_ENSAIO")
+    os.environ["PROTOCOL_MODO_ENSAIO"] = "1"
     try:
         with contextlib.redirect_stdout(saida), \
                 contextlib.redirect_stderr(saida):
             codigo = modulo.main()
     finally:
         sys.argv = antigo
+        if antes is None:
+            os.environ.pop("PROTOCOL_MODO_ENSAIO", None)
+        else:
+            os.environ["PROTOCOL_MODO_ENSAIO"] = antes
     return codigo, saida.getvalue()
 
 
@@ -4388,6 +4397,7 @@ def teste_aviso_ao_dono_que_falha_e_tentado_de_novo():
         ambiente = {k: v for k, v in os.environ.items()
                     if not k.startswith("PROTOCOL_")}
         ambiente["PROTOCOL_EMAIL_DE_QUEM_OPERA"] = NOS
+        ambiente["PROTOCOL_MODO_ENSAIO"] = "1"
         return subprocess.run(
             [sys.executable, str(RAIZ / "ferramentas" / "avisar_pedidos.py"),
              "--raiz", str(raiz), "--entidade", entidade],
@@ -4652,6 +4662,62 @@ def teste_o_proto_do_gestor_diz_o_que_o_painel_diz():
     checa(r.status_code == 401, f"sem sessão: {r.status_code}")
     print("  ok     o Proto do gestor diz o que o painel diz, e só a gestor")
 
+
+
+def _leituras(entidade: str, o_que: str) -> int:
+    from servidor import banco
+
+    with banco.sessao(URL, entidade) as cur:
+        cur.execute("SELECT count(*) FROM leitura WHERE o_que = %s", (o_que,))
+        return cur.fetchone()[0]
+
+
+def teste_o_retrato_do_painel_nao_e_copia_da_base():
+    """`/completude` devolvia, dentro do retrato, três dicionários com o CPF
+    INTEIRO de cada pessoa como chave — que tela nenhuma usa —, a lista de
+    quem não se alcança sem teto, e não registrava a leitura. Era o caminho
+    que transformava uma sessão de gestor comprometida em cópia integral da
+    base, sem rastro. (Item aberto da auditoria de segurança.)"""
+    import json as _json
+
+    secao("o retrato do painel não é cópia da base")
+    entidade = "demo-retrato"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    # Uma planilha com muita gente sem e-mail: a lista tem de ter teto.
+    muitos = [_cpf_sintetico(7000 + i) for i in range(260)]
+    (ent.pasta(raiz) / "acervo.jsonl").write_text(_json.dumps({"pessoas": [
+        {"cpf": c, "linha_no_arquivo": i + 2,
+         "campos": {"nome_completo": f"PESSOA {i} (CADASTRO DE EXEMPLO)",
+                    "email": ""},
+         "achados": [{"coluna": "email", "estado": "FALTA",
+                      "detalhe": "sem e-mail"}]}
+        for i, c in enumerate(muitos)]}) + "\n", encoding="utf-8")
+
+    gestor = _gestor(cliente, entidade)
+    antes = _leituras(entidade, "completude")
+    r = cliente.get(f"/api/entidade/{entidade}/completude", headers=gestor)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    if r.status_code != 200:
+        return
+    corpo = r.json()
+    cru = r.text
+    for cpf in (A, muitos[0], muitos[-1]):
+        checa(cpf not in cru,
+              f"o retrato devolveu um CPF inteiro ({cpf[:3]}…): a tela não "
+              "usa, e a planilha — que usa — é pedida à parte e registrada")
+    for chave in ("inalcancaveis_por_cpf", "falta_nominal", "divergencias"):
+        checa(chave not in corpo["retrato"],
+              f"o retrato ainda devolve `{chave}`, indexado por CPF")
+    checa(corpo["retrato"]["inalcancaveis"] >= 260,
+          f"a CONTAGEM tem de continuar inteira: {corpo['retrato']}")
+    checa(len(corpo["inalcancaveis"]) <= 200,
+          f"a lista nominal veio sem teto: {len(corpo['inalcancaveis'])}")
+    checa(corpo.get("inalcancaveis_total") == corpo["retrato"]["inalcancaveis"],
+          f"não diz quantos são ao todo: {corpo.get('inalcancaveis_total')}")
+    checa(_leituras(entidade, "completude") == antes + 1,
+          "abrir o retrato nominal da base não ficou registrado")
+    print("  ok     retrato sem CPF, com teto, e com a leitura registrada")
 
 
 def teste_o_atendimento_responde_com_o_que_as_telas_dizem():
@@ -5184,6 +5250,7 @@ TESTES = [
     teste_dominio_concentrado_segura_a_entrada,
     teste_dominio_confiado_por_quem_opera_libera,
     teste_o_atendimento_responde_com_o_que_as_telas_dizem,
+    teste_o_retrato_do_painel_nao_e_copia_da_base,
     teste_o_proto_do_gestor_diz_o_que_o_painel_diz,
     teste_o_atendimento_so_fala_de_quem_perguntou,
     teste_o_gestor_envia_o_rol_e_as_superficies_mudam_juntas,

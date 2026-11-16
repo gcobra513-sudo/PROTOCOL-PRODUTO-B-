@@ -74,6 +74,7 @@ from .config import (
     LIMITE_PACOTE_BYTES,
     MINUTOS_DO_CODIGO,
     Config,
+    ConfiguracaoInvalida,
     carregar,
 )
 
@@ -84,6 +85,10 @@ log = logging.getLogger("protocol.portal")
 #: quarto de hora, longo o bastante para que a rota, que é anônima, não
 #: sirva para fazer o portal martelar o provedor.
 CONFERIR_ENVIO_A_CADA = 300
+
+#: Quantos nomes a lista de "quem você não alcança" leva para a tela. A
+#: contagem vai inteira; a lista completa é a planilha da base.
+INALCANCAVEIS_NA_TELA = 200
 
 
 def _hash_curto(texto: str) -> str:
@@ -285,6 +290,27 @@ def _origem(pedido: Request, cfg: Config) -> str:
     return peer or "desconhecido"
 
 
+def exigir_bibliotecas(achar=None) -> None:
+    """O servidor não sobe sem o que ele precisa para DIZER NÃO.
+
+    Sem `pypdf`, a conferência de PDF respondia "abre, e tem texto" — isto
+    é, aprovava qualquer arquivo. A dúvida nunca vira permissão: é melhor
+    não subir, dizendo o que instalar, do que subir aceitando tudo.
+
+    `achar` existe para o teste simular a biblioteca ausente.
+    """
+    import importlib.util
+
+    achar = achar or importlib.util.find_spec
+    faltam = [nome for nome in ("pypdf", "openpyxl", "multipart")
+              if achar(nome) is None]
+    if faltam:
+        raise ConfiguracaoInvalida(
+            "faltam bibliotecas que o servidor usa para conferir o que "
+            f"recebe: {', '.join(faltam)}. Instale com "
+            "`pip install -r servidor/requirements.txt`.")
+
+
 class CabecalhosDeProtecao:
     """Acrescenta os cabeçalhos que não dependem de onde o servidor está.
 
@@ -323,6 +349,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     for aviso in cfg.avisos:
         log.warning("CONFIGURAÇÃO: %s", aviso)
 
+    exigir_bibliotecas()
     cfg.raiz.mkdir(parents=True, exist_ok=True)
     cadastro = entidades.Cadastro(cfg.raiz)
     portao = acesso.Portao(
@@ -416,7 +443,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     # `Starlette.add_middleware` faz `insert(0, ...)`: quem entra depois fica
     # mais por fora e roda primeiro — conferido no fonte, não suposto. Este
     # tem de decidir antes de qualquer outra camada tocar o corpo.
-    app.add_middleware(TetoDeCorpo, teto=LIMITE_PACOTE_BYTES)
+    app.add_middleware(TetoDeCorpo, teto=cfg.teto_do_pacote)
 
     # OS CABEÇALHOS DE PROTEÇÃO, em TODA resposta — inclusive o 413 do teto,
     # e por isso esta camada fica por fora dele. Ela não toca o corpo: só
@@ -1927,7 +1954,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             nome = _nome_de_envio(arquivo)
             corpo = await _ler_limitado(arquivo, LIMITE_ARQUIVO_BYTES)
             total += len(corpo)
-            if total > LIMITE_PACOTE_BYTES:
+            if total > cfg.teto_do_pacote:
                 raise _problema(
                     413,
                     "o envio passa do limite. Mande os documentos em "
@@ -2526,17 +2553,33 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 p.campos.get("nome_completo") or ""
             for p in pessoas
         }
+        # A CHAVE NÃO É O CPF. Ela só serve para a tela distinguir uma linha
+        # da outra, e mandar o CPF inteiro para isso era entregar, numa
+        # consulta, o que só a planilha — pedida à parte e registrada — leva.
         inalcancaveis = [
-            {"chave": chave, "nome": nome_de.get(chave, ""), "motivo": motivo}
-            for chave, motivo in retrato.inalcancaveis_por_cpf.items()
+            {"chave": f"p{i}", "nome": nome_de.get(chave, ""),
+             "motivo": motivo}
+            for i, (chave, motivo) in enumerate(
+                list(retrato.inalcancaveis_por_cpf.items())
+                [:INALCANCAVEIS_NA_TELA])
         ]
+        # O QUE SAI DO RETRATO SÃO AS CONTAGENS. Os três dicionários
+        # indexados por CPF serviam ao cálculo, tela nenhuma os lia, e eram
+        # a cópia da base dentro de uma resposta de painel.
+        visivel = dataclasses.asdict(retrato)
+        for nominal in ("inalcancaveis_por_cpf", "falta_nominal",
+                        "divergencias"):
+            visivel.pop(nominal, None)
+        # É LISTA NOMINAL: fica registrado quem abriu, como o panorama.
+        _auditar(ent, "completude", quem_hash=_sessao_de(pedido).cpf_hash)
 
         return {
             "entidade": ent.apelido,
             "nome": ent.nome,
             "manchete": retrato.manchete(),
-            "retrato": dataclasses.asdict(retrato),
+            "retrato": visivel,
             "inalcancaveis": inalcancaveis,
+            "inalcancaveis_total": retrato.inalcancaveis,
             # QUANTOS DA PLANILHA DELE FORAM APAGADOS A PEDIDO.
             #
             # CONTAGEM, e nunca lista nominal: a pessoa pediu para sair, e
@@ -2602,7 +2645,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 raise _problema(422, f"arquivo {nome} veio duas vezes")
             corpo = await _ler_limitado(arquivo, LIMITE_ARQUIVO_BYTES)
             total += len(corpo)
-            if total > LIMITE_PACOTE_BYTES:
+            if total > cfg.teto_do_pacote:
                 raise _problema(413, "o pacote de arquivos passa do limite")
             if not corpo:
                 raise _problema(422, f"o arquivo {nome} chegou vazio")

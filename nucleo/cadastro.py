@@ -52,8 +52,16 @@ COMPETENCIA = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 DATA_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-def so_digitos(v: str) -> str:
-    return "".join(c for c in str(v) if c.isdigit())
+def so_digitos(v: str | None) -> str:
+    """Só os algarismos de 0 a 9, e é a ÚNICA implementação da casa.
+
+    Havia duas, e divergiam: `str.isdigit` aceita "²" e os algarismos de
+    outros alfabetos; `\\D` aceitava estes últimos e não o primeiro. Um CPF
+    que metade do servidor lê de um jeito e metade de outro tem duas
+    identidades. CPF, telefone e número de processo são escritos com os dez
+    algarismos — o resto não é dígito aqui.
+    """
+    return "".join(c for c in str(v or "") if c in "0123456789")
 
 
 def cpf_valido(cpf: str) -> bool:

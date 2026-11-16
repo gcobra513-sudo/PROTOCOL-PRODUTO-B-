@@ -293,8 +293,6 @@ export interface Retrato {
   processos_acompanhados: number;
   querem_aviso: number;
   falta_por_campo: Record<string, number>;
-  falta_nominal: Record<string, string[]>;
-  inalcancaveis_por_cpf: Record<string, string>;
 }
 
 export interface Inalcancavel {

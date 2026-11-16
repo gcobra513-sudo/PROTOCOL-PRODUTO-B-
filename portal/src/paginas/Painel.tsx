@@ -1569,7 +1569,7 @@ export function Painel({
             <span className="md:hidden">{a.curto}</span>
             <span className="hidden md:inline">{a.rotulo}</span>
             {a.id === "documentos" && filaNaTela > 0 ? (
-              <span className="ml-1 rounded-full bg-alerta px-2 py-0.5 text-sm text-white md:ml-2">
+              <span className="ml-1 rounded-full bg-alerta px-2 py-0.5 text-sm text-carta md:ml-2">
                 {filaNaTela}
               </span>
             ) : null}

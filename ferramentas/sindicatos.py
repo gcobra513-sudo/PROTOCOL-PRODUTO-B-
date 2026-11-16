@@ -259,6 +259,51 @@ def gestor(raiz: pathlib.Path, args) -> int:
     return 0
 
 
+def carreiras(raiz: pathlib.Path, catalogo: pathlib.Path, args) -> int:
+    """Troca as carreiras de um sindicato. A lista dada SUBSTITUI a que vale."""
+    existentes = _categorias_do_catalogo(catalogo)
+    if not args.categoria:
+        raise Recusado(
+            "diga ao menos uma --categoria: sem ela o sindicato não recebe "
+            "resposta nenhuma. Para parar de atender, use `suspender`.")
+    desconhecidas = [c for c in args.categoria if c not in existentes]
+    if desconhecidas:
+        raise Recusado(
+            f"categoria que não existe no catálogo: "
+            f"{', '.join(desconhecidas)}. As que existem: "
+            f"{', '.join(existentes)}")
+    cadastro = entidades.Cadastro(raiz)
+    antes = next((e for e in cadastro.todas()
+                  if e.apelido == args.apelido.strip().lower()), None)
+    if antes is None:
+        raise Recusado(f"não há sindicato {args.apelido!r} em {raiz}")
+    depois = cadastro.alterar(antes.apelido,
+                              categorias=tuple(dict.fromkeys(args.categoria)))
+    print(f"{depois.apelido}  {depois.nome}")
+    print(f"  antes:  {', '.join(antes.categorias) or '(nenhuma)'}")
+    print(f"  agora:  {', '.join(depois.categorias)}")
+    print("  Vale a partir do próximo pedido; o servidor não precisa "
+          "reiniciar.")
+    return 0
+
+
+def suspender(raiz: pathlib.Path, args, ativa: bool) -> int:
+    """Suspende ou reativa. NÃO APAGA NADA: os dados ficam onde estão."""
+    cadastro = entidades.Cadastro(raiz)
+    try:
+        ent = cadastro.alterar(args.apelido, ativa=ativa)
+    except entidades.EntidadeDesconhecida:
+        raise Recusado(f"não há sindicato {args.apelido!r} em {raiz}") from None
+    if ativa:
+        print(f"{ent.apelido}  {ent.nome}: reativado. O portal dele volta a "
+              "atender.")
+    else:
+        print(f"{ent.apelido}  {ent.nome}: suspenso. O portal dele deixa de "
+              "atender — filiados e gestores não entram. Nenhum dado foi "
+              f"apagado. Para voltar: reativar {ent.apelido}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         description=__doc__,
@@ -281,6 +326,17 @@ def main(argv: list[str] | None = None) -> int:
                    metavar="CPF=EMAIL",
                    help="quem abre o painel (repita para mais de um)")
 
+    k = sub.add_parser("carreiras",
+                       help="troca as carreiras contratadas de um sindicato")
+    k.add_argument("apelido")
+    k.add_argument("--categoria", action="append", default=[],
+                   help="a lista inteira que passa a valer (repita)")
+
+    for nome, ajuda in (("suspender", "para de atender um sindicato, sem "
+                         "apagar nada"),
+                        ("reativar", "volta a atender um sindicato suspenso")):
+        sub.add_parser(nome, help=ajuda).add_argument("apelido")
+
     g = sub.add_parser("gestor", help="quem abre o painel de um sindicato")
     g.add_argument("apelido")
     g.add_argument("o_que", choices=("listar", "nomear", "tirar"))
@@ -296,6 +352,10 @@ def main(argv: list[str] | None = None) -> int:
             return categorias(catalogo)
         if args.comando == "criar":
             return criar(raiz, catalogo, args)
+        if args.comando == "carreiras":
+            return carreiras(raiz, catalogo, args)
+        if args.comando in ("suspender", "reativar"):
+            return suspender(raiz, args, ativa=args.comando == "reativar")
         return gestor(raiz, args)
     except Recusado as e:
         print(f"RECUSADO: {e}", file=sys.stderr)

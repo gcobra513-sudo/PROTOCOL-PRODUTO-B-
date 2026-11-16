@@ -37,13 +37,13 @@ export function AcessosDaDemo({
       <ul className="mt-2 space-y-2">
         {acessos.map((a) => (
           <li key={a.cpf} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <code className="rounded bg-white px-2 py-1 text-base font-semibold">
+            <code className="rounded bg-carta px-2 py-1 text-base font-semibold">
               {a.cpf}
             </code>
             <button
               type="button"
               onClick={() => void copiar(a.cpf)}
-              className="rounded border border-tinta/20 bg-white px-2 py-1 text-sm underline-offset-2 hover:underline"
+              className="rounded border border-tinta/20 bg-carta px-2 py-1 text-sm underline-offset-2 hover:underline"
             >
               {copiado === a.cpf ? "Copiado" : "Copiar"}
             </button>

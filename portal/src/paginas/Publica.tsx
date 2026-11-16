@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { BotaoDeTema } from "../componentes/BotaoDeTema";
 import { Marca } from "../componentes/Casca";
 import { enderecoDaArea } from "../lib/entrada";
 import * as api from "../lib/envio";
@@ -85,9 +86,12 @@ export function Moldura({
       <footer className="bg-carta">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-sm text-tinta/65 sm:px-6">
           <span>PROTOCOL — para sindicatos e cooperativas.</span>
-          <button type="button" onClick={onPrivacidade} className="text-acento underline">
-            Como tratamos os seus dados
-          </button>
+          <span className="flex flex-wrap items-center gap-5">
+            <BotaoDeTema className="inline-flex items-center gap-2 text-tinta/75 hover:text-acento" />
+            <button type="button" onClick={onPrivacidade} className="text-acento underline">
+              Como tratamos os seus dados
+            </button>
+          </span>
         </div>
       </footer>
     </div>

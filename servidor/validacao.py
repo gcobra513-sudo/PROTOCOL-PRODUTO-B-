@@ -27,6 +27,7 @@ import json
 import pathlib
 import re
 
+from nucleo import cadastro as _conta
 from nucleo import processo_cnj
 
 RAIZ_REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -105,8 +106,8 @@ UFS = frozenset(
 CEP = re.compile(r"^\d{5}-?\d{3}$")
 
 
-def so_digitos(v: str) -> str:
-    return re.sub(r"\D", "", v or "")
+#: UMA SÓ, a de `nucleo/cadastro.py`. Ver lá por quê.
+so_digitos = _conta.so_digitos
 
 
 def cpf_valido(cpf: str) -> bool:

@@ -2102,6 +2102,8 @@ def _lembrar(raiz: Path, entidade: str, destino: str | None):
                 if not k.startswith("PROTOCOL_")}
     if destino is not None:
         ambiente["PROTOCOL_EMAIL_DE_QUEM_OPERA"] = destino
+    # Em ensaio: fora dele, sem servidor de e-mail a ferramenta se recusa.
+    ambiente["PROTOCOL_MODO_ENSAIO"] = "1"
     return subprocess.run(
         [sys.executable, str(RAIZ / "ferramentas" / "avisar_pedidos.py"),
          "--raiz", str(raiz), "--entidade", entidade],
@@ -2748,6 +2750,113 @@ def teste_a_sessao_diz_que_papeis_a_pessoa_tem():
 
 TESTES.extend([
     teste_a_sessao_diz_que_papeis_a_pessoa_tem,
+])
+
+
+def teste_so_digitos_e_um_so_e_so_aceita_os_dez_algarismos():
+    """Havia duas implementações e elas divergiam de verdade: uma aceitava
+    "²" e os algarismos de outros alfabetos, a outra não. Um CPF que uma
+    metade do servidor lê de um jeito e a outra de outro é um CPF com duas
+    identidades. (Item aberto da auditoria de segurança.)"""
+    from nucleo import cadastro
+    from servidor import validacao
+
+    checa(validacao.so_digitos is cadastro.so_digitos,
+          "continuam existindo duas implementações de `so_digitos`")
+    for texto, esperado in (("529.982.247-25", "52998224725"),
+                            ("12²3", "123"), ("١٢٣", ""), ("１２３", ""),
+                            ("", ""), (None, "")):
+        checa(cadastro.so_digitos(texto) == esperado,
+              f"so_digitos({texto!r}) = {cadastro.so_digitos(texto)!r}, "
+              f"esperava {esperado!r}")
+    print("  ok     uma só `so_digitos`, e só de 0 a 9")
+
+
+def teste_sem_a_biblioteca_de_pdf_o_servidor_nao_sobe():
+    """Sem `pypdf`, a conferência de PDF respondia "abre, e tem texto" —
+    isto é, APROVAVA tudo. Dúvida não vira permissão: sem a biblioteca o
+    servidor não sobe, e diz o que instalar."""
+    from servidor import app as mod
+    from servidor.config import ConfiguracaoInvalida
+
+    try:
+        mod.exigir_bibliotecas(achar=lambda nome: None if nome == "pypdf"
+                               else object())
+        checa(False, "sem pypdf, o servidor subiria")
+    except ConfiguracaoInvalida as e:
+        checa("pypdf" in str(e), f"não disse o que falta: {e}")
+    mod.exigir_bibliotecas()        # nesta máquina está tudo instalado
+    print("  ok     sem a biblioteca de PDF não sobe")
+
+
+def teste_o_teto_do_pacote_e_configuravel_para_baixo():
+    """A demonstração hospedada roda em 512 MB com o banco junto, e um
+    pacote de 60 MB lido na memória derruba a máquina. O teto pode ser
+    baixado por configuração — e NUNCA levantado acima do que a casa mediu."""
+    from fastapi.testclient import TestClient
+
+    from servidor.app import criar_app
+    from servidor.config import ConfiguracaoInvalida, carregar
+
+    c = Cenario()
+    base = {"PROTOCOL_MODO_ENSAIO": "1", "PROTOCOL_RAIZ": str(c.raiz)}
+    cliente = TestClient(criar_app(carregar(
+        {**base, "PROTOCOL_TETO_DO_PACOTE_MB": "1"})))
+    r = cliente.post("/api/cadastro", data={"token": "x", "linha": "{}"},
+                     files=[("arquivos", ("a.pdf", b"0" * (2 * 1024 * 1024),
+                                          "application/pdf"))])
+    checa(r.status_code == 413, f"2 MB com teto de 1 MB: {r.status_code}")
+    r = c.cliente.post("/api/cadastro", data={"token": "x", "linha": "{}"},
+                       files=[("arquivos", ("a.pdf", b"0" * (2 * 1024 * 1024),
+                                            "application/pdf"))])
+    checa(r.status_code != 413, "sem a configuração, o teto padrão caiu")
+    for errado in ("0", "61", "muito"):
+        try:
+            carregar({**base, "PROTOCOL_TETO_DO_PACOTE_MB": errado})
+            checa(False, f"teto {errado!r} passou na subida")
+        except ConfiguracaoInvalida:
+            pass
+    print("  ok     teto do pacote: baixa por configuração, nunca sobe")
+
+
+def teste_o_envio_para_arquivo_so_existe_em_ensaio():
+    """`ParaArquivo` grava e-mail e código em claro num arquivo, sem prazo.
+    Quem o escolhia nas ferramentas era só a AUSÊNCIA de servidor de e-mail
+    configurado — então uma ferramenta rodada sem o ambiente, numa máquina
+    de verdade, passava a escrever endereços de filiados num arquivo, calada.
+    Agora isso só acontece em modo ensaio; fora dele, falha e diz por quê."""
+    import os
+
+    from servidor import remetente
+
+    raiz = Path(tempfile.mkdtemp(prefix="portal-teste-"))
+    _NASCIDOS.append(raiz)
+    guardado = {k: os.environ.pop(k, None)
+                for k in ("PROTOCOL_SMTP_HOST", "PROTOCOL_MODO_ENSAIO")}
+    try:
+        try:
+            remetente.pelo_ambiente(raiz)
+            checa(False, "sem e-mail configurado e fora do ensaio, escolheu "
+                  "gravar em arquivo")
+        except remetente.SemComoEnviar as e:
+            checa("PROTOCOL_SMTP_HOST" in str(e), f"não disse o que falta: {e}")
+        os.environ["PROTOCOL_MODO_ENSAIO"] = "1"
+        checa(isinstance(remetente.pelo_ambiente(raiz), remetente.ParaArquivo),
+              "em ensaio, deixou de gravar em arquivo")
+    finally:
+        for k, v in guardado.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    print("  ok     envio para arquivo: só em ensaio")
+
+
+TESTES.extend([
+    teste_so_digitos_e_um_so_e_so_aceita_os_dez_algarismos,
+    teste_sem_a_biblioteca_de_pdf_o_servidor_nao_sobe,
+    teste_o_teto_do_pacote_e_configuravel_para_baixo,
+    teste_o_envio_para_arquivo_so_existe_em_ensaio,
 ])
 
 

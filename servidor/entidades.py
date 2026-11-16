@@ -181,7 +181,53 @@ class Cadastro:
         # que escritório é contrato, não arquitetura — e um `entidades.json`
         # antigo com a chave simplesmente a perde na próxima reescrita, sem
         # perder nada que alguém lesse.
-        bruto = {
+        bruto = self._em_bruto()
+        bruto[chave] = {
+            "nome": nome.strip(),
+            "ativa": True,
+            "criada_em": dt.date.today().isoformat(),
+            "categorias": [str(c) for c in categorias],
+        }
+        self._gravar(bruto)
+        return self.resolver(chave)
+
+    def alterar(
+        self,
+        apelido: str,
+        *,
+        categorias: tuple[str, ...] | None = None,
+        ativa: bool | None = None,
+    ) -> Entidade:
+        """Troca as carreiras de UMA entidade, ou a suspende/reativa.
+
+        Era edição à mão de `entidades.json` — o arquivo do qual TODOS os
+        sindicatos dependem, e em que uma vírgula errada tira todos do ar.
+        Só o que foi pedido muda; o resto da entidade, e as outras, voltam
+        para o arquivo como estavam.
+
+        Devolve a entidade como ficou — inclusive suspensa, que `resolver`
+        não devolve.
+        """
+        self._carregar_se_mudou()
+        chave = (apelido or "").strip().lower()
+        if chave not in self._entidades:
+            raise EntidadeDesconhecida(chave)
+        bruto = self._em_bruto()
+        if categorias is not None:
+            for slug in categorias:
+                if not SLUG_CATEGORIA.match(str(slug)):
+                    raise ValueError(f"categoria {slug!r} inválida")
+            bruto[chave]["categorias"] = [str(c) for c in categorias]
+        if ativa is not None:
+            bruto[chave]["ativa"] = bool(ativa)
+        self._gravar(bruto)
+        self._carregar_se_mudou()
+        return self._entidades[chave]
+
+    def _em_bruto(self) -> dict:
+        """O que está em memória, na forma do arquivo. TODO campo de
+        `Entidade` aparece aqui — é daqui que o arquivo é reescrito."""
+        return {
             a: {
                 "nome": e.nome,
                 "ativa": e.ativa,
@@ -190,12 +236,8 @@ class Cadastro:
             }
             for a, e in self._entidades.items()
         }
-        bruto[chave] = {
-            "nome": nome.strip(),
-            "ativa": True,
-            "criada_em": dt.date.today().isoformat(),
-            "categorias": [str(c) for c in categorias],
-        }
+
+    def _gravar(self, bruto: dict) -> None:
         self.raiz.mkdir(parents=True, exist_ok=True)
         tmp = self._arquivo.with_suffix(".json.parcial")
         tmp.write_text(
@@ -204,7 +246,6 @@ class Cadastro:
         )
         tmp.replace(self._arquivo)
         self._assinatura = None
-        return self.resolver(chave)
 
 
 # =====================================================================

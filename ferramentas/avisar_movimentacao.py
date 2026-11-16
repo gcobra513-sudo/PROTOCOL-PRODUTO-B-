@@ -130,17 +130,7 @@ def main() -> int:
                     print(m.corpo)
                     enviados += 1
                     continue
-                correio = (
-                    remetente.PorSmtp(
-                        os.environ.get("PROTOCOL_SMTP_HOST", ""),
-                        int(os.environ.get("PROTOCOL_SMTP_PORTA", "587")),
-                        os.environ.get("PROTOCOL_SMTP_USUARIO", ""),
-                        os.environ.get("PROTOCOL_SMTP_SENHA", ""),
-                        os.environ.get("PROTOCOL_SMTP_REMETENTE", ""),
-                    )
-                    if os.environ.get("PROTOCOL_SMTP_HOST")
-                    else remetente.ParaArquivo(raiz)
-                )
+                correio = remetente.pelo_ambiente(raiz)
                 try:
                     correio.enviar_mensagem(m.destino, m.assunto, m.corpo)
                 except Exception as e:  # noqa: BLE001

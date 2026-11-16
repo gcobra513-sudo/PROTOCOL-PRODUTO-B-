@@ -58,6 +58,10 @@ class Config:
     #: se as ENTREGAS de e-mail estão saindo. Vazia: ninguém vê. Ver
     #: `remetente.Vigiado` — a entrega não pode ser pública.
     chave_do_monitor: str = ""
+    #: O maior corpo de pedido aceito, em bytes. O padrão é o que a casa
+    #: mediu; por configuração só se BAIXA (a demonstração hospedada roda em
+    #: 512 MB, com o banco junto).
+    teto_do_pacote: int = LIMITE_PACOTE_BYTES
     #: Onde este servidor está rodando. Com valor padrão porque `Config` tem
     #: campos obrigatórios posicionais e um campo novo sem padrão quebraria
     #: toda construção existente.
@@ -230,6 +234,14 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
             raise ConfiguracaoInvalida(f"{nome} tem que ser pelo menos 1")
         return valor
 
+    maximo_mb = LIMITE_PACOTE_BYTES // (1024 * 1024)
+    teto_mb = _inteiro("PROTOCOL_TETO_DO_PACOTE_MB", maximo_mb)
+    if teto_mb > maximo_mb:
+        raise ConfiguracaoInvalida(
+            f"PROTOCOL_TETO_DO_PACOTE_MB={teto_mb} passa de {maximo_mb}, que "
+            "é o que foi medido. Esta variável só serve para BAIXAR o teto.")
+    teto_do_pacote = teto_mb * 1024 * 1024
+
     banco_url = amb.get("PROTOCOL_DATABASE_URL", "").strip()
     if not banco_url:
         avisos.append(
@@ -281,6 +293,7 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
         smtp_senha=amb.get("PROTOCOL_SMTP_SENHA", ""),
         smtp_remetente=amb.get("PROTOCOL_SMTP_REMETENTE", "").strip(),
         chave_do_monitor=chave_do_monitor,
+        teto_do_pacote=teto_do_pacote,
         emissoes_por_cpf_hora=_inteiro(
             "PROTOCOL_EMISSOES_POR_CPF_HORA", EMISSOES_POR_CPF_HORA
         ),

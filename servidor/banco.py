@@ -66,6 +66,10 @@ TABELAS = (
 )
 
 
+class PapelNaoAssumido(RuntimeError):
+    """O papel da aplicação não pegou. Nenhuma consulta roda sem ele."""
+
+
 def _conectar(url: str):
     import psycopg
 
@@ -85,6 +89,18 @@ def _assumir_papel(cur) -> None:
     entidades.
     """
     cur.execute(f"SET LOCAL ROLE {PAPEL}")
+    # E CONFERE QUE PEGOU. Fora de transação, `SET LOCAL` não faz nada e não
+    # dá erro — só um aviso que ninguém lê —, e a consulta seguinte rodaria
+    # como o usuário privilegiado da conexão, que ignora toda política. Hoje
+    # toda conexão da casa abre transação; esta linha é para o dia em que
+    # alguém ligar `autocommit` ou puser um pool no meio.
+    cur.execute("SELECT current_user")
+    quem = cur.fetchone()[0]
+    if quem != PAPEL:
+        raise PapelNaoAssumido(
+            f"a conexão continuou como {quem!r} depois de pedir o papel "
+            f"{PAPEL!r}: sem ele as políticas de isolamento não valem, e "
+            "nenhuma consulta roda assim")
 
 
 def criar_esquema(url: str, recriar: bool = False) -> None:
