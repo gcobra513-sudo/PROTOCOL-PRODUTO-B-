@@ -12,6 +12,8 @@ import type { Gargalo } from "./envio";
 import type * as api from "./envio";
 import {
   ABAS_DO_PAINEL,
+  linhasPorVez,
+  pendenciasAVista,
   abaDaAncora,
   destinoDoQuadro,
   fracao,
@@ -578,6 +580,8 @@ describe("o painel em abas", () => {
       "resumo", "filiados", "documentos", "envios", "proto",
     ]);
     expect(ABAS_DO_PAINEL.at(-1)?.rotulo).toBe("Pergunte ao Proto");
+    // No celular as cinco ficam À VISTA, em duas fileiras: nome curto.
+    for (const a of ABAS_DO_PAINEL) expect(a.curto.length).toBeLessThanOrEqual(10);
   });
 
   it("cada quadro do topo leva à lista que ele conta", () => {
@@ -607,5 +611,39 @@ describe("a âncora de um atalho sabe em que aba mora", () => {
   it("o rol de substituídos fica em Envios e pedidos", () => {
     expect(abaDaAncora("#rol-de-substituidos")).toBe("envios");
     expect(abaDaAncora("#qualquer-outra")).toBeNull();
+  });
+});
+
+describe("o painel cabe no celular", () => {
+  // Medido em 16/11/2026 num Pixel 7: as abas Resumo e Filiados tinham mais
+  // de dez alturas de tela cada. A lista longa passa a mostrar o começo, e
+  // o resto fica a um toque.
+  const g = (o_que: string, onde = "") =>
+    ({ quem: "CONFERENCIA", titulo: "", explicacao: "", o_que, pessoas: 1, exemplos: [], onde }) as Gargalo;
+
+  it("mostra as primeiras pendências, e diz quantas ficaram guardadas", () => {
+    const lista = ["a", "b", "c", "d", "e", "f"].map((x) => g(x));
+    const r = pendenciasAVista(lista, false);
+    expect(r.visiveis.map((x) => x.o_que)).toEqual(["a", "b", "c", "d"]);
+    expect(r.guardadas).toBe(2);
+    expect(pendenciasAVista(lista, true)).toEqual({ visiveis: lista, guardadas: 0 });
+  });
+
+  it("nunca guarda a pendência que tem atalho para resolver", () => {
+    // "Enviar o rol" é o que o gestor FAZ. Escondê-lo atrás de "ver todas"
+    // seria tirar da tela justamente a linha que tem botão.
+    const lista = [g("a"), g("b"), g("c"), g("d"), g("e"), g("o rol", "rol-de-substituidos"), g("f")];
+    const r = pendenciasAVista(lista, false);
+    expect(r.visiveis.map((x) => x.o_que)).toEqual(["a", "b", "c", "d", "o rol"]);
+    expect(r.guardadas).toBe(2);
+  });
+
+  it("lista curta aparece inteira, sem botão", () => {
+    expect(pendenciasAVista([g("a"), g("b")], false).guardadas).toBe(0);
+  });
+
+  it("no celular a lista de filiados começa menor", () => {
+    expect(linhasPorVez(390)).toBe(6);
+    expect(linhasPorVez(1280)).toBe(15);
   });
 });

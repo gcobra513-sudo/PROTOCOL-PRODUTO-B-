@@ -617,14 +617,21 @@ export type AbaDoPainel =
  *  lista de cinquenta nomes. Cada aba responde a UMA pergunta de quem
  *  administra: como está a base, quem são as pessoas, o que eu tenho de
  *  ler, e o que eu tenho de mandar. */
-export const ABAS_DO_PAINEL: { id: AbaDoPainel; rotulo: string }[] = [
-  { id: "resumo", rotulo: "Resumo" },
-  { id: "filiados", rotulo: "Filiados" },
-  { id: "documentos", rotulo: "Documentos para ler" },
-  { id: "envios", rotulo: "Envios e pedidos" },
+export const ABAS_DO_PAINEL: {
+  id: AbaDoPainel;
+  rotulo: string;
+  /** O nome no celular, onde as cinco têm de caber À VISTA. Uma fileira
+   *  que rola de lado esconderia "Envios" e "Proto" de quem não sabe que
+   *  dá para arrastar. */
+  curto: string;
+}[] = [
+  { id: "resumo", rotulo: "Resumo", curto: "Resumo" },
+  { id: "filiados", rotulo: "Filiados", curto: "Filiados" },
+  { id: "documentos", rotulo: "Documentos para ler", curto: "Documentos" },
+  { id: "envios", rotulo: "Envios e pedidos", curto: "Envios" },
   // Por último: é o atalho para tudo que está nas outras, para quem
   // prefere perguntar a procurar.
-  { id: "proto", rotulo: "Pergunte ao Proto" },
+  { id: "proto", rotulo: "Pergunte ao Proto", curto: "Proto" },
 ];
 
 /** Como o Proto se apresenta ao gestor. */
@@ -654,4 +661,37 @@ export function destinoDoQuadro(
   if (q === "sem_cadastro") return { aba: "filiados", portal: "falta", ancora: "" };
   if (q === "inalcancaveis") return { aba: "filiados", portal: "", ancora: "nao-alcanca" };
   return { aba: "filiados", portal: "", ancora: "" };
+}
+
+
+// --------------------------------------------------- o painel cabe no celular
+
+/** Quantas pendências a lista mostra antes de "ver todas". */
+const PENDENCIAS_A_VISTA = 4;
+
+/** As pendências que aparecem de saída, e quantas ficaram guardadas.
+ *
+ *  Medido num celular: a aba Resumo tinha mais de dez alturas de tela, e
+ *  metade era esta lista. As primeiras são as que seguram mais gente (a
+ *  ordem vem do servidor); o resto fica a um toque.
+ *
+ *  A QUE TEM ATALHO NUNCA É GUARDADA. "Enviar o rol" é o que o gestor FAZ:
+ *  escondê-la seria tirar da tela justamente a linha que tem botão. */
+export function pendenciasAVista(
+  gargalos: Gargalo[],
+  todas: boolean,
+): { visiveis: Gargalo[]; guardadas: number } {
+  if (todas || gargalos.length <= PENDENCIAS_A_VISTA) {
+    return { visiveis: gargalos, guardadas: 0 };
+  }
+  const visiveis = gargalos.filter(
+    (g, i) => i < PENDENCIAS_A_VISTA || atalhoDoGargalo(g) !== null,
+  );
+  return { visiveis, guardadas: gargalos.length - visiveis.length };
+}
+
+/** Quantos filiados a lista mostra de cada vez. No celular cada pessoa ocupa
+ *  três linhas, e quinze delas eram quatro telas de rolagem. */
+export function linhasPorVez(larguraDaTela: number): number {
+  return larguraDaTela < 640 ? 6 : 15;
 }
