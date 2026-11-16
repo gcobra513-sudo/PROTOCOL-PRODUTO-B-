@@ -466,6 +466,9 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
         "PROTOCOL_DATABASE_URL": url,
         "PROTOCOL_PORTAL_ESTATICO": str(portal),
         # Folga: numa demonstração uma pessoa só pede muitos códigos.
+        # Teto de envio baixo: a hospedagem gratuita tem 512 MB, com o banco
+        # junto, e um pacote de 60 MB lido na memória derruba a máquina.
+        "PROTOCOL_TETO_DO_PACOTE_MB": "8",
         "PROTOCOL_EMISSOES_POR_CPF_HORA": "200",
         "PROTOCOL_EMISSOES_POR_ORIGEM_HORA": "5000",
     }

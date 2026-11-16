@@ -4,13 +4,16 @@
 # Jinja2, python-docx e playwright, que são do motor de lote e do mapeador.
 # O servidor não precisa de nenhum deles, e instalar 400 MB para servir um
 # formulário só faz a implantação demorar e aumentar a superfície.
-fastapi>=0.115
-uvicorn[standard]>=0.30
-python-multipart>=0.0.9
-pypdf>=4.0          # confere a camada de texto dos PDFs recebidos
-openpyxl>=3.1        # lê a planilha .xlsx que o sindicato envia pela web
+# COM TETO NA VERSÃO MAIOR: sem ele, uma instalação feita daqui a um ano
+# traria uma versão que ninguém testou com este código. Subir um teto é
+# decisão, com a suíte rodando — não acidente de `pip install`.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.9,<1
+pypdf>=4.0,<7          # confere a camada de texto dos PDFs recebidos
+openpyxl>=3.1,<4        # lê a planilha .xlsx que o sindicato envia pela web
 # O banco. FALTAVA, e o servidor subia sem ele: o import é feito dentro das
 # funções de `banco.py`, então só a primeira consulta quebrava. Medido em
 # 12/11/2026 num ambiente limpo. `[binary]` traz a libpq junto — sem ele a
 # máquina precisa do pacote de desenvolvimento do PostgreSQL para instalar.
-psycopg[binary]>=3.1
+psycopg[binary]>=3.1,<4

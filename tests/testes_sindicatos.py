@@ -393,6 +393,81 @@ TESTES.extend([
 ])
 
 
+def teste_trocar_as_carreiras_de_um_sindicato():
+    """O sindicato contratou outra carreira, ou a declaração estava errada.
+    Era edição à mão de `entidades.json` — o arquivo do qual todos os
+    sindicatos dependem."""
+    secao("trocar as carreiras")
+    OUTRA = "analista-tributario-receita-federal"
+    raiz = raiz_nova()
+    for apelido in ("sind-a", "sind-b"):
+        rodar(raiz, "criar", apelido, f"Sindicato {apelido}",
+              "--categoria", CATEGORIA, "--gestor", f"{G1}=g@exemplo.invalid")
+    cad = lambda: entidades.Cadastro(raiz)  # noqa: E731
+
+    codigo, disse = rodar(raiz, "carreiras", "sind-a",
+                          "--categoria", CATEGORIA, "--categoria", OUTRA)
+    checa(codigo == 0, f"não trocou: {disse}")
+    checa(set(cad().resolver("sind-a").categorias) == {CATEGORIA, OUTRA},
+          f"sind-a ficou com {cad().resolver('sind-a').categorias}")
+    checa(CATEGORIA in disse and OUTRA in disse,
+          f"não disse o que valia e o que passou a valer: {disse}")
+    checa(cad().resolver("sind-b").categorias == (CATEGORIA,),
+          "trocar as carreiras de um sindicato mexeu no outro")
+
+    # Carreira que não existe, ou nenhuma: RECUSA, e nada muda.
+    for args in (["--categoria", "carreira-que-nao-existe"], []):
+        codigo, disse = rodar(raiz, "carreiras", "sind-a", *args)
+        checa(codigo == 2 and "RECUSADO" in disse,
+              f"aceitou {args}: {codigo} {disse}")
+        checa(set(cad().resolver("sind-a").categorias) == {CATEGORIA, OUTRA},
+              f"uma troca recusada mudou as carreiras ({args})")
+    codigo, disse = rodar(raiz, "carreiras", "nao-existe",
+                          "--categoria", CATEGORIA)
+    checa(codigo == 2, f"trocou as carreiras de quem não existe: {disse}")
+    print("  ok     troca as carreiras de um, recusa o que não existe")
+
+
+def teste_suspender_e_reativar_um_sindicato():
+    """Contrato encerrado, ou em atraso: o portal daquele sindicato para de
+    atender — sem apagar nada, e com volta."""
+    secao("suspender e reativar")
+    raiz = raiz_nova()
+    for apelido in ("sind-a", "sind-b"):
+        rodar(raiz, "criar", apelido, f"Sindicato {apelido}",
+              "--categoria", CATEGORIA, "--gestor", f"{G1}=g@exemplo.invalid")
+    pasta = raiz / "sind-a"
+    antes = sorted(f.name for f in pasta.iterdir())
+
+    codigo, disse = rodar(raiz, "suspender", "sind-a")
+    checa(codigo == 0 and "suspenso" in disse.lower(), f"{codigo} {disse}")
+    try:
+        entidades.Cadastro(raiz).resolver("sind-a")
+        checa(False, "o sindicato suspenso continua sendo atendido")
+    except entidades.EntidadeSuspensa:
+        pass
+    checa(existe(raiz, "sind-b"), "suspender um sindicato derrubou o outro")
+    checa(sorted(f.name for f in pasta.iterdir()) == antes,
+          "suspender apagou ou criou arquivo do sindicato")
+    codigo, disse = rodar(raiz, "listar")
+    checa("SUSPENS" in disse.upper(), f"`listar` não mostra a suspensão: {disse}")
+
+    codigo, disse = rodar(raiz, "reativar", "sind-a")
+    checa(codigo == 0, f"{codigo} {disse}")
+    ent = entidades.Cadastro(raiz).resolver("sind-a")
+    checa(ent.categorias == (CATEGORIA,) and ent.nome == "Sindicato sind-a",
+          f"voltou diferente do que era: {ent}")
+    codigo, disse = rodar(raiz, "suspender", "nao-existe")
+    checa(codigo == 2, f"suspendeu quem não existe: {disse}")
+    print("  ok     suspende sem apagar, e reativa como estava")
+
+
+TESTES.extend([
+    teste_trocar_as_carreiras_de_um_sindicato,
+    teste_suspender_e_reativar_um_sindicato,
+])
+
+
 def main() -> int:
     print("=" * 70)
     print("SINDICATOS — pôr um sindicato novo para funcionar")

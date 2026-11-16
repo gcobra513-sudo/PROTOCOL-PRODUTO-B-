@@ -115,22 +115,30 @@ consideraria primeiro:
 - ~~`PROTOCOL_SEGREDO` aceita qualquer valor não vazio — um caractere
   passa, e dele derivam os três marcadores HMAC do portão.~~ **Fechado em
   16/11/2026:** menos de 24 caracteres não sobe.
-- `/api/entidade/{apelido}/completude` devolve lista nominal **sem teto**
-  e **sem registro de leitura**, enquanto `/panorama` limita a 8 nomes.
-  É o caminho que transforma uma sessão de gestor comprometida em cópia
-  integral da base.
-- `SET LOCAL ROLE` é no-op **silencioso** fora de transação, e todo o RLS
-  do produto pende dele. Uma linha conferindo `current_user` resolve.
+- ~~`/api/entidade/{apelido}/completude` devolve lista nominal sem teto e
+  sem registro de leitura.~~ **Fechado em 16/11/2026:** a lista tem teto de
+  200, a leitura fica registrada, e o retrato deixou de devolver os três
+  dicionários indexados por CPF, que tela nenhuma lia.
+- ~~`SET LOCAL ROLE` é no-op silencioso fora de transação.~~ **Fechado em
+  16/11/2026:** depois de pedir o papel, confere-se `current_user`; se não
+  pegou, nenhuma consulta roda.
 - O Postgres reseta `app.entidade` para **string vazia**, não NULL. Hoje
   inócuo; deixa de ser no dia em que aparecer um pool de conexões.
-- `texto_extraivel` devolve `(True, 0)` — isto é, **aprova** — quando
-  `pypdf` não está instalado.
-- Nenhuma dependência Python está fixada (tudo `>=`).
-- Duas implementações de `so_digitos` divergem de verdade entre
-  `nucleo/cadastro.py` e `servidor/validacao.py`.
-- `ParaArquivo` grava e-mail e movimentação processual em claro, sem
-  rotação nem retenção, e quem a seleciona no caminho de fundo é apenas
-  a ausência de `PROTOCOL_SMTP_HOST` — não uma trava.
+  **Continua aberto.**
+- ~~`texto_extraivel` aprova quando `pypdf` não está instalado.~~ **Fechado
+  em 16/11/2026:** sem `pypdf` o servidor não sobe.
+- ~~Nenhuma dependência Python está fixada.~~ **Em parte, em 16/11/2026:**
+  as do servidor ganharam teto na versão maior. Não há arquivo de trava com
+  as versões exatas.
+- ~~Duas implementações de `so_digitos` divergem.~~ **Fechado em
+  16/11/2026:** uma só, e só de 0 a 9.
+- ~~`ParaArquivo` é selecionado só pela ausência de `PROTOCOL_SMTP_HOST`.~~
+  **Fechado em 16/11/2026:** fora do modo ensaio, uma ferramenta sem
+  servidor de e-mail configurado se recusa a rodar. O arquivo, quando usado
+  em ensaio, continua sem rotação.
+
+Dos 40 itens, estes oito eram os que a auditoria apontou primeiro. **Os
+outros 32 não foram revistos um a um.**
 
 ## Uma correção ao relatório recebido
 

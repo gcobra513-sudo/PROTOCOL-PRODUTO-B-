@@ -6,6 +6,7 @@
  * No celular a barra lateral vira gaveta, aberta pelo botão de menu: é no
  * celular que o filiado está, e uma barra fixa comeria um terço da tela.
  */
+import { BotaoDeTema } from "./BotaoDeTema";
 import {
   Gavel,
   Home,
@@ -179,6 +180,7 @@ export function Casca({
           <ShieldCheck className={classeDoIcone} aria-hidden="true" />
           Como tratamos os seus dados
         </button>
+        <BotaoDeTema className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[15px] text-tinta/75 hover:bg-lilas/60 hover:text-acento" />
       </Grupo>
     </nav>
   );

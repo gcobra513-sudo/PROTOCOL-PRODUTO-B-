@@ -551,6 +551,38 @@ def _rodar(casos: list) -> None:
                 print(f"  FALHA  {teste.__name__}")
 
 
+def teste_sem_o_papel_da_aplicacao_a_consulta_nao_roda():
+    """`SET LOCAL ROLE` fora de transação NÃO FAZ NADA, e não dá erro: só um
+    aviso que ninguém lê. E todo o isolamento entre sindicatos pende dessa
+    linha — sem ela a conexão segue como `postgres`, que ignora as
+    políticas. Então depois de pedir o papel, CONFERE-SE que ele pegou.
+    (Item que estava aberto na auditoria de segurança.)"""
+    import psycopg
+
+    from servidor import banco
+
+    with psycopg.connect(URL, autocommit=True) as con:
+        with con.cursor() as cur:
+            try:
+                banco._assumir_papel(cur)
+                cur.execute("SELECT current_user")
+                checa(False, "fora de transação o papel não pegou — a "
+                      f"conexão seguiu como {cur.fetchone()[0]!r} — e "
+                      "ninguém reclamou")
+            except banco.PapelNaoAssumido:
+                pass
+    # Dentro de transação, que é como a casa usa, continua funcionando.
+    with psycopg.connect(URL, autocommit=False) as con:
+        with con.cursor() as cur:
+            banco._assumir_papel(cur)
+            cur.execute("SELECT current_user")
+            checa(cur.fetchone()[0] == banco.PAPEL, "o papel não é o da casa")
+    print("  ok     sem o papel da aplicação, a consulta não roda")
+
+
+TESTES.append(teste_sem_o_papel_da_aplicacao_a_consulta_nao_roda)
+
+
 def main() -> int:
     print("=" * 70)
     print("BANCO — isolamento entre entidades e trava de região")

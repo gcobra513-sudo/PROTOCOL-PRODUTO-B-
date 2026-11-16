@@ -478,6 +478,18 @@ migração contra um banco antigo.
 python3 ferramentas/sindicatos.py --raiz dados_portal criar sind-df "Sindicato Tal" --categoria auditor-fiscal-receita-federal --gestor 000.000.000-00=gestor@sindicato.exemplo.org
 ```
 
+Depois de criado, o que muda num sindicato também é comando, e nunca edição
+à mão de `entidades.json` (uma vírgula errada ali tira todos do ar):
+
+- `sindicatos.py --raiz ... carreiras sind-df --categoria X --categoria Y`
+  troca as carreiras contratadas. A lista dada substitui a que vale.
+- `sindicatos.py --raiz ... suspender sind-df` para de atender aquele
+  sindicato — filiados e gestores não entram — sem apagar nada.
+- `sindicatos.py --raiz ... reativar sind-df` volta a atender, como estava.
+
+Os três valem a partir do próximo pedido; o servidor não reinicia.
+
+
 Cria o sindicato, declara as carreiras contratadas e nomeia quem abre o
 painel — ou não cria nada: categoria que não existe no catálogo, CPF que não
 fecha e e-mail que não serve são recusados antes de qualquer gravação.

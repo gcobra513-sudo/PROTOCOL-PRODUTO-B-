@@ -318,12 +318,21 @@ class Vigiado:
             log.info("envio de e-mail voltou a funcionar")
 
 
+class SemComoEnviar(RuntimeError):
+    """Não há servidor de e-mail configurado, e não é ensaio."""
+
+
 def pelo_ambiente(raiz: pathlib.Path) -> Remetente:
     """O remetente de uma FERRAMENTA, lido do ambiente.
 
     As ferramentas não chamam `config.carregar()` — ela exige o segredo do
-    portão, que elas não usam. Com `PROTOCOL_SMTP_HOST`, é SMTP; sem, é o
-    arquivo de desenvolvimento, na raiz de dados.
+    portão, que elas não usam. Com `PROTOCOL_SMTP_HOST`, é SMTP.
+
+    SEM ELE, SÓ EM ENSAIO se escreve em arquivo. Antes bastava a AUSÊNCIA da
+    variável: uma ferramenta rodada sem o ambiente carregado, numa máquina
+    de verdade, passava a gravar e-mail e andamento de filiado em claro num
+    arquivo, calada, e ninguém recebia aviso nenhum. Fora do ensaio, a falta
+    de servidor de e-mail é ERRO — e diz como rodar.
     """
     import os
 
@@ -335,4 +344,10 @@ def pelo_ambiente(raiz: pathlib.Path) -> Remetente:
             os.environ.get("PROTOCOL_SMTP_SENHA", ""),
             os.environ.get("PROTOCOL_SMTP_REMETENTE", ""),
         )
+    if os.environ.get("PROTOCOL_MODO_ENSAIO") != "1":
+        raise SemComoEnviar(
+            "PROTOCOL_SMTP_HOST não está no ambiente, e sem ele não há como "
+            "enviar e-mail. Numa máquina de verdade, rode a ferramenta por "
+            "`implantacao/com-ambiente.sh`, que carrega a configuração do "
+            "servidor. Para ensaiar sem e-mail, PROTOCOL_MODO_ENSAIO=1.")
     return ParaArquivo(raiz)

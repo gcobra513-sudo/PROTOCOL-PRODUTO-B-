@@ -258,6 +258,12 @@ def tarefas_padrao(cfg):
             ambiente = dict(_os.environ)
             if cfg.banco_url:
                 ambiente["PROTOCOL_DATABASE_URL"] = cfg.banco_url
+            # O MODO ENSAIO TAMBÉM VAI, pelo mesmo motivo: é ele que deixa a
+            # ferramenta escrever o aviso em arquivo quando não há servidor
+            # de e-mail. Fora do ensaio ela se recusa — e a recusa vira
+            # falha registrada, que aparece em `/saude`.
+            if cfg.modo_ensaio:
+                ambiente["PROTOCOL_MODO_ENSAIO"] = "1"
             r = subprocess.run(comando, capture_output=True, text=True,
                                timeout=ARRENDAMENTO_SEGUNDOS - 60,
                                env=ambiente)

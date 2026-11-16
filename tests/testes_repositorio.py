@@ -619,7 +619,28 @@ def t_com_o_portal_pronto_a_demo_nao_pede_node():
         os.environ["PATH"] = antes
 
 
+def t_a_lista_de_frases_esta_em_dia():
+    """`docs/frases_do_filiado.md` é para quem revisa texto sem abrir o
+    código. Lista que não acompanha o código é pior que lista nenhuma: a
+    pessoa aprova uma frase que já não é a que vai para a tela."""
+    import sys as _sys
+
+    _sys.path.insert(0, str(RAIZ))
+    from ferramentas import frases
+
+    lista = frases.frases()
+    checa(len(lista) >= 20, f"a ferramenta só achou {len(lista)} frases")
+    for f in lista:
+        checa("escritório" not in f["voce"].lower(),
+              f"frase do filiado fala em escritório: {f['voce']!r}")
+    checa(frases.DESTINO.read_text("utf-8") == frases.documento(),
+          "docs/frases_do_filiado.md está desatualizado: rode "
+          "`python3 ferramentas/frases.py --gravar`")
+
+
 TESTES = [
+    ("a lista de frases para revisão está em dia",
+     t_a_lista_de_frases_esta_em_dia),
     ("a demo hospedada só roda a demonstração",
      t_a_demo_hospedada_so_roda_a_demonstracao),
     ("com o portal pronto a demo não pede Node",
