@@ -130,6 +130,24 @@ export async function conferirCodigo(
   return { token: d.token, nome: d.nome ?? "" };
 }
 
+/** Se quem abriu a sessão é filiado, gestor, ou as duas coisas — para o
+ *  menu. Nulo quando não deu para saber: o menu então mostra tudo, como
+ *  antes, em vez de esconder o que talvez seja da pessoa. */
+export async function verPapeis(
+  token: string,
+): Promise<{ filiado: boolean; gestor: boolean } | null> {
+  try {
+    const r = await fetch(`${BASE}/api/acesso/papeis`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return { filiado: Boolean(d.filiado), gestor: Boolean(d.gestor) };
+  } catch {
+    return null;
+  }
+}
+
 /** "Sair": encerra a sessão NO SERVIDOR. Nunca levanta — quem está saindo
  *  não tem o que fazer com um erro, e a tela esquece o token de todo jeito. */
 export async function sair(token: string): Promise<void> {

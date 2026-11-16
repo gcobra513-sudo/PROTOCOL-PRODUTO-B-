@@ -259,6 +259,13 @@ async function faseEntrada(navegador, gritos, resultado) {
       await p.waitForLoadState("networkidle");
       if (await p.getByLabel("Seu CPF", { exact: false }).count()) pediuDeNovo.push(nome);
     }
+    // O MENU É DE QUEM ENTROU: o filiado não vê o painel do sindicato.
+    await p.getByRole("link", { name: "Minha área" }).first().waitFor({ timeout: 15000 });
+    if (await p.getByRole("link", { name: "Painel do sindicato" }).count()) {
+      throw new Error("o menu do FILIADO oferece o Painel do sindicato");
+    }
+    marco("menu do filiado: só as áreas dele");
+
     // A MINHA ÁREA leva a pergunta escolhida até o Proto, e ele responde
     // sem a pessoa clicar de novo.
     await p.getByRole("link", { name: "Minha área" }).first().click();
@@ -623,6 +630,14 @@ async function fasePainel(navegador, gritos, resultado) {
         await entrar(g, cfg.gestor.cpf, "Seu CPF",
                      "Código que chegou no seu e-mail");
         await g.getByRole("tab", { name: /Resumo/ }).waitFor({ timeout: 20000 });
+        // O gestor deste ensaio TAMBÉM é filiado (está nos dois róis):
+        // o menu dele tem as duas partes. Quem é só uma coisa vê só uma —
+        // isso é o filiado da fase de entrada, e os testes de `perfil.ts`.
+        await g.getByRole("link", { name: "Painel do sindicato" }).first()
+          .waitFor({ timeout: 15000 });
+        await g.getByRole("link", { name: "Minha área" }).first()
+          .waitFor({ timeout: 15000 });
+        marco("menu de quem é gestor E filiado: as duas partes");
         await abaDoPainel(g, /Envios e pedidos/);
         await g.getByRole("button", { name: /Atender um pedido de apagamento/ })
           .waitFor({ timeout: 20000 });

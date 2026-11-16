@@ -767,6 +767,32 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         portao.encerrar_sessao(token)
         return {"saiu": True}
 
+    @app.get("/api/acesso/papeis")
+    def ver_papeis(pedido: Request) -> dict:
+        """Se quem abriu a sessão é filiado, gestor, ou as duas coisas.
+
+        Existe para o MENU: o portal mostrava tudo para todos, e o filiado
+        via "Painel do sindicato". NÃO É PERMISSÃO — cada rota continua
+        conferindo por conta própria (`_gestor_de`); isto só decide o que a
+        tela oferece.
+
+        NÃO RECEBE CPF, como as outras rotas de sessão: responde sobre quem
+        passou pelo portão, e por isso não serve para sondar quem é gestor.
+        Rol ilegível conta como "não é": menos menu, nunca mais.
+        """
+        sessao = _sessao_de(pedido)
+        pasta = _entidade(sessao.entidade).pasta(cfg.raiz)
+
+        def consta(carregar) -> bool:
+            try:
+                cpfs = carregar(pasta).por_cpf
+            except (rol.RolAusente, ValueError):
+                return False
+            return any(portao.marcar_cpf(c) == sessao.cpf_hash for c in cpfs)
+
+        return {"filiado": consta(rol.carregar),
+                "gestor": consta(rol.carregar_gestores)}
+
     @app.post("/api/acesso/conferir")
     def conferir_codigo(corpo: dict) -> dict:
         ent = _entidade(str(corpo.get("entidade", "")))

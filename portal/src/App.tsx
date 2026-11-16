@@ -42,6 +42,7 @@ import { acessosDaDemonstracao, type AcessoDaDemo } from "./lib/demonstracao";
 import { enderecoDaArea } from "./lib/entrada";
 import * as api from "./lib/envio";
 import { baixar, reciboJson } from "./lib/exportar";
+import { gruposDoMenu, telaDeChegada, type Papeis } from "./lib/perfil";
 import { cliqueQueNavega, paradoDemais } from "./lib/sessao";
 import {
   DOCUMENTOS,
@@ -157,6 +158,9 @@ export function App() {
   const [comecou, setComecou] = useState(false);
   const [etapa, setEtapa] = useState(0);
   const [token, setToken] = useState("");
+  // O que quem entrou É, dito pelo servidor. Nulo: ninguém entrou, ou ainda
+  // não se sabe — e aí o menu mostra tudo.
+  const [papeis, setPapeis] = useState<Papeis | null>(null);
   const [rascunho, setRascunho] = useState<Rascunho>(RASCUNHO_VAZIO);
   const [recibo, setRecibo] = useState<api.Recibo | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -251,6 +255,28 @@ export function App() {
     });
     setToken(novo);
   }, []);
+
+  // QUEM ENTROU É O QUÊ. Pergunta-se ao servidor a cada sessão nova: é ele
+  // que sabe se aquele CPF é filiado, gestor, ou as duas coisas. E quem
+  // entrou pela porta que não é a dela é levada à tela certa — o gestor que
+  // digitou o CPF numa área de filiado veria tudo vazio.
+  useEffect(() => {
+    if (!token) {
+      setPapeis(null);
+      return;
+    }
+    let vale = true;
+    void api.verPapeis(token).then((p) => {
+      if (!vale) return;
+      setPapeis(p);
+      const destino = telaDeChegada(p, tela);
+      if (destino !== tela) irPara(destino);
+    });
+    return () => {
+      vale = false;
+    };
+    // Só quando a SESSÃO muda: navegar depois não refaz a pergunta.
+  }, [token]);
 
   // SAIR. Encerra no servidor e esquece TUDO o que está na memória desta
   // página — o formulário, os anexos, o recibo. O rascunho guardado no
@@ -352,6 +378,7 @@ export function App() {
       link={(qual) => enderecoDaArea(qual, apelido)}
       onIr={irPara}
       temSessao={Boolean(token)}
+      grupos={gruposDoMenu(papeis)}
       onSair={() => encerrar()}
       onPrivacidade={() => setVerPrivacidade(true)}
     >

@@ -2702,5 +2702,54 @@ TESTES.extend([
 ])
 
 
+def teste_a_sessao_diz_que_papeis_a_pessoa_tem():
+    """O menu mostrava tudo para todos: o filiado via "Painel do sindicato",
+    o gestor via as áreas de filiado. Para o portal mostrar só o que é de
+    quem entrou, o servidor diz — DEPOIS do portão, e só sobre quem abriu a
+    sessão — se aquela pessoa é filiada, gestora, ou as duas coisas."""
+    secao("os papéis de quem entrou")
+    c = Cenario()
+    gestor, os_dois = "529.982.247-25", "111.444.777-35"
+    c.escrever_rol("demo-teste", [(CPF, "fulano@exemplo.org"),
+                                  (os_dois, "duas@exemplo.org")])
+    c.escrever_gestores("demo-teste", [(gestor, "g@exemplo.org"),
+                                       (os_dois, "duas@exemplo.org")])
+
+    def papeis(cpf):
+        r = c.cliente.get("/api/acesso/papeis", headers={
+            "Authorization": f"Bearer {c.token(cpf)}"})
+        checa(r.status_code == 200, f"{cpf}: {r.status_code} {r.text[:120]}")
+        return r.json()
+
+    checa(papeis(CPF) == {"filiado": True, "gestor": False},
+          f"filiado: {papeis(CPF)}")
+    checa(papeis(gestor) == {"filiado": False, "gestor": True},
+          f"gestor: {papeis(gestor)}")
+    checa(papeis(os_dois) == {"filiado": True, "gestor": True},
+          f"filiado e gestor: {papeis(os_dois)}")
+
+    # SEM SESSÃO NÃO HÁ PERGUNTA: a rota não recebe CPF, então não serve
+    # para sondar quem é gestor.
+    r = c.cliente.get("/api/acesso/papeis")
+    checa(r.status_code == 401, f"sem sessão: {r.status_code}")
+    r = c.cliente.get("/api/acesso/papeis?cpf=52998224725")
+    checa(r.status_code == 401, f"com CPF na URL e sem sessão: {r.status_code}")
+    # O arquivo de gestores estragado não derruba a entrada do filiado: ele
+    # só não é gestor.
+    t = c.token(CPF)
+    (c.raiz / "demo-teste" / "gestores.csv").write_text("isto não é um rol")
+    r = c.cliente.get("/api/acesso/papeis",
+                      headers={"Authorization": f"Bearer {t}"})
+    checa(r.status_code == 200 and r.json() == {"filiado": True,
+                                                "gestor": False},
+          f"gestores ilegível: {r.status_code} {r.text[:120]}")
+    print("  ok     filiado, gestor, ou os dois — e só de quem abriu a sessão")
+
+
+TESTES.extend([
+    teste_a_sessao_diz_que_papeis_a_pessoa_tem,
+])
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

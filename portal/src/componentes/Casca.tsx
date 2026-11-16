@@ -106,6 +106,7 @@ export function Casca({
   link,
   onIr,
   temSessao,
+  grupos = { filiado: true, sindicato: true },
   onSair,
   onPrivacidade,
   children,
@@ -119,6 +120,9 @@ export function Casca({
   onIr: (tela: Tela) => void;
   /** Há alguém dentro? É o que faz o "Sair" aparecer. */
   temSessao: boolean;
+  /** O que o menu oferece a quem entrou (`lib/perfil.ts`). Não é
+   *  permissão: é só o que aparece. */
+  grupos?: { filiado: boolean; sindicato: boolean };
   onSair: () => void;
   onPrivacidade: () => void;
   children: ReactNode;
@@ -131,30 +135,32 @@ export function Casca({
   const classeDoIcone = "h-5 w-5 shrink-0";
   const menu = (
     <nav aria-label="Áreas do portal" className="px-3">
-      <Grupo titulo="Filiado">
-        {comServidor ? (
-          <Item href={link("area")} atual={tela === "area"} onIr={ir("area")} icone={<CircleUserRound className={classeDoIcone} aria-hidden="true" />}>
-            Minha área
+      {grupos.filiado ? (
+        <Grupo titulo="Filiado">
+          {comServidor ? (
+            <Item href={link("area")} atual={tela === "area"} onIr={ir("area")} icone={<CircleUserRound className={classeDoIcone} aria-hidden="true" />}>
+              Minha área
+            </Item>
+          ) : null}
+          <Item href={link("cadastro")} atual={tela === "cadastro"} onIr={ir("cadastro")} icone={<UserRound className={classeDoIcone} aria-hidden="true" />}>
+            Meu cadastro
           </Item>
-        ) : null}
-        <Item href={link("cadastro")} atual={tela === "cadastro"} onIr={ir("cadastro")} icone={<UserRound className={classeDoIcone} aria-hidden="true" />}>
-          Meu cadastro
-        </Item>
-        {comServidor ? (
-          <>
-            <Item href={link("acoes")} atual={tela === "acoes"} onIr={ir("acoes")} icone={<ListChecks className={classeDoIcone} aria-hidden="true" />}>
-              Minhas ações
-            </Item>
-            <Item href={link("processos")} atual={tela === "processos"} onIr={ir("processos")} icone={<Gavel className={classeDoIcone} aria-hidden="true" />}>
-              Meus processos
-            </Item>
-            <Item href={link("atendimento")} atual={tela === "atendimento"} onIr={ir("atendimento")} icone={<MessagesSquare className={classeDoIcone} aria-hidden="true" />}>
-              Pergunte ao Proto
-            </Item>
-          </>
-        ) : null}
-      </Grupo>
-      {comServidor ? (
+          {comServidor ? (
+            <>
+              <Item href={link("acoes")} atual={tela === "acoes"} onIr={ir("acoes")} icone={<ListChecks className={classeDoIcone} aria-hidden="true" />}>
+                Minhas ações
+              </Item>
+              <Item href={link("processos")} atual={tela === "processos"} onIr={ir("processos")} icone={<Gavel className={classeDoIcone} aria-hidden="true" />}>
+                Meus processos
+              </Item>
+              <Item href={link("atendimento")} atual={tela === "atendimento"} onIr={ir("atendimento")} icone={<MessagesSquare className={classeDoIcone} aria-hidden="true" />}>
+                Pergunte ao Proto
+              </Item>
+            </>
+          ) : null}
+        </Grupo>
+      ) : null}
+      {comServidor && grupos.sindicato ? (
         <Grupo titulo="Sindicato">
           <Item href={link("painel")} atual={tela === "painel"} onIr={ir("painel")} icone={<LayoutDashboard className={classeDoIcone} aria-hidden="true" />}>
             Painel do sindicato
