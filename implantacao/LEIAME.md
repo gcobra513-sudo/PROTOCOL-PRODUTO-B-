@@ -161,9 +161,9 @@ arquivo com `source`**: a URL do banco tem `&`, e o shell a parte ao meio
 sem avisar.
 
 Banco que **já existe**: `criar_esquema` NÃO altera tabela existente. O de
-São Paulo já recebeu as duas primeiras migrações abaixo em 12/11/2026, e a
-forma dele foi conferida (`servidor/migracoes/LEIA.md`) — **não rode essas
-duas de novo ali**. A terceira, de 16/11, **ainda falta em São Paulo**.
+São Paulo já recebeu as três migrações abaixo (as duas primeiras em
+12/11/2026, a terceira em 16/11), e a forma dele foi conferida
+(`servidor/migracoes/LEIA.md`) — **não as rode de novo ali**.
 Para qualquer outro banco antigo, aplique na ordem, uma vez:
 
 ```bash
