@@ -32,6 +32,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import secrets
 import shutil
 import signal
 import socket
@@ -114,9 +115,11 @@ def _programa_do_postgres(nome: str) -> str | None:
 class BancoProprio:
     """Um PostgreSQL só da demonstração, numa pasta que some no fim.
 
-    SÓ EM 127.0.0.1, numa porta livre, e sem senha: quem alcança é só
-    programa desta máquina, pelo tempo da demonstração, e o que há dentro é
-    cadastro fictício. Não serve de modelo para banco nenhum de verdade.
+    SÓ EM 127.0.0.1, numa porta livre, e COM SENHA sorteada na hora. Era
+    sem senha, pelo raciocínio de que só programa desta máquina alcança — e
+    numa máquina compartilhada "programa desta máquina" inclui os outros
+    usuários, que entrariam como administrador do banco de quem roda a
+    demonstração (auditoria de 16/11/2026).
     """
 
     def __init__(self, pasta: pathlib.Path) -> None:
@@ -137,10 +140,18 @@ class BancoProprio:
             s.bind(("127.0.0.1", 0))
             self.porta = s.getsockname()[1]
         print("  criando o banco da demonstração...", flush=True)
-        r = subprocess.run(
-            [initdb, "-D", str(self.dados), "-U", "postgres", "-A", "trust",
-             "-E", "UTF8", "--locale=C"], capture_output=True, text=True,
-            stdin=subprocess.DEVNULL)
+        senha = secrets.token_urlsafe(24)
+        arquivo_da_senha = pasta / "senha-do-banco"
+        arquivo_da_senha.touch(mode=0o600)
+        arquivo_da_senha.write_text(senha + "\n", encoding="utf-8")
+        try:
+            r = subprocess.run(
+                [initdb, "-D", str(self.dados), "-U", "postgres",
+                 "-A", "scram-sha-256", f"--pwfile={arquivo_da_senha}",
+                 "-E", "UTF8", "--locale=C"], capture_output=True, text=True,
+                stdin=subprocess.DEVNULL)
+        finally:
+            arquivo_da_senha.unlink(missing_ok=True)
         if r.returncode != 0:
             raise NaoDa("o PostgreSQL não conseguiu criar o banco da "
                         f"demonstração:\n{r.stdout}\n{r.stderr}")
@@ -186,7 +197,8 @@ class BancoProprio:
             raise NaoDa("o PostgreSQL da demonstração não subiu:\n"
                         f"{r.stdout}\n{r.stderr}\n"
                         f"--- o que o PostgreSQL registrou ---\n{registro}")
-        self.url = f"postgresql://postgres@127.0.0.1:{self.porta}/postgres"
+        self.url = (f"postgresql://postgres:{senha}@127.0.0.1:"
+                    f"{self.porta}/postgres")
 
     def parar(self) -> None:
         subprocess.run([self.pg_ctl, "-D", str(self.dados), "-m", "fast",
@@ -442,7 +454,12 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
     # MODO ENSAIO, sempre: o código de acesso aparece na tela e nenhum
     # e-mail sai. E sem o trabalho de fundo, que falaria com tribunal.
     ambiente = {
-        **os.environ,
+        # SEM AS `PROTOCOL_*` DE QUEM CHAMOU. Com `PROTOCOL_SMTP_HOST` no
+        # ambiente — a máquina de quem opera um servidor de verdade — a
+        # demonstração mandaria e-mail de verdade, para endereços que
+        # qualquer visitante põe numa planilha (auditoria de 16/11/2026).
+        **{k: v for k, v in os.environ.items()
+           if not k.startswith("PROTOCOL_")},
         "PROTOCOL_MODO_ENSAIO": "1",
         "PROTOCOL_RAIZ": str(raiz),
         "PROTOCOL_AGENDAR": "0",

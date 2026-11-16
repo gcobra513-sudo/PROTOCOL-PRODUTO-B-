@@ -187,10 +187,18 @@ class Vigiado:
     EM MEMÓRIA, de propósito: é o estado DESTE processo falando com o
     provedor, e o serviço é um processo só. Reiniciou, confere de novo.
 
-    O QUE SAI DAQUI É UMA PALAVRA. Nem contagem, nem horário: `/saude` não
-    exige sessão, e um contador que anda a cada envio diria a quem pede um
-    código para um CPF alheio se o envio aconteceu — isto é, se o CPF está
-    no rol.
+    O QUE SAI DAQUI É UMA PALAVRA, e são DUAS palavras para dois leitores:
+
+    - `conexao()` é pública: muda só com a conferência, que não depende de
+      quem pede código;
+    - `entrega()` NÃO pode ser pública. Uma entrega só é tentada para CPF
+      que está no rol; se o resultado de UMA entrega mudasse uma palavra
+      que qualquer um lê, quem pedisse um código para um CPF alheio saberia
+      se aquele CPF é filiado (auditoria de 16/11/2026 — a primeira versão
+      fazia exatamente isso). Ela só sai para quem manda a chave do monitor.
+
+    E por isso uma entrega que dá certo NÃO marca a conexão como boa: seria
+    a entrega mexendo na palavra pública pela porta dos fundos.
     """
 
     def __init__(self, dentro: Remetente) -> None:
@@ -201,7 +209,22 @@ class Vigiado:
         self._conferida_em: float | None = None
         self._conferindo = False
 
+    def conexao(self) -> str:
+        """A palavra PÚBLICA: só a conferência a muda."""
+        with self._trava:
+            if self._conexao is None:
+                return "conferindo"
+            return "ok" if self._conexao else "falhando"
+
+    def entrega(self) -> str:
+        """A palavra de quem tem a chave do monitor."""
+        with self._trava:
+            if self._entrega is None:
+                return "sem_envio"
+            return "ok" if self._entrega else "falhando"
+
     def estado(self) -> str:
+        """As duas juntas — o que o operador quer saber."""
         with self._trava:
             if self._conexao is False or self._entrega is False:
                 return "falhando"
@@ -283,9 +306,6 @@ class Vigiado:
                 self._conexao = conexao
             if entrega is not None:
                 self._entrega = entrega
-                if entrega:
-                    # Uma mensagem saiu: a conexão está provada também.
-                    self._conexao = True
             esta_bem = not (self._conexao is False or self._entrega is False)
         # UMA LINHA NA VIRADA, e não uma por tentativa: é a linha que quem
         # opera procura no log. Só o TIPO do erro — o texto costuma trazer o

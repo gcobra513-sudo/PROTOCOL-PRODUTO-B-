@@ -27,6 +27,7 @@ from __future__ import annotations
 import csv
 import dataclasses
 import hashlib
+import hmac
 import io
 import json
 import logging
@@ -284,6 +285,39 @@ def _origem(pedido: Request, cfg: Config) -> str:
     return peer or "desconhecido"
 
 
+class CabecalhosDeProtecao:
+    """Acrescenta os cabeçalhos que não dependem de onde o servidor está.
+
+    ASGI puro, sem ler o corpo. `nao_indexar` é para a demonstração: demo
+    não é para aparecer em busca. O portal de verdade não leva.
+    """
+
+    def __init__(self, app, nao_indexar: bool = False) -> None:
+        self.app = app
+        self.extra = [
+            (b"x-content-type-options", b"nosniff"),
+            (b"x-frame-options", b"DENY"),
+            (b"referrer-policy", b"no-referrer"),
+        ]
+        if nao_indexar:
+            self.extra.append((b"x-robots-tag", b"noindex, nofollow"))
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def enviar(mensagem):
+            if mensagem["type"] == "http.response.start":
+                ja = {nome.lower() for nome, _ in mensagem.get("headers", [])}
+                mensagem = {**mensagem, "headers": [
+                    *mensagem.get("headers", []),
+                    *[(n, v) for n, v in self.extra if n not in ja]]}
+            await send(mensagem)
+
+        await self.app(scope, receive, enviar)
+
+
 def criar_app(cfg: Config | None = None) -> FastAPI:
     cfg = cfg or carregar()
     for aviso in cfg.avisos:
@@ -384,6 +418,14 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     # tem de decidir antes de qualquer outra camada tocar o corpo.
     app.add_middleware(TetoDeCorpo, teto=LIMITE_PACOTE_BYTES)
 
+    # OS CABEÇALHOS DE PROTEÇÃO, em TODA resposta — inclusive o 413 do teto,
+    # e por isso esta camada fica por fora dele. Ela não toca o corpo: só
+    # acrescenta cabeçalho na saída, então o teto continua decidindo antes
+    # de qualquer leitura. Na implantação o Caddy manda os mesmos; aqui é
+    # para o servidor não depender de quem está na frente — a demonstração
+    # hospedada não tinha ninguém, e respondia sem nenhum (medido em 16/11).
+    app.add_middleware(CabecalhosDeProtecao, nao_indexar=cfg.modo_ensaio)
+
     def _entidade(apelido: str) -> entidades.Entidade:
         try:
             ent = cadastro.resolver(apelido)
@@ -413,7 +455,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
     # ------------------------------------------------------------- diagnóstico
 
     @app.get("/saude")
-    def saude() -> dict:
+    def saude(pedido: Request) -> dict:
         # O ESTADO DO TRABALHO DE FUNDO VAI NA SAÚDE, e é o ponto inteiro
         # deste checkpoint: um agendador que parou tem de aparecer em algum
         # lugar que alguém olhe. `ok: false` quando alguma tarefa está
@@ -472,8 +514,11 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         # `CONFERIR_ENVIO_A_CADA` segundos, para pegar o provedor que parou
         # mesmo sem ninguém pedindo código.
         correio.conferir_em_fundo(CONFERIR_ENVIO_A_CADA)
-        envio = correio.estado()
-        return {
+        # A PALAVRA PÚBLICA É SÓ A DA CONEXÃO. A da entrega muda com o
+        # resultado de um envio, e envio só existe para quem está no rol:
+        # pública, ela diria a um anônimo se um CPF é filiado.
+        envio = correio.conexao()
+        corpo = {
             "ok": not atrasados and not ilegivel and envio != "falhando",
             "trabalho_de_fundo": list(por_tarefa.values()),
             "atrasados": atrasados,
@@ -483,6 +528,17 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "envio": envio,
             "entidades": len(cadastro.todas()),
         }
+        # COM A CHAVE DO MONITOR, a entrega aparece e entra no `ok`. Chave
+        # errada ou ausente recebe a MESMA resposta de quem não mandou nada:
+        # um erro aqui serviria para testar chave.
+        bruto = pedido.headers.get("authorization") or ""
+        chave = bruto[7:] if bruto.lower().startswith("bearer ") else ""
+        if cfg.chave_do_monitor and hmac.compare_digest(
+                chave.encode(), cfg.chave_do_monitor.encode()):
+            entrega = correio.entrega()
+            corpo["entrega"] = entrega
+            corpo["ok"] = corpo["ok"] and entrega != "falhando"
+        return corpo
 
     #: O que a tela mostra quando o servidor é de demonstração. Texto aqui,
     #: e não no portal, porque quem sabe que isto é demonstração é o

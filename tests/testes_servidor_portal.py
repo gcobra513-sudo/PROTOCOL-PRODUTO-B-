@@ -2377,15 +2377,44 @@ TESTES.extend([
 def teste_a_saude_denuncia_o_envio_de_email_parado():
     """Visto ao ensaiar a implantação: o servidor de e-mail recusava, a
     pessoa lia "código enviado" e nada chegava — e `/saude` dizia `ok`.
-    A resposta a QUEM PEDE continua a mesma (senão vira oráculo de filiação);
-    quem tem de ficar sabendo é quem opera."""
-    secao("o envio de e-mail parado aparece na saúde")
-    from servidor import remetente
+    Quem tem de ficar sabendo é quem opera.
 
+    MAS NÃO O ANÔNIMO. A auditoria de 16/11 mostrou o furo da primeira
+    versão: uma entrega só é tentada para CPF que ESTÁ no rol, então uma
+    palavra pública que muda com o resultado de UMA entrega diz a quem pede
+    um código para um CPF alheio se aquele CPF é filiado. A entrega só
+    aparece para quem manda a chave do monitor; sem ela, a saúde mostra só
+    a conferência da conexão, que não depende de quem pede."""
+    secao("o envio de e-mail parado aparece na saúde — para o monitor")
+    from fastapi.testclient import TestClient
+
+    from servidor import remetente
+    from servidor.app import criar_app
+    from servidor.config import ConfiguracaoInvalida, carregar
+
+    chave = "chave-do-monitor-de-teste-0123456789"
     c = Cenario()
-    antes = c.cliente.get("/saude").json()
-    checa(antes["ok"] is True and antes.get("envio") != "falhando",
-          f"saúde ruim antes de qualquer falha: {antes}")
+    base = {"PROTOCOL_MODO_ENSAIO": "1", "PROTOCOL_RAIZ": str(c.raiz),
+            "PROTOCOL_EMISSOES_POR_CPF_HORA": "50",
+            "PROTOCOL_EMISSOES_POR_ORIGEM_HORA": "500"}
+    cliente = TestClient(criar_app(carregar(
+        {**base, "PROTOCOL_CHAVE_DO_MONITOR": chave})))
+    monitor = {"Authorization": f"Bearer {chave}"}
+
+    def publico():
+        d = cliente.get("/saude").json()
+        return {k: d.get(k) for k in ("ok", "envio", "entrega")}
+
+    cliente.get("/saude")          # dispara a conferência da conexão
+    import time as _t
+    for _ in range(40):
+        if publico()["envio"] != "conferindo":
+            break
+        _t.sleep(0.05)
+    antes = publico()
+    checa(antes["ok"] is True and antes["envio"] == "ok"
+          and antes["entrega"] is None,
+          f"saúde anônima inesperada antes de qualquer falha: {antes}")
 
     original = remetente.ParaArquivo.enviar
 
@@ -2394,33 +2423,116 @@ def teste_a_saude_denuncia_o_envio_de_email_parado():
 
     remetente.ParaArquivo.enviar = fora_do_ar
     try:
-        r = c.cliente.post("/api/acesso/codigo",
-                           json={"entidade": "demo-teste", "cpf": CPF})
+        r = cliente.post("/api/acesso/codigo",
+                         json={"entidade": "demo-teste", "cpf": CPF})
     finally:
         remetente.ParaArquivo.enviar = original
     checa(r.status_code == 202,
           f"a falha de envio mudou a resposta a quem pede: {r.status_code}")
-    depois = c.cliente.get("/saude").json()
-    checa(depois["ok"] is False,
-          f"o envio falhou e a saúde continua ok: {depois}")
-    checa(depois.get("envio") == "falhando",
-          f"a saúde não diz que é o envio: {depois}")
-    # A rota não exige sessão: nem endereço, nem CPF, nem o texto do erro.
-    cru = json.dumps(depois)
+
+    # O ANÔNIMO NÃO VÊ DIFERENÇA NENHUMA: é isso que fecha o oráculo.
+    checa(publico() == antes,
+          f"a saúde ANÔNIMA mudou depois de uma entrega falhar — quem pediu "
+          f"o código ficou sabendo que o CPF está no rol: {antes} -> "
+          f"{publico()}")
+    # O MONITOR, COM A CHAVE, VÊ.
+    visto = cliente.get("/saude", headers=monitor).json()
+    checa(visto["ok"] is False and visto.get("entrega") == "falhando",
+          f"com a chave do monitor, a entrega parada não aparece: {visto}")
+    cru = json.dumps(visto)
     checa("fulano@" not in cru and CPF_DIGITOS not in cru
           and "fora do ar" not in cru,
-          f"a saúde publicou detalhe da falha a quem não tem sessão: {cru}")
+          f"a saúde publicou detalhe da falha: {cru}")
+    # Chave errada é anônimo — e a resposta é a do anônimo, sem erro que
+    # sirva para testar chave.
+    errada = cliente.get("/saude",
+                         headers={"Authorization": "Bearer " + "x" * 36})
+    checa(errada.status_code == 200 and "entrega" not in errada.json(),
+          f"chave errada viu a entrega: {errada.status_code} {errada.text[:120]}")
 
-    r = c.cliente.post("/api/acesso/codigo",
-                       json={"entidade": "demo-teste", "cpf": CPF})
-    volta = c.cliente.get("/saude").json()
-    checa(volta["ok"] is True and volta.get("envio") == "ok",
-          f"o envio voltou e a saúde não: {volta}")
-    print("  ok     envio parado: saúde ruim; envio de volta: saúde boa")
+    cliente.post("/api/acesso/codigo",
+                 json={"entidade": "demo-teste", "cpf": CPF})
+    volta = cliente.get("/saude", headers=monitor).json()
+    checa(volta["ok"] is True and volta.get("entrega") == "ok",
+          f"o envio voltou e a saúde do monitor não: {volta}")
+
+    # SEM CHAVE CONFIGURADA, ninguém vê a entrega — nem com cabeçalho.
+    sem = TestClient(criar_app(carregar(base)))
+    checa("entrega" not in sem.get("/saude", headers=monitor).json(),
+          "sem chave configurada, um cabeçalho qualquer abriu a entrega")
+    # E chave curta não sobe: uma chave adivinhável é o oráculo de volta.
+    try:
+        carregar({**base, "PROTOCOL_CHAVE_DO_MONITOR": "curta"})
+        checa(False, "chave do monitor de 5 caracteres passou na subida")
+    except ConfiguracaoInvalida:
+        pass
+    print("  ok     entrega parada: só o monitor com a chave vê")
+
+
+def teste_o_segredo_curto_nao_sobe():
+    """Do segredo derivam os marcadores do portão. Um caractere passava
+    (auditoria de segurança, item em aberto — e listado num documento que
+    ficou público)."""
+    from servidor.config import ConfiguracaoInvalida, carregar
+
+    raiz = Path(tempfile.mkdtemp(prefix="portal-teste-"))
+    _NASCIDOS.append(raiz)
+    base = {"PROTOCOL_RAIZ": str(raiz),
+            "PROTOCOL_SMTP_HOST": "smtp.exemplo.invalid",
+            "PROTOCOL_SMTP_REMETENTE": "naoresponda@exemplo.invalid",
+            "PROTOCOL_REGIAO": "sa-east-1", "PROTOCOL_AGENDAR": "0"}
+    for curto in ("x", "segredo", "a" * 23):
+        try:
+            carregar({**base, "PROTOCOL_SEGREDO": curto})
+            checa(False, f"segredo de {len(curto)} caractere(s) passou")
+        except ConfiguracaoInvalida:
+            pass
+    carregar({**base, "PROTOCOL_SEGREDO": "a1" * 12})   # 24: passa
+    print("  ok     segredo curto não sobe")
+
+
+def teste_as_respostas_levam_os_cabecalhos_de_protecao():
+    """Na implantação quem põe estes cabeçalhos é o Caddy — e a
+    demonstração hospedada não tem Caddy na frente: medido em 16/11, o link
+    público respondia sem nenhum. O servidor passa a mandar os que não
+    dependem de onde ele está. E, em demonstração, pede para não ser
+    indexado: demo não é para aparecer em busca."""
+    from fastapi.testclient import TestClient
+
+    from servidor import entidades as mod_entidades
+    from servidor.app import criar_app
+    from servidor.config import carregar
+
+    c = Cenario()
+    for rota in ("/saude", "/api/entidade/demo-teste", "/api/nao-existe"):
+        h = c.cliente.get(rota).headers
+        checa(h.get("x-content-type-options") == "nosniff"
+              and h.get("x-frame-options") == "DENY"
+              and h.get("referrer-policy") == "no-referrer",
+              f"{rota}: faltam cabeçalhos de proteção: {dict(h)}")
+        checa("noindex" in h.get("x-robots-tag", ""),
+              f"{rota}: a demonstração não pede para ficar fora das buscas")
+    raiz = Path(tempfile.mkdtemp(prefix="portal-teste-"))
+    _NASCIDOS.append(raiz)
+    mod_entidades.Cadastro(raiz).criar("demo-prod", "Demonstração")
+    producao = TestClient(criar_app(carregar({
+        "PROTOCOL_RAIZ": str(raiz),
+        "PROTOCOL_SEGREDO": "segredo-de-teste-com-tamanho-suficiente",
+        "PROTOCOL_SMTP_HOST": "smtp.exemplo.invalid",
+        "PROTOCOL_SMTP_REMETENTE": "naoresponda@exemplo.invalid",
+        "PROTOCOL_REGIAO": "sa-east-1", "PROTOCOL_AGENDAR": "0"})))
+    h = producao.get("/saude").headers
+    checa(h.get("x-frame-options") == "DENY", "produção sem X-Frame-Options")
+    checa("x-robots-tag" not in h,
+          "fora da demonstração o servidor mandou noindex: o portal de "
+          "verdade tem de poder ser achado")
+    print("  ok     cabeçalhos de proteção em toda resposta")
 
 
 TESTES.extend([
     teste_a_saude_denuncia_o_envio_de_email_parado,
+    teste_o_segredo_curto_nao_sobe,
+    teste_as_respostas_levam_os_cabecalhos_de_protecao,
 ])
 
 

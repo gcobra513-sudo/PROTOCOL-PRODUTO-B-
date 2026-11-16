@@ -54,6 +54,10 @@ class Config:
     #: Recriar a entidade de demonstração ao subir. Necessário onde o disco
     #: não é persistente (plano gratuito), e só funciona em MODO ENSAIO.
     semente_demo: bool = False
+    #: Com ela no cabeçalho `Authorization: Bearer`, `/saude` mostra também
+    #: se as ENTREGAS de e-mail estão saindo. Vazia: ninguém vê. Ver
+    #: `remetente.Vigiado` — a entrega não pode ser pública.
+    chave_do_monitor: str = ""
     #: Onde este servidor está rodando. Com valor padrão porque `Config` tem
     #: campos obrigatórios posicionais e um campo novo sem padrão quebraria
     #: toda construção existente.
@@ -115,6 +119,10 @@ class Config:
         return bool(self.smtp_host and self.smtp_remetente)
 
 
+#: Tamanho mínimo do segredo do portão e da chave do monitor.
+SEGREDO_MINIMO = 24
+
+
 class ConfiguracaoInvalida(RuntimeError):
     """Falta algo sem o que o servidor não deve subir."""
 
@@ -143,6 +151,23 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
     modo_ensaio = amb.get("PROTOCOL_MODO_ENSAIO", "") == "1"
 
     segredo = amb.get("PROTOCOL_SEGREDO", "").strip()
+    # UM SEGREDO CURTO É UM SEGREDO QUE SE ADIVINHA, e dele derivam os
+    # marcadores do portão. Um caractere passava (item em aberto da
+    # auditoria de segurança). O comando que a mensagem ensina gera 43.
+    if segredo and len(segredo) < SEGREDO_MINIMO:
+        raise ConfiguracaoInvalida(
+            f"PROTOCOL_SEGREDO tem {len(segredo)} caractere(s), e o mínimo "
+            f"é {SEGREDO_MINIMO}. Gere um com "
+            "`python3 -c \"import secrets;print(secrets.token_urlsafe(32))\"`."
+        )
+    chave_do_monitor = amb.get("PROTOCOL_CHAVE_DO_MONITOR", "").strip()
+    if chave_do_monitor and len(chave_do_monitor) < SEGREDO_MINIMO:
+        raise ConfiguracaoInvalida(
+            f"PROTOCOL_CHAVE_DO_MONITOR tem {len(chave_do_monitor)} "
+            f"caractere(s), e o mínimo é {SEGREDO_MINIMO}: com ela se lê se "
+            "as entregas de e-mail estão saindo, e uma chave adivinhável "
+            "devolve essa leitura a qualquer um."
+        )
     if not segredo:
         if not modo_ensaio:
             raise ConfiguracaoInvalida(
@@ -255,6 +280,7 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
         smtp_usuario=amb.get("PROTOCOL_SMTP_USUARIO", "").strip(),
         smtp_senha=amb.get("PROTOCOL_SMTP_SENHA", ""),
         smtp_remetente=amb.get("PROTOCOL_SMTP_REMETENTE", "").strip(),
+        chave_do_monitor=chave_do_monitor,
         emissoes_por_cpf_hora=_inteiro(
             "PROTOCOL_EMISSOES_POR_CPF_HORA", EMISSOES_POR_CPF_HORA
         ),
