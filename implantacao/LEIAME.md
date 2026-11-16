@@ -293,20 +293,26 @@ fica em São Paulo. Nenhuma cópia destes dados sai do Brasil.
 
 ## Ficar sabendo quando parar
 
-`/saude` responde `"ok": false` em três casos, e os três são "o portal está
-de pé mas não está entregando": trabalho de fundo atrasado, estado que não
-deu para ler, e **envio de e-mail falhando** (`"envio": "falhando"`). O
-último existe porque quem pede o código lê "código enviado" mesmo quando o
-envio falha — a tela não pode dizer outra coisa sem revelar quem está no
-cadastro do sindicato —, então é só por aqui que quem opera fica sabendo.
+`/saude` responde `"ok": false` quando o portal está de pé mas não está
+entregando: trabalho de fundo atrasado, estado que não deu para ler, e
+**conexão com o servidor de e-mail falhando** (`"envio": "falhando"`).
+
+Há um quarto caso que **só aparece para quem manda a chave do monitor**: a
+conexão está boa e mesmo assim as mensagens não saem (o provedor aceita a
+conta e recusa o envio). Quem pede o código lê "código enviado" de qualquer
+jeito — a tela não pode dizer outra coisa sem revelar quem está no cadastro
+do sindicato —, e pelo mesmo motivo `/saude` não mostra isso a qualquer um.
+Com `Authorization: Bearer <PROTOCOL_CHAVE_DO_MONITOR>`, a resposta ganha
+`"entrega"` e o `"ok"` passa a contar com ela.
 
 **Nada neste repositório olha `/saude` por você.** Aponte um monitor de fora
-para `https://<domínio>/saude`, a cada poucos minutos, alertando quando a
-resposta não trouxer `"ok": true` (e não só quando a porta não responder). A
-rota não exige sessão e não publica dado de filiado nem nome de sindicato.
+para `https://<domínio>/saude`, a cada poucos minutos, **com o cabeçalho da
+chave**, alertando quando a resposta não trouxer `"ok": true` (e não só
+quando a porta não responder). A rota não publica dado de filiado nem nome de
+sindicato.
 
-Envio marcado como falhando por causa de uma ENTREGA só volta a `"ok"` quando
-um envio de verdade der certo — entrar no portal você mesmo é o teste.
+Entrega marcada como falhando só volta a `"ok"` quando um envio de verdade
+der certo — entrar no portal você mesmo é o teste.
 
 ## Atualizar depois
 

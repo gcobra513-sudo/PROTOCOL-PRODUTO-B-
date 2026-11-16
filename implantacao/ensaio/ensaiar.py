@@ -566,7 +566,14 @@ def o_email_errado(servidor, correio, de_fora):
             "e o registro do servidor diz por quê")
     # A PESSOA LEU "código enviado". Quem tem de saber é quem opera, e o
     # lugar é a saúde — que é o que um monitor de fora consegue ler.
-    saude = json.loads(pedir("GET", "/saude")[2])
+    # O que a saúde PÚBLICA mostra é a conferência da conexão, disparada por
+    # ela mesma e feita em fundo: espera sair de "conferindo".
+    saude = {}
+    for _ in range(40):
+        saude = json.loads(pedir("GET", "/saude")[2])
+        if saude.get("envio") != "conferindo":
+            break
+        time.sleep(0.5)
     confere(saude.get("ok") is False and saude.get("envio") == "falhando",
             "/saude denuncia o envio parado "
             f"(ok={saude.get('ok')}, envio={saude.get('envio')})")

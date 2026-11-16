@@ -4,3 +4,10 @@
 portal/node_modules
 portal/dist
 **/__pycache__
+# Dado nenhum entra na imagem: quem roda `docker build` numa máquina com
+# dados de verdade copiaria tudo com `COPY . .`.
+dados
+dados_portal
+**/*.jsonl
+**/*.sqlite3*
+.env*

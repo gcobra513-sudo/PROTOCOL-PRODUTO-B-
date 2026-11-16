@@ -398,12 +398,13 @@ def t_o_ambiente_de_exemplo_e_o_que_o_servidor_le():
           "o exemplo de PRODUÇÃO liga o modo ensaio ou a semente de "
           "demonstração")
     for nome in ("PROTOCOL_SEGREDO", "PROTOCOL_DATABASE_URL",
-                 "PROTOCOL_SMTP_SENHA"):
+                 "PROTOCOL_SMTP_SENHA", "PROTOCOL_CHAVE_DO_MONITOR"):
         checa(definidas.get(nome) == "",
               f"o exemplo traz valor em {nome}: segredo não mora no "
               f"repositório")
 
-    preenchido = {k: v or "preenchido-na-maquina" for k, v in
+    # Mais de 24 caracteres: é o mínimo do segredo e da chave do monitor.
+    preenchido = {k: v or "preenchido-na-maquina-de-quem-opera" for k, v in
                   definidas.items()}
     preenchido["PROTOCOL_EMAIL_DE_QUEM_OPERA"] = "nos@exemplo.invalid"
     # Vazio DE PROPÓSITO no exemplo: com o Caddy, quem entrega as páginas é
@@ -572,6 +573,22 @@ def t_a_demo_hospedada_so_roda_a_demonstracao():
     usuarios = [l.split()[1] for l in instrucoes if l.startswith("USER")]
     checa(usuarios and usuarios[-1] not in ("root", "0"),
           f"a imagem da demo roda como root: {usuarios}")
+    # O QUE A IMAGEM NÃO PODE LEVAR JUNTO: um `docker build` na máquina de
+    # quem tem dados de verdade copiaria tudo com `COPY . .`.
+    ignorados = (RAIZ / ".dockerignore").read_text("utf-8").split()
+    for padrao in ("dados", "dados_portal", "**/*.jsonl", ".env*",
+                   "**/*.sqlite3*"):
+        checa(padrao in ignorados,
+              f".dockerignore não protege {padrao}: {ignorados}")
+    fonte_demo = (RAIZ / "ferramentas" / "demo.py").read_text("utf-8")
+    # BANCO DA DEMO COM SENHA: sem ela, numa máquina compartilhada, qualquer
+    # usuário local entrava como administrador do banco de quem rodava.
+    checa('"trust"' not in fonte_demo and "--pwfile" in fonte_demo,
+          "o banco próprio da demo sobe sem senha (`trust`)")
+    # E O SERVIDOR DA DEMO NÃO HERDA `PROTOCOL_*` de quem a chamou: com
+    # `PROTOCOL_SMTP_HOST` no ambiente, a demo mandaria e-mail de verdade.
+    checa("startswith(\"PROTOCOL_\")" in fonte_demo,
+          "a demo passa adiante as variáveis PROTOCOL_* de quem a chamou")
     # E a demonstração liga o modo ensaio ela mesma, sem depender de fora.
     demo = (RAIZ / "ferramentas" / "demo.py").read_text("utf-8")
     checa('"PROTOCOL_MODO_ENSAIO": "1"' in demo,

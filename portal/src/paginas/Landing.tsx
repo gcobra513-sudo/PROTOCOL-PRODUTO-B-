@@ -180,7 +180,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
             <ul className="mt-4 space-y-3 text-[15px] leading-relaxed text-tinta/75">
               <li>Em quais processos está, e se alguma coisa andou.</li>
               <li>Se os documentos chegaram, e o que ainda falta.</li>
-              <li>Um atendimento que responde na hora, sem ligar para a sede.</li>
+              <li>O Proto, um assistente que responde na hora, sem ligar para a sede.</li>
             </ul>
           </div>
         </section>

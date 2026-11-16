@@ -112,8 +112,9 @@ Não são vulnerabilidades: não têm principal afetado nem fronteira
 atravessada. São o que merece conserto quando houver folga. Os que eu
 consideraria primeiro:
 
-- `PROTOCOL_SEGREDO` aceita qualquer valor não vazio — um caractere
-  passa, e dele derivam os três marcadores HMAC do portão.
+- ~~`PROTOCOL_SEGREDO` aceita qualquer valor não vazio — um caractere
+  passa, e dele derivam os três marcadores HMAC do portão.~~ **Fechado em
+  16/11/2026:** menos de 24 caracteres não sobe.
 - `/api/entidade/{apelido}/completude` devolve lista nominal **sem teto**
   e **sem registro de leitura**, enquanto `/panorama` limita a 8 nomes.
   É o caminho que transforma uma sessão de gestor comprometida em cópia
