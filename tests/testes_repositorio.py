@@ -638,7 +638,106 @@ def t_a_lista_de_frases_esta_em_dia():
           "`python3 ferramentas/frases.py --gravar`")
 
 
+def t_as_dependencias_estao_travadas():
+    """`requirements.txt` diz "fastapi de 0.115 até antes da 1": o que de
+    fato se instala depende do DIA em que se instala. A trava diz a versão
+    exata de cada pacote — inclusive os que vêm por tabela — e a impressão
+    digital de cada arquivo: a máquina de produção instala exatamente o que
+    a suíte testou, e um pacote adulterado no caminho não instala.
+    (Item h6-2 da auditoria de segurança, que tinha ficado em parte.)"""
+    import hashlib
+    import re
+
+    try:
+        from packaging.specifiers import SpecifierSet
+    except ImportError:
+        from pip._vendor.packaging.specifiers import SpecifierSet
+
+    def pedidos(caminho):
+        """nome -> faixa, das linhas que instalam."""
+        saida = {}
+        for linha in caminho.read_text("utf-8").splitlines():
+            linha = linha.split("#")[0].strip()
+            m = re.match(r"^([A-Za-z0-9_.-]+)(\[[^\]]*\])?(.*)$", linha)
+            if linha and not linha.startswith("-") and m:
+                saida[m.group(1).lower().replace("_", "-")] = m.group(3).strip()
+        return saida
+
+    def travados(caminho):
+        """nome -> versão; e confere que TODA entrada tem versão e hash."""
+        texto = caminho.read_text("utf-8")
+        saida, atual = {}, None
+        for linha in texto.splitlines():
+            if not linha.strip() or linha.lstrip().startswith("#"):
+                continue
+            if linha.startswith((" ", "\t")):
+                if "--hash=sha256:" in linha and atual:
+                    saida[atual][1] += 1
+                continue
+            m = re.match(r"^([A-Za-z0-9_.-]+)(\[[^\]]*\])?==([^ ;\\]+)", linha)
+            checa(bool(m), f"{caminho.name}: linha sem versão exata: {linha!r}")
+            if m:
+                atual = m.group(1).lower().replace("_", "-")
+                saida[atual] = [m.group(3), 0]
+        for nome, (versao, hashes) in saida.items():
+            checa(hashes >= 1, f"{caminho.name}: {nome}=={versao} sem "
+                  "impressão digital")
+        return {n: v for n, (v, _) in saida.items()}
+
+    casos = ((RAIZ / "servidor" / "requirements.txt",
+              RAIZ / "servidor" / "requirements.lock"),
+             (RAIZ / "requirements.txt", RAIZ / "requirements.lock"))
+    for entrada, trava in casos:
+        checa(trava.is_file(), f"não existe {trava.relative_to(RAIZ)}")
+        if not trava.is_file():
+            return
+    do_servidor = travados(casos[0][1])
+    de_tudo = travados(casos[1][1])
+    checa(len(do_servidor) >= 15,
+          f"a trava do servidor só tem {len(do_servidor)} pacotes: os que "
+          "vêm por tabela ficaram de fora?")
+    for nome, faixa in pedidos(casos[0][0]).items():
+        checa(nome in do_servidor, f"{nome} está pedido e não está travado")
+        if nome in do_servidor and faixa:
+            checa(do_servidor[nome] in SpecifierSet(faixa),
+                  f"{nome}=={do_servidor[nome]} está travado fora da faixa "
+                  f"pedida ({faixa})")
+    for nome in ("httpx", "reportlab"):
+        checa(nome in de_tudo, f"{nome} (suíte e demonstração) sem trava")
+    # A SUÍTE E A DEMONSTRAÇÃO RODAM O QUE A PRODUÇÃO RODA: as mesmas versões.
+    for nome, versao in do_servidor.items():
+        checa(de_tudo.get(nome) == versao,
+              f"{nome}: a produção trava {versao} e a suíte roda "
+              f"{de_tudo.get(nome)}")
+
+    # A TRAVA É DESTES PEDIDOS. Mudou o `requirements.txt` e não gerou a
+    # trava de novo: ela trava outra coisa, e este teste acusa.
+    marca = hashlib.sha256(
+        (RAIZ / "servidor" / "requirements.txt").read_bytes()
+        + (RAIZ / "requirements.txt").read_bytes()).hexdigest()
+    for _, trava in casos:
+        checa(f"# pedidos: sha256={marca}" in trava.read_text("utf-8"),
+              f"{trava.relative_to(RAIZ)} não é da versão atual dos "
+              "pedidos: rode `python3 ferramentas/travar_dependencias.py`")
+
+    # E É A TRAVA QUE A IMPLANTAÇÃO INSTALA, exigindo as impressões.
+    passo = (RAIZ / "implantacao" / "LEIAME.md").read_text("utf-8")
+    instalam = [l for l in passo.splitlines() if "pip install" in l]
+    checa(len(instalam) >= 2, f"esperava dois `pip install` no passo a passo")
+    for linha in instalam:
+        checa("--require-hashes" in linha
+              and "servidor/requirements.lock" in linha,
+              f"o passo a passo instala sem a trava: {linha.strip()[:120]}")
+    imagem = (RAIZ / "implantacao" / "demo" / "Dockerfile").read_text("utf-8")
+    instalam = [l for l in imagem.splitlines() if "pip install" in l]
+    checa(instalam and all("--require-hashes" in l and "requirements.lock" in l
+                           for l in instalam),
+          f"a imagem da demonstração instala sem a trava: {instalam}")
+
+
 TESTES = [
+    ("as dependências estão travadas, com impressão digital",
+     t_as_dependencias_estao_travadas),
     ("a lista de frases para revisão está em dia",
      t_a_lista_de_frases_esta_em_dia),
     ("a demo hospedada só roda a demonstração",

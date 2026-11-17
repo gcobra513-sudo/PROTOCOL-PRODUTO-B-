@@ -25,8 +25,10 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends postgresql \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY servidor/requirements.txt servidor/requirements.txt
-RUN pip install --no-cache-dir -r servidor/requirements.txt httpx reportlab
+# A TRAVA, com as impressões digitais: a imagem instala as mesmas versões
+# que a suíte testou, e nada que não confira com a impressão.
+COPY requirements.lock requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY . .
 COPY --from=portal /portal-pronto /portal-pronto
 # USUÁRIO COMUM: o PostgreSQL se recusa a rodar como root, e a demonstração
