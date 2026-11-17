@@ -22,7 +22,7 @@ Roda em Linux e macOS. No Windows, dentro do WSL (ver o README.md).
 
 O que precisa estar instalado: Python 3.11+, Node.js 18+ e PostgreSQL 14+, e
 
-    pip install -r servidor/requirements.txt httpx reportlab
+    pip install --require-hashes -r requirements.lock
 """
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def conferir_a_maquina(*, precisa_de_node: bool = True) -> None:
     if faltam:
         raise NaoDa(
             "faltam pacotes do Python: " + ", ".join(faltam) + ".\n"
-            "  pip install -r servidor/requirements.txt httpx reportlab")
+            "  pip install --require-hashes -r requirements.lock")
     # Com o portal já compilado (a imagem da demonstração hospedada), o
     # Node não entra na máquina que serve — menos coisa instalada lá.
     for programa in ("node", "npx", "npm") if precisa_de_node else ():

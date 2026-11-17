@@ -125,8 +125,13 @@ sudo -u protocol python3 -m venv /srv/protocol/venv
 ```
 
 ```bash
-sudo -u protocol /srv/protocol/venv/bin/pip install -r /srv/protocol/app/servidor/requirements.txt
+sudo -u protocol /srv/protocol/venv/bin/pip install --require-hashes -r /srv/protocol/app/servidor/requirements.lock
 ```
+
+É a **trava** (`requirements.lock`), e não o `requirements.txt`: ela tem a
+versão exata de cada pacote e a impressão digital de cada arquivo. A máquina
+instala exatamente o que a suíte testou — e, com `--require-hashes`, um
+pacote que não confere com a impressão não instala.
 
 Confere: `sudo -u protocol /srv/protocol/venv/bin/python -c "import psycopg, fastapi, pypdf, openpyxl"` não reclama.
 
@@ -327,7 +332,7 @@ der certo — entrar no portal você mesmo é o teste.
 ## Atualizar depois
 
 ```bash
-cd /srv/protocol/app && sudo -u protocol git pull && sudo -u protocol /srv/protocol/venv/bin/pip install -r servidor/requirements.txt
+cd /srv/protocol/app && sudo -u protocol git pull && sudo -u protocol /srv/protocol/venv/bin/pip install --require-hashes -r servidor/requirements.lock
 ```
 
 Se `servidor/migracoes/` ganhou arquivo novo, aplique-o (passo 6) **antes**

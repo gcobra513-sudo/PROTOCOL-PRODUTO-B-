@@ -60,7 +60,7 @@ sai — o código de acesso aparece na tela. Não ponha dado de gente de verdade
 Precisa de Python 3.11+, Node.js 18+ e PostgreSQL 14+ instalados, e de:
 
 ```bash
-pip install -r servidor/requirements.txt httpx reportlab
+pip install --require-hashes -r requirements.lock
 ```
 
 **No Windows**, o servidor não roda direto (ele é feito para Linux, onde vai
@@ -76,7 +76,7 @@ git clone https://github.com/gcobra513-sudo/PROTOCOL-PRODUTO-B-.git protocol && 
 ```
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r servidor/requirements.txt httpx reportlab
+python3 -m venv .venv && .venv/bin/pip install --require-hashes -r requirements.lock
 ```
 
 ```bash
@@ -92,8 +92,14 @@ banco de ninguém. `--porta` troca a porta.
 ## Rodar
 
 ```bash
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock
 ```
+
+`requirements.lock` é a **trava**: a versão exata de cada pacote, com a
+impressão digital de cada arquivo — o mesmo que a produção instala
+(`servidor/requirements.lock`). Os `requirements.txt` dizem o que se QUER;
+para mudar uma versão, mude lá e rode
+`python3 ferramentas/travar_dependencias.py`.
 
 ```bash
 python3 tests/rodar_todos.py

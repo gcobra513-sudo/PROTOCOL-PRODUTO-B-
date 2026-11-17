@@ -150,14 +150,16 @@ da auditoria.
 | h6-11 | rascunho no navegador sem prazo | 30 dias, e é apagado |
 | h6-12 | limite por origem burlável pelo cabeçalho | proxies confiáveis (já estava) |
 
-**Fechados em parte (3):**
+**Fechados em parte (2), e um que fechou depois:**
 
 - **h4-6** — o papel `protocol_app` continua com `LOGIN`. O comentário do
   esquema deixou de afirmar que "sem senha ele não loga": isso só vale onde
   a hospedagem exige senha, e é coisa a conferir na implantação.
-- **h6-2** — as dependências do servidor têm teto na versão maior, e o
-  `requirements.txt` da raiz deixou de instalar o que era do Produto A.
-  **Não há arquivo de trava com versões exatas e impressões digitais.**
+- ~~**h6-2** — dependências sem versão fixada.~~ **Fechado em 17/11/2026:**
+  há trava com a versão exata e a impressão digital de cada pacote
+  (`servidor/requirements.lock` e `requirements.lock`), é ela que a
+  implantação e a imagem da demonstração instalam, com `--require-hashes`,
+  e a suíte roda nas mesmas versões.
 - **h6-3** — o `vite` subiu para 5.4.21. O que vai para o navegador não tem
   vulnerabilidade conhecida (`npm audit --omit=dev`: zero). **As ferramentas
   de desenvolvimento ainda têm 8 avisos** (esbuild, vitest, postcss,

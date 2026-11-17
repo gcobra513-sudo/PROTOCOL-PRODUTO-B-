@@ -68,7 +68,7 @@ BLOCOS: list[tuple[str, str, str]] = [
     ("git clone git@github.com", "trocado",
      "não há GitHub aqui: clona de uma cópia local deste repositório"),
     ("python3 -m venv", "igual", ""),
-    ("pip install -r /srv/protocol/app", "igual", ""),
+    ("pip install --require-hashes -r /srv/protocol/app", "igual", ""),
     ("protocol.env.exemplo /etc/protocol/protocol.env", "igual", ""),
     ("secrets.token_urlsafe", "igual", ""),
     ("banco.criar_esquema", "igual", ""),
