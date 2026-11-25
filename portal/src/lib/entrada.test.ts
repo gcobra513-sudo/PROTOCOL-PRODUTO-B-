@@ -46,6 +46,9 @@ describe("as páginas públicas, pelo endereço", () => {
     expect(paginaDoLink("?pagina=sindicato")).toBe("sindicato");
     expect(paginaDoLink("?pagina=Filiado")).toBe("filiado");
   });
+  it("reconhece o guia da demonstração", () => {
+    expect(paginaDoLink("?pagina=demonstracao")).toBe("demonstracao");
+  });
   it("qualquer outra coisa é a página inicial", () => {
     expect(paginaDoLink("")).toBe("");
     expect(paginaDoLink("?pagina=admin")).toBe("");

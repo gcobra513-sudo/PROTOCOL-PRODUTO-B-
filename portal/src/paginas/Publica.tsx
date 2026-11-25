@@ -40,7 +40,7 @@ export function Moldura({
   children,
 }: {
   /** Qual item do menu é a página em que se está. */
-  atual: "" | "sindicato" | "filiado";
+  atual: "" | "sindicato" | "filiado" | "demonstracao";
   onPrivacidade: () => void;
   children: ReactNode;
 }) {
@@ -139,16 +139,18 @@ export function BotaoClaro({ href, children }: { href: string; children: ReactNo
 }
 
 export function Secao({
+  id,
   titulo,
   subtitulo,
   children,
 }: {
+  id?: string;
   titulo: string;
   subtitulo?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+    <section id={id} className="mx-auto max-w-6xl scroll-mt-4 px-4 py-10 sm:px-6">
       <h2 className="text-2xl font-bold text-tinta">{titulo}</h2>
       {subtitulo ? (
         <p className="mt-2 max-w-3xl text-[17px] leading-relaxed text-tinta/70">{subtitulo}</p>

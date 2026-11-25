@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { acessosDaDemonstracao } from "./demonstracao";
+import { acessosDaDemonstracao, roteiroDaDemonstracao } from "./demonstracao";
 
 const acessos = [
   { quem: "Gestor do sindicato", cpf: "00000900184", area: "painel" },
@@ -35,5 +35,55 @@ describe("os acessos da demonstração", () => {
       acessos_da_demonstracao: [{ quem: "x", cpf: "123", area: "painel" }, ...acessos],
     });
     expect(r.map((a) => a.quem)).toEqual(["Gestor do sindicato", "Filiado com processo"]);
+  });
+});
+
+/**
+ * O ROTEIRO: a ordem em que se apresenta, e com que acesso entrar em cada
+ * parada. Ele sai DOS ACESSOS que o servidor mandou — parada sem acesso não
+ * existe, porque um botão que leva a um portão sem CPF para digitar é
+ * exatamente o tropeço que o guia veio evitar.
+ */
+describe("o roteiro da demonstração", () => {
+  const todos = acessosDaDemonstracao({
+    apelido: "demo-x",
+    nome: "X",
+    demonstracao: true,
+    acessos_da_demonstracao: [
+      ...acessos,
+      { quem: "Filiado que pediu aviso", cpf: "00000912190", area: "cadastro" },
+      { quem: "Filiado que ainda não entrou", cpf: "00000913081", area: "cadastro" },
+    ],
+  });
+
+  it("começa pelo painel do sindicato, com o CPF do gestor", () => {
+    const r = roteiroDaDemonstracao(todos, "demo-x");
+    expect(r.map((p) => p.id)).toEqual(["painel", "filiado", "primeiro-acesso"]);
+    expect(r[0]).toMatchObject({ cpf: "000.009.001-84", link: "?entidade=demo-x&tela=painel" });
+  });
+
+  it("mostra o filiado pela Minha área, e o primeiro acesso pelo cadastro", () => {
+    const r = roteiroDaDemonstracao(todos, "demo-x");
+    expect(r[1]).toMatchObject({ cpf: "000.009.104-90", link: "?entidade=demo-x&tela=area" });
+    expect(r[2]).toMatchObject({ cpf: "000.009.130-81", link: "?entidade=demo-x" });
+  });
+
+  it("cada parada diz o que mostrar e o que falar", () => {
+    for (const p of roteiroDaDemonstracao(todos, "demo-x")) {
+      expect(p.titulo).not.toBe("");
+      expect(p.mostrar.length).toBeGreaterThan(0);
+      expect(p.falar).not.toBe("");
+    }
+  });
+
+  it("parada sem acesso não aparece", () => {
+    const soGestor = todos.filter((a) => a.gestor);
+    expect(roteiroDaDemonstracao(soGestor, "demo-x").map((p) => p.id)).toEqual(["painel"]);
+    expect(roteiroDaDemonstracao([], "demo-x")).toEqual([]);
+  });
+
+  it("não usa a palavra que este produto não usa com o sindicato", () => {
+    const texto = JSON.stringify(roteiroDaDemonstracao(todos, "demo-x")).toLowerCase();
+    expect(texto).not.toContain("escritório");
   });
 });

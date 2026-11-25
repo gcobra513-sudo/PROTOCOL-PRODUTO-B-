@@ -41,12 +41,15 @@ export function enderecoDaArea(tela: Tela, apelido: string): string {
 }
 
 /** As páginas de apresentação, abertas a quem ainda não é de sindicato
- *  nenhum: uma para a diretoria, uma para o filiado. */
-export type PaginaPublica = "" | "sindicato" | "filiado";
+ *  nenhum: uma para a diretoria, uma para o filiado, e o guia de quem vai
+ *  mostrar a demonstração numa reunião. */
+export type PaginaPublica = "" | "sindicato" | "filiado" | "demonstracao";
+
+const PAGINAS: readonly PaginaPublica[] = ["sindicato", "filiado", "demonstracao"];
 
 /** Qual página pública o endereço pede — ou vazio, que é a inicial.
  *
- *  Lista fechada: o valor vem do endereço, e o que não é uma das duas não
+ *  Lista fechada: o valor vem do endereço, e o que não está nela não
  *  vira página nenhuma. E só fora do portal de um sindicato: quem chegou
  *  pelo link do sindicato está no portal DELE. */
 export function paginaDoLink(busca?: string): PaginaPublica {
@@ -54,7 +57,7 @@ export function paginaDoLink(busca?: string): PaginaPublica {
     const q = new URLSearchParams(busca ?? window.location.search);
     if (q.get("entidade")) return "";
     const pedida = (q.get("pagina") ?? "").trim().toLowerCase();
-    return pedida === "sindicato" || pedida === "filiado" ? pedida : "";
+    return PAGINAS.find((p) => p === pedida) ?? "";
   } catch {
     return "";
   }

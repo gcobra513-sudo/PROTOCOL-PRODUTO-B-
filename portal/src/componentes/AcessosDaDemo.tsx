@@ -32,7 +32,7 @@ export function AcessosDaDemo({
   }
 
   return (
-    <div className="mt-3 border-t border-alerta/20 pt-3 text-tinta">
+    <div className="mt-3 border-t border-tinta/15 pt-3 text-tinta">
       <p className="font-semibold">Para entrar, use um destes CPFs de exemplo:</p>
       <ul className="mt-2 space-y-2">
         {acessos.map((a) => (
