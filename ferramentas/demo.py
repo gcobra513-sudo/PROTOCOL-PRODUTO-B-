@@ -8,7 +8,7 @@ Sobe o servidor e o portal num endereço só (http://127.0.0.1:8080), com um
 sindicato de demonstração já preenchido, e imprime com que CPF entrar. Fica
 no ar até você apertar Ctrl+C; aí desliga tudo e apaga o que criou.
 
-TUDO É FICTÍCIO, e declaradamente: os nomes trazem "(FICTÍCIO)" escrito, os
+TUDO É FICTÍCIO, e declaradamente: os nomes trazem "DE EXEMPLO (FICTÍCIO)" escrito, os
 CPFs são montados a partir de um contador, os e-mails ficam num domínio que
 não existe, e nenhuma mensagem sai — o servidor roda em modo ensaio, em que
 o código de acesso aparece na tela. NÃO ponha dado de gente de verdade aqui.
@@ -55,6 +55,18 @@ CATALOGO = REPO / "implantacao" / "demo" / "categorias"
 CATEGORIA = "servidor-de-exemplo"
 CARGO = "Servidor de Exemplo"
 ACAO = "EXEMPLO-FICTICIA"
+#: SÓ O PRIMEIRO NOME É DE GENTE. O sobrenome de todos é "DE EXEMPLO", e a
+#: marca "(FICTÍCIA)" vai escrita: nome plausível, com CPF que fecha o
+#: dígito, numa página pública, passaria por pessoa real. Mulher e homem se
+#: alternam — a marca concorda pelo índice.
+NOMES = (
+    "MARIA", "JOSE", "ANA", "ANTONIO", "HELENA", "FRANCISCO", "LUCIA",
+    "CARLOS", "TEREZA", "PAULO", "VERA", "PEDRO", "ROSA", "LUIZ", "MARTA",
+    "MARCOS", "SONIA", "RAIMUNDO", "REGINA", "SEBASTIAO", "CELIA", "MANOEL",
+    "NEUSA", "JORGE", "IRENE", "ROBERTO", "ALICE", "SERGIO", "DALVA",
+    "GERALDO", "EDNA", "FERNANDO", "ZELIA", "EDSON", "NAIR", "JOAQUIM",
+    "ELZA", "BENEDITO", "IVONE", "WALTER", "OLGA", "NELSON",
+)
 GESTOR = 9001                   # índice do CPF sintético do gestor
 
 
@@ -292,8 +304,9 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
 
     gestor = te._cpf_sintetico(GESTOR)
     pessoas = [(te._cpf_sintetico(9100 + i),
-                f"FILIADO DE EXEMPLO {i + 1:02d} (FICTÍCIO)",
-                f"filiado{i + 1:02d}@{DOMINIO}") for i in range(42)]
+                f"{nome} DE EXEMPLO (FICTÍCI{'A' if i % 2 == 0 else 'O'})",
+                f"filiado{i + 1:02d}@{DOMINIO}")
+               for i, nome in enumerate(NOMES)]
     c = httpx.Client(base_url=api, timeout=120, trust_env=False)
 
     def token(cpf: str) -> str:

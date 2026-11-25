@@ -28,7 +28,7 @@
  */
 import { useEffect, useState, type MouseEvent } from "react";
 
-import { MailX, UserCheck, UserX, Users } from "lucide-react";
+import { BadgeCheck, MailX, UserCheck, UserX, Users } from "lucide-react";
 
 import {
   Aviso,
@@ -241,7 +241,9 @@ function OQueResolverPrimeiro({ p }: { p: api.Panorama }) {
 
       {/* O limite vem do servidor e fica na tela. Um diretor que supõe que
           os documentos foram lidos confia numa coluna que ninguém conferiu. */}
-      <Aviso tom="alerta">{p.limite}</Aviso>
+      {/* NEUTRO: é um limite do que a tela afirma, não um erro. Em
+          vermelho, quem assistia achava que algo tinha quebrado. */}
+      <Aviso tom="neutro">{p.limite}</Aviso>
     </Cartao>
   );
 }
@@ -804,11 +806,17 @@ function NomePorNome({
   versao,
   portal,
   onPortal,
+  dono,
+  onDono,
 }: {
   entidade: string;
   token: string;
   /** Sobe quando a base muda (planilha gravada, leitura registrada). */
   versao: number;
+  /** A situação escolhida ("PODE", ou de quem depende). Mora no `Painel`
+   *  pela mesma razão do filtro do portal: o quadro "já podem" a escolhe. */
+  dono: string;
+  onDono: (d: string) => void;
   /** Quem entrou no portal / quem falta. Mora no `Painel` porque os quadros
    *  do topo também o escolhem. */
   portal: FiltroDoPortal;
@@ -816,7 +824,7 @@ function NomePorNome({
 }) {
   const [lista, setLista] = useState<api.PessoaNaLista[] | null>(null);
   const [texto, setTexto] = useState("");
-  const [dono, setDono] = useState("");
+  const setDono = onDono;
   const [erro, setErro] = useState("");
   const [baixando, setBaixando] = useState(false);
   const [mostrando, setMostrando] = useState(LINHAS_POR_VEZ);
@@ -1407,6 +1415,7 @@ export function Painel({
   const [versaoDaFila, setVersaoDaFila] = useState(0);
   const [aba, setAba] = useState<AbaDoPainel>("resumo");
   const [portal, setPortal] = useState<FiltroDoPortal>("");
+  const [dono, setDono] = useState("");
   // Quantos documentos a fila tem NA TELA: é o número do selo da aba.
   const [filaNaTela, setFilaNaTela] = useState(0);
   const [todosForaDeAlcance, setTodosForaDeAlcance] = useState(false);
@@ -1487,6 +1496,7 @@ export function Painel({
   function abrirQuadro(q: QuadroDoTopo) {
     const d = destinoDoQuadro(q);
     setPortal(d.portal);
+    setDono(d.dono);
     irPara(d.aba, d.ancora);
   }
   /** O atalho de uma pendência ("Enviar o rol") mora em outra aba. */
@@ -1538,6 +1548,34 @@ export function Painel({
           />
         </div>
       </div>
+
+      {/* QUEM JÁ PODE, À VISTA. Os quatro quadros acima são sobre o
+          cadastro; este é o resultado, e ficava dentro da aba Filiados,
+          atrás de um filtro. Só aparece com o panorama carregado: zero
+          antes da resposta chegar seria afirmar que ninguém pode. */}
+      {panorama ? (
+        <button
+          type="button"
+          onClick={() => abrirQuadro("podem")}
+          className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-bom/30 bg-bom/10 px-5 py-4 text-left hover:bg-bom/15"
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-bom text-white">
+            <BadgeCheck className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <span className="text-3xl font-bold text-tinta">{panorama.aptos}</span>
+          <span className="min-w-0 flex-1 text-[16px] text-tinta">
+            <strong>
+              {panorama.aptos === 1 ? "filiado já pode" : "filiados já podem"}
+            </strong>{" "}
+            <span className="text-tinta/70">
+              {panorama.aptos
+                ? "— têm tudo pronto para um advogado conferir e assinar."
+                : "— veja abaixo o que resolver primeiro para isso mudar."}
+            </span>
+          </span>
+          <span className="text-[15px] font-semibold text-acento underline">Ver quem são</span>
+        </button>
+      ) : null}
 
       {/* AS ABAS. O painel era uma página só com dez telas de rolagem
           (medido), e o envio da base ficava no fim. As quatro continuam
@@ -1700,6 +1738,8 @@ export function Painel({
           versao={versaoDaFila}
           portal={portal}
           onPortal={setPortal}
+          dono={dono}
+          onDono={setDono}
         />
 
         {dados.inalcancaveis.length ? (

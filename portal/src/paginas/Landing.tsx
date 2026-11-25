@@ -185,7 +185,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
                   src={retratoDoPainel}
                   width={1800}
                   height={1140}
-                  alt="O painel do sindicato: quantos filiados há na base, com quantos o sindicato não consegue falar, quantos se cadastraram e o que resolver primeiro."
+                  alt="O painel do sindicato: quantos filiados há na base, com quantos o sindicato não consegue falar, quantos se cadastraram e quantos já podem."
                   className="w-full rounded-xl shadow-2xl ring-1 ring-white/20"
                 />
                 <figcaption className="mt-3 text-sm text-white/75">

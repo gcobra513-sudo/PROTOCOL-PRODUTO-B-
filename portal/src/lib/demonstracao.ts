@@ -77,8 +77,9 @@ export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string):
       botao: "Abrir o painel do sindicato",
       mostrar: [
         "Os quatro números do topo: quantos filiados há na base, com quantos o sindicato não consegue falar, quem já se cadastrou e quem ainda não.",
+        "A faixa verde: quantos filiados já podem. Toque em “Ver quem são”.",
         "“O que resolver primeiro”: o que está segurando mais gente, e de quem é a vez — do sindicato, do filiado ou do tribunal.",
-        "A aba Filiados: a lista nome por nome, com os contatos, que sai em planilha. Toque em “Já pode” para ver quem tem tudo pronto.",
+        "A aba Filiados: a lista nome por nome, com os contatos, que sai em planilha.",
         "A aba Documentos para ler: as fotos que a máquina não leu e esperam uma pessoa.",
         "A aba Pergunte ao Proto: toque em “Com quantos eu não consigo falar?”.",
       ],
