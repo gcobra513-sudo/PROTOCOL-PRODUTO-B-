@@ -38,7 +38,7 @@ import contextlib
 import pathlib
 import shutil
 
-from . import (acervo, banco, conferencia, deposito, rol, substituidos,
+from . import (acervo, banco, conferencia, deposito, fichas, rol, substituidos,
                trocas, validacao)
 from .entidades import Entidade
 
@@ -373,6 +373,9 @@ def _apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     sairam_leituras = conferencia.remover_pessoa(pasta, digitos)
     sairam_trocas = trocas.remover_pessoa(pasta, digitos)
     saiu_dos_substituidos = substituidos.remover_pessoa(pasta, digitos)
+    # A FICHA FINANCEIRA é remuneração: sai de todos os envios, inclusive
+    # dos que já foram substituídos.
+    sairam_fichas = fichas.remover_pessoa(pasta, digitos)
     das_mensagens = _limpar_logs(raiz, digitos, email)
 
     # 5. O banco.
@@ -390,6 +393,7 @@ def _apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
         "leituras": sairam_leituras,
         "trocas": sairam_trocas,
         "rol_de_substituidos": saiu_dos_substituidos,
+        "fichas_financeiras": sairam_fichas,
         "logs": das_mensagens,
         "email_conhecido": bool(email),
         "vestigios": vestigios(url, ent, raiz, digitos, portao=portao,

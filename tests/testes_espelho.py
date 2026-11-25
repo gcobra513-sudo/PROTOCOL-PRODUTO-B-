@@ -4913,6 +4913,80 @@ def teste_o_gestor_envia_o_rol_e_as_superficies_mudam_juntas():
     print("  ok     prévia não grava; confirmado, as quatro superfícies mudam")
 
 
+# ------------------------------ a ficha financeira entra pelo painel
+
+def _ficha_csv(*linhas: tuple) -> bytes:
+    corpo = ["CPF;Competência;Base"] + [";".join(l) for l in linhas]
+    return ("\r\n".join(corpo) + "\r\n").encode("latin-1")
+
+
+def _enviar_ficha(cliente, entidade: str, corpo: bytes, *,
+                  confirmar: str = "", cabecalho: dict | None = None):
+    return cliente.post(
+        f"/api/entidade/{entidade}/ficha-financeira",
+        data={"confirmar": confirmar},
+        files={"arquivo": ("ficha.csv", corpo, "text/csv")},
+        headers=cabecalho if cabecalho is not None
+        else _gestor(cliente, entidade),
+    )
+
+
+def teste_o_gestor_envia_a_ficha_financeira_em_duas_etapas():
+    """A base de cálculo é REMUNERAÇÃO. Só o gestor a envia; a prévia conta
+    e não grava; e a ficha de quem não é da base não fica guardada."""
+    from servidor import fichas
+
+    secao("a ficha financeira entra pelo painel")
+    entidade = "demo-ficha-1"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    corpo = _ficha_csv((A, "03/2004", "5.000,00"), (A, "04/2004", "5.000,00"),
+                       (C_PLAN, "03/2004", "9.999,00"))
+    guardado = ent.pasta(raiz) / fichas.ARQUIVO
+
+    r = _enviar_ficha(cliente, entidade, corpo, cabecalho={})
+    checa(r.status_code == 401, f"sem sessão: {r.status_code}")
+    r = _enviar_ficha(cliente, entidade, corpo, cabecalho={
+        "Authorization": f"Bearer {_token(cliente, A, entidade)}"})
+    checa(r.status_code == 403, f"um FILIADO enviou ficha: {r.status_code}")
+
+    previa = _enviar_ficha(cliente, entidade, corpo)
+    checa(previa.status_code == 200, f"{previa.status_code} {previa.text[:300]}")
+    p = previa.json()
+    checa((p.get("gravado"), p.get("pessoas"), p.get("competencias"),
+           p.get("fora_da_base")) == (False, 1, 2, 1), f"a prévia: {p}")
+    checa(not guardado.exists(), "A PRÉVIA GRAVOU a ficha")
+    checa("5000" not in previa.text and "9999" not in previa.text,
+          "a resposta devolveu valor de remuneração")
+
+    feito = _enviar_ficha(cliente, entidade, corpo,
+                          confirmar=p["sha256"]).json()
+    checa(feito.get("gravado") is True, f"{feito}")
+    checa(fichas.de_cpf(ent.pasta(raiz), A)
+          == (("2004-03", "5000.00"), ("2004-04", "5000.00")),
+          f"a ficha de A: {fichas.de_cpf(ent.pasta(raiz), A)}")
+    checa(C_PLAN.encode() not in b"".join(
+              f.read_bytes() for f in raiz.rglob("*") if f.is_file()),
+          "a ficha de quem não é da base ficou guardada")
+
+    outro = _enviar_ficha(cliente, entidade,
+                          _ficha_csv((A, "03/2004", "1,00")),
+                          confirmar=p["sha256"])
+    checa(outro.status_code == 409,
+          f"confirmou um arquivo que não é o da prévia: {outro.status_code}")
+
+    ruim = _enviar_ficha(cliente, entidade, b"CPF;Nome\r\n1;x\r\n")
+    checa(ruim.status_code == 422 and "Competência" in ruim.text,
+          f"planilha sem as colunas: {ruim.status_code} {ruim.text[:200]}")
+
+    ver = cliente.get(f"/api/entidade/{entidade}/ficha-financeira",
+                      headers=_gestor(cliente, entidade))
+    checa(ver.status_code == 200 and ver.json().get("pessoas") == 1,
+          f"o resumo: {ver.status_code} {ver.text[:200]}")
+    checa("5000" not in ver.text, "o resumo devolveu valor de remuneração")
+    print("  ok     só o gestor; prévia não grava; quem é de fora não fica")
+
+
 def teste_o_painel_mostra_o_rol_de_cada_acao():
     """O gestor precisa ver, por ação, se o rol já entrou e quanta gente
     ficou sem resposta — é esse número que diz que vale enviar de novo."""
@@ -5255,6 +5329,7 @@ TESTES = [
     teste_o_atendimento_so_fala_de_quem_perguntou,
     teste_o_gestor_envia_o_rol_e_as_superficies_mudam_juntas,
     teste_o_painel_mostra_o_rol_de_cada_acao,
+    teste_o_gestor_envia_a_ficha_financeira_em_duas_etapas,
     teste_lista_parcial_nao_poe_ninguem_fora_do_rol,
     teste_rol_so_de_acao_do_catalogo_e_so_para_gestor,
     teste_confirmar_outro_rol_e_recusado,

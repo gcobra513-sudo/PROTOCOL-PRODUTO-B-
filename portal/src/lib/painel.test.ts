@@ -32,6 +32,7 @@ import {
   situacaoDaPessoa,
   resumoDaPlanilha,
   resumoDoAcesso,
+  resumoDoEnvioDaFicha,
   resumoDoEnvioDoRol,
   resumoDoRolVigente,
   atalhoDoGargalo,
@@ -651,5 +652,35 @@ describe("o painel cabe no celular", () => {
   it("no celular a lista de filiados começa menor", () => {
     expect(linhasPorVez(390)).toBe(6);
     expect(linhasPorVez(1280)).toBe(15);
+  });
+});
+
+describe("o envio da ficha financeira, dito ao gestor", () => {
+  const previa = {
+    sha256: "x", pessoas: 4, competencias: 232, fora_da_base: 0,
+    invalidas: 0, divergentes: 0, gravado: false,
+  };
+
+  it("diz de quantas pessoas a ficha veio, e quantos meses", () => {
+    expect(resumoDoEnvioDaFicha(previa)).toEqual([
+      "A ficha de 4 pessoas da sua base, com 232 meses ao todo.",
+    ]);
+  });
+
+  it("conta o que ficou de fora, com o motivo de cada coisa", () => {
+    const linhas = resumoDoEnvioDaFicha({
+      ...previa, pessoas: 1, competencias: 12, fora_da_base: 2, invalidas: 3, divergentes: 1,
+    }).join("\n");
+    expect(linhas).toContain("A ficha de 1 pessoa da sua base, com 12 meses ao todo.");
+    expect(linhas).toContain("2 pessoas do arquivo não são da sua base");
+    expect(linhas).toContain("3 linhas não puderam ser lidas");
+    // Divergência não se resolve sozinha: a tela diz que a ficha não entrou.
+    expect(linhas).toContain("1 pessoa tem o mesmo mês com dois valores diferentes");
+    expect(linhas).toContain("não entrou");
+  });
+
+  it("avisa quando ninguém do arquivo é da base", () => {
+    expect(resumoDoEnvioDaFicha({ ...previa, pessoas: 0, competencias: 0, fora_da_base: 4 })[0])
+      .toContain("Ninguém deste arquivo é da sua base");
   });
 });

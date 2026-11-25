@@ -402,7 +402,42 @@ def teste_de_quem_depende_cada_pessoa():
     print("  ok     cada pessoa diz de quem depende, sem escolher um só")
 
 
+def teste_a_ficha_que_o_sindicato_enviou_chega_a_conta():
+    """A QUARTA COISA QUE VEM DE FORA DO CADASTRO, depois dos documentos
+    lidos e do rol. O painel, a tela do filiado e o veredicto guardado
+    montam os fatos pelo mesmo construtor: se a ficha não passasse por ele,
+    uma superfície faria a conta e as outras diriam que ela falta."""
+    secao("a ficha financeira")
+    from decimal import Decimal
+
+    cat = entendimentos.carregar_categorias(
+        RAIZ / "implantacao" / "demo" / "categorias",
+        ("servidor-de-exemplo",), demonstracao=True)
+    reg = registro(A, cargo="Servidor de Exemplo", desde="2008-01")
+    ficha = tuple((f"2008-{m:02d}", "5000.00") for m in range(1, 13))
+
+    fatos = panorama.fatos_do_cadastro(reg["linha"], (), {}, rol=(),
+                                       ficha=ficha)
+    checa(fatos.bases == ficha, "o construtor não levou a ficha aos fatos")
+
+    def total(lista):
+        ops = [o for p in lista for o in p.oportunidades
+               if o.trilha == motor.EXECUTAR]
+        return ops[0].apuracao.total if ops else "sem oportunidade"
+
+    com = panorama.por_pessoa([reg], cat, fichas_por_cpf={A: ficha})
+    sem = panorama.por_pessoa([reg], cat)
+    checa(total(com) == Decimal("6000.00"),
+          f"12 meses de 10% sobre 5.000,00 dão 6.000,00; veio {total(com)}")
+    checa(total(sem) is None, f"sem ficha, apurou {total(sem)}")
+    visao = panorama.montar([reg], cat, fichas_por_cpf={A: ficha})
+    checa(not any("ficha financeira" in g.o_que for g in visao.gargalos),
+          "com a ficha enviada, o painel ainda a cobra do sindicato")
+    print("  ok     a ficha passa pelo construtor único e a conta sai")
+
+
 TESTES = [
+    teste_a_ficha_que_o_sindicato_enviou_chega_a_conta,
     teste_pessoa_sem_nome_nao_aparece_pelo_cpf,
     teste_a_lista_por_pessoa_sai_do_mesmo_caminho_do_panorama,
     teste_de_quem_depende_cada_pessoa,

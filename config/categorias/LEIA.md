@@ -105,3 +105,19 @@ O carregamento trava as duas direções: um arquivo com `ficticio = true`
 só é lida com `PROTOCOL_MODO_ENSAIO=1`
 (`PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO`). Num servidor de verdade essa
 variável não existe — com ela e sem o modo ensaio, o servidor não sobe.
+
+---
+
+## A verba de uma ação (`[[verbas]]`)
+
+É o que a decisão manda pagar: `acao` (o id da ação deste arquivo),
+`percentual` (em decimal, entre aspas: `"0.10"` é 10%), `incide_sobre`,
+`fonte` (o dispositivo, com a folha) e `homologado`.
+
+Enquanto `homologado = "N"`, pode ficar pela metade: é rascunho, e o motor
+não calcula nada com ela. Com `"S"`, o carregamento recusa a verba sem
+percentual, sem dizer sobre o que incide, sem fonte, ou de uma ação que o
+arquivo não tem — homologar é assinar a conta.
+
+A conta só sai com a verba homologada **e** a ficha financeira da pessoa,
+que o sindicato envia pelo painel. O que sai é apuração preliminar e bruta.

@@ -224,3 +224,17 @@ custo, escrita sem medir.
   dependem de alguma coisa, 15 não participam. O catálogo fictício só
   carrega em modo ensaio, e fora dele o servidor não sobe. O número de
   processo da demonstração também deixou de ser o de um processo real.
+- **A conta chega ao motor (25/11/2026)** — `valor.apurar` sabia fazer a
+  conta e ninguém lhe entregava os insumos. Agora a VERBA vem do catálogo
+  (`[[verbas]]`, homologada por advogado, com percentual e fonte) e a FICHA
+  FINANCEIRA vem do sindicato (`servidor/fichas.py`, pelo painel, em duas
+  etapas). Passa pelo construtor único dos fatos, então painel, tela do
+  filiado e veredicto guardado fazem a mesma conta. É remuneração: só fica
+  quem é da base, divergência tira a ficha inteira da pessoa, a resposta
+  ao gestor só tem contagens, e o apagamento a pedido a remove. O número
+  sai como "apuração preliminar e bruta" — sem correção, juros, compensação
+  nem imposto, que continuam sem regra definida. No catálogo de verdade
+  nenhuma verba está homologada: lá, nada mudou na tela. Na demonstração,
+  quatro filiados têm conta (R$ 29.000,00 no de exemplo).
+- **Quem já pode no topo do painel (25/11/2026)** — faixa abaixo dos quatro
+  quadros, que abre a lista. Avisos de limite deixaram de ser vermelhos.

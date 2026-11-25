@@ -193,6 +193,7 @@ def fatos_do_cadastro(
     lidos: dict[str, str] | None = None,
     *,
     rol: tuple[tuple[str, bool], ...],
+    ficha: tuple[tuple[str, str], ...],
 ) -> motor.Fatos:
     """Os fatos de UMA pessoa, para o motor. É o ÚNICO construtor: a tela do
     filiado, o painel do sindicato e o veredicto guardado passam por aqui.
@@ -235,6 +236,10 @@ def fatos_do_cadastro(
         ),
         documentos_entregues=entregues,
         rol_das_acoes=tuple(rol),
+        # A FICHA FINANCEIRA que o sindicato enviou. SEM PADRÃO, como o rol
+        # e pelo mesmo motivo: a superfície que esquecesse de passá-la
+        # continuaria dizendo "falta a ficha" de uma ficha já enviada.
+        bases=tuple(ficha),
     )
 
 
@@ -287,6 +292,7 @@ def por_pessoa(
     catalogo: ent.Catalogo,
     lidos_por_cpf: dict[str, dict[str, str]] | None = None,
     rol_por_cpf: dict[str, tuple[tuple[str, bool], ...]] | None = None,
+    fichas_por_cpf: dict[str, tuple[tuple[str, str], ...]] | None = None,
 ) -> list[Avaliada]:
     """Cada pessoa da base, avaliada. Ordenada pelo nome, depois pelo CPF.
 
@@ -302,7 +308,8 @@ def por_pessoa(
         # Quem não aparece no mapa não tem resposta de rol nenhum — e isso
         # é diferente de "não consta".
         fatos = fatos_do_cadastro(linha, envio["entregues"], lidos,
-                                  rol=(rol_por_cpf or {}).get(cpf, ()))
+                                  rol=(rol_por_cpf or {}).get(cpf, ()),
+                                  ficha=(fichas_por_cpf or {}).get(cpf, ()))
         quem = part.Filiado(
             cpf=fatos.cpf,
             cargo=fatos.cargo,
@@ -329,6 +336,7 @@ def montar(
     exemplos: int = EXEMPLOS_PADRAO,
     lidos_por_cpf: dict[str, dict[str, str]] | None = None,
     rol_por_cpf: dict[str, tuple[tuple[str, bool], ...]] | None = None,
+    fichas_por_cpf: dict[str, tuple[tuple[str, str], ...]] | None = None,
 ) -> Panorama:
     """O panorama desta entidade, a partir do diário e do catálogo dela.
 
@@ -336,7 +344,8 @@ def montar(
     categorias que a entidade contratou — `entendimentos.VAZIO` quando ela
     não declarou nenhuma, e aí não há ação a cruzar, que é o certo.
     """
-    pessoas = por_pessoa(registros, catalogo, lidos_por_cpf, rol_por_cpf)
+    pessoas = por_pessoa(registros, catalogo, lidos_por_cpf, rol_por_cpf,
+                         fichas_por_cpf)
 
     contagem: dict[str, list[int]] = {a.id: [0, 0, 0] for a in catalogo.acoes}
     meses: dict[str, int] = {a.id: 0 for a in catalogo.acoes}

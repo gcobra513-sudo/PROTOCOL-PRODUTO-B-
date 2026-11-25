@@ -27,6 +27,7 @@ import {
   tomDoEstado,
   tomDoVeredicto,
   fonteQueViraLink,
+  emReais,
 } from "./veredicto";
 import { TELAS, telaDoLink } from "./envio";
 
@@ -242,5 +243,20 @@ describe("a fonte que vira link", () => {
                         "Tema 1.410 do STJ", "", undefined, null]) {
       expect(fonteQueViraLink(ruim as string)).toBe("");
     }
+  });
+});
+
+describe("o valor apurado, escrito em reais", () => {
+  it("escreve como se escreve no Brasil", () => {
+    expect(emReais("29000.00")).toBe("R$ 29.000,00");
+    expect(emReais("1234567.5")).toBe("R$ 1.234.567,50");
+    expect(emReais("0.10")).toBe("R$ 0,10");
+  });
+  it("o que não é número não vira valor", () => {
+    // Um número inventado na tela é pior que nenhum.
+    expect(emReais("")).toBe("");
+    expect(emReais("abc")).toBe("");
+    expect(emReais(null)).toBe("");
+    expect(emReais("-5")).toBe("");
   });
 });

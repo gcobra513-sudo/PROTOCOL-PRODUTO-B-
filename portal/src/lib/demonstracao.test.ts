@@ -82,6 +82,9 @@ describe("o roteiro da demonstração", () => {
     const r = roteiroDaDemonstracao(todos, "demo-x");
     expect(r[0]?.mostrar.join(" ")).toContain("já podem");
     expect(r[1]?.mostrar.join(" ")).toContain("“Caminho aberto, já conferido”");
+    // E a conta: é o que o sindicato pergunta em seguida ("quanto?").
+    expect(r[1]?.mostrar.join(" ")).toContain("apuração preliminar");
+    expect(r[0]?.mostrar.join(" ")).toContain("ficha financeira");
   });
 
   it("parada sem acesso não aparece", () => {

@@ -126,6 +126,9 @@ def fatos_para_o_motor(
     fatos = panorama.fatos_do_cadastro(
         cadastro or {}, tuple(documentos_entregues), fatos_lidos,
         rol=tuple(rol_das_acoes),
+        # Esta função junta o que os DOCUMENTOS disseram; a ficha
+        # financeira não está neles, e quem a tem passa pelo construtor.
+        ficha=(),
     )
     por_fora = {
         nome: valor for nome, valor in (

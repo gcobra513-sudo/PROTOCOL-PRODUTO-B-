@@ -158,6 +158,19 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
             checa("GIFA" not in texto and "Receita Federal" not in texto,
                   "a demonstração ainda cita ação ou carreira de verdade")
 
+        # E MOSTRA UMA CONTA, feita pelo motor: a verba fictícia do catálogo
+        # sobre a ficha financeira que o gestor da demonstração enviou. O
+        # segundo acesso impresso é o filiado que pode — 58 meses de 10%
+        # sobre 5.000,00.
+        s, corpo = _pedir(base + "/api/minhas-acoes", token=tokens[1])
+        valores = [o.get("valor") or {} for o in
+                   json.loads(corpo).get("oportunidades", [])
+                   if o.get("trilha") == "executar"] if s == 200 else []
+        checa(len(valores) == 1 and valores[0].get("apurado") == "29000.00",
+              f"a conta da demonstração não saiu: {s} {valores}")
+        checa("PRELIMINAR" in (valores[0].get("aviso", "") if valores else ""),
+              "o valor saiu sem dizer que é apuração preliminar")
+
         # E OS MESMOS ACESSOS ESTÃO NA TELA: quem abre o link não vê o
         # terminal de quem subiu a demonstração.
         s, corpo = _pedir(base + f"/api/entidade/{apelido}")
