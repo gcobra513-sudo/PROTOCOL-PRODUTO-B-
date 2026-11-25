@@ -265,7 +265,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
               width={1800}
               height={1140}
               loading="lazy"
-              alt="A aba Filiados do painel: a lista nome por nome, com busca, filtros e o botão de baixar a planilha da base."
+              alt="A aba Filiados do painel, com o filtro Já pode ligado: 4 pessoas de 42 na base, a busca por nome e o botão de baixar a planilha."
               className="w-full rounded-lg ring-1 ring-tinta/10"
             />
           </div>

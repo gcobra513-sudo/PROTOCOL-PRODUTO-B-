@@ -122,8 +122,8 @@ export function GuiaDaDemo({ onPrivacidade }: { onPrivacidade: () => void }) {
         <ul className="grid gap-4 md:grid-cols-3">
           <li className="rounded-xl bg-carta p-6 text-[15px] leading-relaxed text-tinta/80 shadow-cartao">
             <strong className="block text-tinta">Tudo aqui é fictício.</strong>
-            Nomes, CPFs, e-mails e documentos são de exemplo. Não envie
-            documento de verdade nesta página.
+            Nomes, CPFs, e-mails, documentos, a carreira e a ação são de
+            exemplo. Não envie documento de verdade nesta página.
           </li>
           <li className="rounded-xl bg-carta p-6 text-[15px] leading-relaxed text-tinta/80 shadow-cartao">
             <strong className="block text-tinta">O código aparece na tela.</strong>
@@ -159,14 +159,24 @@ export function GuiaDaDemo({ onPrivacidade }: { onPrivacidade: () => void }) {
           <dl className="space-y-4">
             <div className="rounded-xl bg-carta p-6 shadow-cartao">
               <dt className="text-[17px] font-semibold text-tinta">
-                “Por que o painel diz que ninguém pode executar ainda?”
+                “Essa ação existe?”
               </dt>
               <dd className="mt-2 text-[15px] leading-relaxed text-tinta/80">
-                Porque nesta demonstração nenhuma tese foi conferida e assinada
-                por advogado, e o portal não afirma nada no nome de uma pessoa
-                antes disso. O painel mostra exatamente essa pendência no topo
-                de “O que resolver primeiro”. É a regra mais importante do
-                produto funcionando: na dúvida, ele não diz que pode.
+                Não. A carreira e a ação da demonstração são inventadas, e a
+                tela diz isso no nome. No portal de verdade, uma ação só
+                aparece como conferida depois que um advogado confere e
+                assina. Antes disso o portal mostra a pendência e não diz
+                que alguém pode.
+              </dd>
+            </div>
+            <div className="rounded-xl bg-carta p-6 shadow-cartao">
+              <dt className="text-[17px] font-semibold text-tinta">
+                “E o valor que cada um tem a receber?”
+              </dt>
+              <dd className="mt-2 text-[15px] leading-relaxed text-tinta/80">
+                O portal ainda não mostra valor, e diz o que falta para
+                calcular: a ficha financeira de cada mês e a conferência da
+                verba por advogado. Ele não estima.
               </dd>
             </div>
             <div className="rounded-xl bg-carta p-6 shadow-cartao">

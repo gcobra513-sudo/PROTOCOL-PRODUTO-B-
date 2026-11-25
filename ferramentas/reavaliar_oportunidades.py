@@ -68,8 +68,9 @@ def main() -> int:
                                                     "dados_portal"))
     p.add_argument("--banco", default=os.environ.get("PROTOCOL_DATABASE_URL",
                                                      ""))
-    p.add_argument("--catalogos", default=str(entendimentos.PASTA_PADRAO),
-                   help="pasta dos catálogos de categoria")
+    p.add_argument("--catalogos", default="",
+                   help="pasta dos catálogos de categoria (padrão: a que o "
+                        "servidor usa)")
     args = p.parse_args()
 
     if not args.banco:
@@ -86,8 +87,14 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
-    catalogo = entendimentos.carregar_categorias(
-        args.catalogos, tuple(ent.categorias)
+    # SEM `--catalogos`, A MESMA PASTA DO SERVIDOR: esta ferramenta roda
+    # pela agenda, e um veredicto guardado a partir de outro catálogo
+    # desmentiria o painel.
+    catalogo = (
+        entendimentos.carregar_categorias(args.catalogos,
+                                          tuple(ent.categorias))
+        if args.catalogos
+        else entendimentos.do_ambiente(tuple(ent.categorias))
     )
     if not catalogo.assinatura:
         # Entidade sem categoria contratada não tem o que avaliar, e isto é

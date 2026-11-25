@@ -1199,8 +1199,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         # Recarrega a cada pedido de propósito: homologar é ato de advogado
         # que acontece no arquivo, e catálogo guardado em memória continuaria
         # recusando depois de alguém assinar.
-        catalogo = entendimentos.carregar_categorias(
-            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        catalogo = entendimentos.do_ambiente(
+            tuple(ent.categorias), cfg.ambiente_do_catalogo
         )
 
         comum = {
@@ -1420,8 +1420,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         ent = _gestor_de(apelido, pedido)
         _auditar(ent, "panorama",
                  quem_hash=_sessao_de(pedido).cpf_hash)
-        catalogo = entendimentos.carregar_categorias(
-            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        catalogo = entendimentos.do_ambiente(
+            tuple(ent.categorias), cfg.ambiente_do_catalogo
         )
         # DO BANCO QUANDO HÁ BANCO, do diário quando não há. Não são duas
         # verdades: o banco é projeção do diário, e um teste monta o panorama
@@ -2022,8 +2022,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         O rol de uma ação de outra carreira não é assunto deste sindicato,
         e um id qualquer gravado aqui ficaria respondendo por ação nenhuma.
         """
-        catalogo = entendimentos.carregar_categorias(
-            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        catalogo = entendimentos.do_ambiente(
+            tuple(ent.categorias), cfg.ambiente_do_catalogo
         )
         for a in catalogo.acoes:
             if a.id == acao:
@@ -2152,8 +2152,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         ent = _gestor_de(apelido, pedido)
         _auditar(ent, "ver_rol_de_substituidos",
                  quem_hash=_sessao_de(pedido).cpf_hash)
-        catalogo = entendimentos.carregar_categorias(
-            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        catalogo = entendimentos.do_ambiente(
+            tuple(ent.categorias), cfg.ambiente_do_catalogo
         )
         pasta = ent.pasta(cfg.raiz)
         resumo = substituidos.resumo(
@@ -2187,8 +2187,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
     def _base_avaliada(ent: entidades.Entidade) -> list:
         """Cada pessoa da base, avaliada — pelo MESMO laço do panorama."""
-        catalogo = entendimentos.carregar_categorias(
-            entendimentos.PASTA_PADRAO, tuple(ent.categorias)
+        catalogo = entendimentos.do_ambiente(
+            tuple(ent.categorias), cfg.ambiente_do_catalogo
         )
         if cfg.tem_banco:
             registros = banco.base(cfg.banco_url, ent.apelido)

@@ -162,6 +162,25 @@ def teste_sem_base_de_calculo_nao_se_apura():
     print("  ok     sem ficha financeira: não apura, e pede a ficha")
 
 
+def teste_meses_seguidos_sem_base_viram_um_periodo_na_recusa():
+    """A recusa é lida por um diretor de sindicato, no topo do painel. "de:
+    2004-03, 2004-04, 2004-05, 2004-06, 2004-07, 2004-08 e mais 52" não diz
+    até quando vai; "de 2004-03 a 2008-12 (58 meses)" diz. Mês faltando NO
+    MEIO continua nomeado um a um: aí é o mês que importa."""
+    a = valor.apurar(
+        valor.Periodo("2004-03", "2008-12"),
+        verba=valor.Verba(id="GIFA", percentual=Decimal("0.10"),
+                          homologado="S", fonte="exemplo://verba"),
+        bases={},
+    )
+    pedidos = [f.o_que for f in a.falta]
+    checa(any("de 2004-03 a 2008-12 (58 meses)" in o for o in pedidos),
+          f"a recusa não diz o período inteiro: {pedidos}")
+    checa(not any("e mais" in o for o in pedidos),
+          f"a recusa ainda corta a lista de meses: {pedidos}")
+    print("  ok     meses seguidos sem base: a recusa diz de quando a quando")
+
+
 def teste_um_mes_sem_base_impede_a_conta_inteira():
     """NÃO SE COMPLETA MÊS QUE FALTA. Preencher o buraco com a média seria
     inventar — e o número inventado sai com a nossa assinatura, no meio de
@@ -372,6 +391,7 @@ def teste_o_que_falta_para_o_valor_nomeia_as_duas_pecas():
 
 
 TESTES = [
+    teste_meses_seguidos_sem_base_viram_um_periodo_na_recusa,
     teste_prescricao_corta_o_que_passou_de_cinco_anos,
     teste_quem_esta_todo_dentro_do_quinquenio_nao_perde_nada,
     teste_tudo_prescrito_nao_vira_valor_nenhum,

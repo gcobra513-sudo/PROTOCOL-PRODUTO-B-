@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import os
 import tomllib
 import unicodedata
 from dataclasses import dataclass, field, replace
@@ -606,8 +607,81 @@ def juntar(catalogos: list[Catalogo]) -> Catalogo:
     )
 
 
+#: A pasta do catálogo FICTÍCIO da demonstração, quando houver. Só é lida em
+#: modo ensaio (`do_ambiente`).
+VARIAVEL_DA_DEMONSTRACAO = "PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO"
+
+
+def _e_ficticio(caminho: Path) -> bool:
+    try:
+        cabeca = tomllib.loads(caminho.read_text(encoding="utf-8")).get(
+            "catalogo") or {}
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        # Arquivo torto é assunto de `carregar`, que diz o que há de errado.
+        return False
+    return cabeca.get("ficticio") is True
+
+
+def _conferir_ficticios(arquivos: list[Path], demonstracao: bool) -> None:
+    """Catálogo fictício só em demonstração, e demonstração só com fictício.
+
+    A demonstração precisa mostrar alguém que PODE, e para isso existe um
+    catálogo inventado, com ação homologada "de mentira". As duas direções
+    são travadas porque as duas enganam:
+
+      - fictício servido a um sindicato de verdade diria PODE, no nome de
+        uma pessoa, por uma ação que não existe;
+      - catálogo de verdade servido pela pasta da demonstração seria um
+        jeito de trocar a homologação de uma ação real sem ninguém assinar.
+
+    A PASTA INTEIRA, pela mesma razão do resto do carregamento: o defeito
+    não pode ficar esperando o contrato que o revele.
+    """
+    for a in arquivos:
+        ficticio = _e_ficticio(a)
+        if ficticio and not demonstracao:
+            raise ErroDeCatalogo(
+                f"{a.name} é um catálogo FICTÍCIO (`ficticio = true`) e só "
+                f"pode ser lido pela demonstração. Ele não entra no "
+                f"catálogo de um sindicato de verdade."
+            )
+        if demonstracao and not ficticio:
+            raise ErroDeCatalogo(
+                f"{a.name} não é um catálogo fictício, e a demonstração só "
+                f"lê catálogo declaradamente fictício (`ficticio = true`)."
+            )
+
+
+def do_ambiente(
+    slugs: tuple[str, ...] | None, ambiente: dict[str, str] | None = None
+) -> Catalogo:
+    """O catálogo que ESTE processo serve: o de verdade, ou o da demonstração.
+
+    Um lugar só decide, para o servidor e para as ferramentas que a agenda
+    roda: se cada um resolvesse a pasta por conta própria, o painel diria
+    uma coisa e o veredicto guardado diria outra.
+
+    A pasta da demonstração SÓ VALE EM MODO ENSAIO. Fora dele a variável não
+    é ignorada: é recusada. Ignorar em silêncio deixaria alguém achar que
+    está mostrando a demonstração quando está servindo o catálogo real — e
+    o contrário, que é pior.
+    """
+    amb = os.environ if ambiente is None else ambiente
+    pasta = (amb.get(VARIAVEL_DA_DEMONSTRACAO) or "").strip()
+    if not pasta:
+        return carregar_categorias(PASTA_PADRAO, slugs)
+    if amb.get("PROTOCOL_MODO_ENSAIO", "") != "1":
+        raise ErroDeCatalogo(
+            f"{VARIAVEL_DA_DEMONSTRACAO} aponta um catálogo fictício, e ele "
+            f"só pode ser servido com PROTOCOL_MODO_ENSAIO=1. Num servidor "
+            f"de verdade, tire a variável."
+        )
+    return carregar_categorias(pasta, slugs, demonstracao=True)
+
+
 def carregar_categorias(
-    pasta: Path | str, slugs: tuple[str, ...] | None = None
+    pasta: Path | str, slugs: tuple[str, ...] | None = None, *,
+    demonstracao: bool = False,
 ) -> Catalogo:
     """O catálogo de uma entidade: só as categorias que ela contratou.
 
@@ -629,7 +703,9 @@ def carregar_categorias(
     if slugs is not None and not slugs:
         return VAZIO
 
-    todos = juntar([carregar(a) for a in sorted(pasta.glob("*.toml"))])
+    arquivos = sorted(pasta.glob("*.toml"))
+    _conferir_ficticios(arquivos, demonstracao)
+    todos = juntar([carregar(a) for a in arquivos])
     if slugs is None:
         return todos
 

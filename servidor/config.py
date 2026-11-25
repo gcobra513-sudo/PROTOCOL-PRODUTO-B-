@@ -58,6 +58,20 @@ class Config:
     #: se as ENTREGAS de e-mail estão saindo. Vazia: ninguém vê. Ver
     #: `remetente.Vigiado` — a entrega não pode ser pública.
     chave_do_monitor: str = ""
+    #: A pasta do catálogo FICTÍCIO, para a demonstração ter quem "pode".
+    #: Só existe em modo ensaio — `carregar` recusa a subida fora dele.
+    categorias_da_demonstracao: str = ""
+
+    @property
+    def ambiente_do_catalogo(self) -> dict[str, str]:
+        """O que `nucleo.entendimentos.do_ambiente` precisa saber, vindo
+        DESTA configuração e não do ambiente do processo: uma `Config`
+        montada em código tem de valer igual."""
+        amb = {"PROTOCOL_MODO_ENSAIO": "1"} if self.modo_ensaio else {}
+        if self.categorias_da_demonstracao:
+            amb["PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO"] = (
+                self.categorias_da_demonstracao)
+        return amb
     #: O maior corpo de pedido aceito, em bytes. O padrão é o que a casa
     #: mediu; por configuração só se BAIXA (a demonstração hospedada roda em
     #: 512 MB, com o banco junto).
@@ -303,8 +317,22 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
             "PROTOCOL_EMISSOES_POR_ORIGEM_HORA", EMISSOES_POR_ORIGEM_HORA
         ),
         semente_demo=amb.get("PROTOCOL_SEMENTE_DEMO", "") == "1",
+        categorias_da_demonstracao=amb.get(
+            "PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO", "").strip(),
         avisos=tuple(avisos),
     )
+
+    if cfg.categorias_da_demonstracao:
+        # FALHA NA SUBIDA, e não no primeiro pedido: um servidor de verdade
+        # com o catálogo fictício apontado diria PODE por uma ação inventada.
+        from nucleo import entendimentos
+        try:
+            entendimentos.do_ambiente(None, cfg.ambiente_do_catalogo)
+        except entendimentos.ErroDeCatalogo as e:
+            raise ConfiguracaoInvalida(
+                f"PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO não pode ser usada "
+                f"assim: {e}"
+            ) from None
 
     if not cfg.tem_remetente and not modo_ensaio:
         raise ConfiguracaoInvalida(

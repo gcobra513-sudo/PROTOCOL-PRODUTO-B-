@@ -123,6 +123,7 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
         checa(len(cpfs) >= 4, f"esperava 4 acessos impressos, vi {cpfs}")
         m = re.search(r"entidade=([a-z0-9-]+)", saida)
         apelido = m.group(1) if m else "demo-sindicato"
+        tokens = []
         for cpf in cpfs[:4]:
             s, corpo = _pedir(base + "/api/acesso/codigo",
                               {"entidade": apelido, "cpf": cpf})
@@ -132,6 +133,30 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
                                "codigo": codigo})
             checa(s == 200 and "token" in json.loads(corpo),
                   f"o acesso impresso {cpf} não entra: {s}")
+            tokens.append(json.loads(corpo).get("token", ""))
+
+        # A DEMONSTRAÇÃO MOSTRA OS TRÊS RESULTADOS — quem pode, quem depende
+        # de alguma coisa, quem não pode —, e mostra com uma ação que se
+        # declara FICTÍCIA. Antes ela usava o catálogo de verdade, onde nada
+        # está homologado, e o painel dizia "ninguém pode" para a base
+        # inteira: correto, e inútil para mostrar o produto.
+        vistos = [_pedir(base + f"/api/entidade/{apelido}/panorama", token=t)
+                  for t in tokens]
+        painel = [json.loads(c) for s, c in vistos if s == 200]
+        checa(len(painel) == 1, "esperava um gestor entre os acessos")
+        if painel:
+            p = painel[0]
+            checa(0 < p["aptos"] < p["pessoas"],
+                  f"a demonstração devia ter quem pode e quem não: "
+                  f"{p['aptos']} de {p['pessoas']}")
+            checa(p["por_acao"] and all(
+                "FICTÍCIA" in a["rotulo"] for a in p["por_acao"]),
+                f"ação sem a marca de fictícia: {p['por_acao']}")
+            checa(all("fictícia" in c.lower() for c in p["categorias"]),
+                  f"categoria de verdade na demonstração: {p['categorias']}")
+            texto = json.dumps(p, ensure_ascii=False)
+            checa("GIFA" not in texto and "Receita Federal" not in texto,
+                  "a demonstração ainda cita ação ou carreira de verdade")
 
         # E OS MESMOS ACESSOS ESTÃO NA TELA: quem abre o link não vê o
         # terminal de quem subiu a demonstração.
