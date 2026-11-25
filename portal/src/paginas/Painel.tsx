@@ -66,6 +66,7 @@ import {
   resumoDaFilaDeLeitura,
   resumoDaPlanilha,
   atalhoDoGargalo,
+  resumoDoEnvioDaFicha,
   resumoDoEnvioDoRol,
   resumoDoRolVigente,
   resumoDoAcesso,
@@ -1389,6 +1390,122 @@ function RolDeSubstituidos({
   );
 }
 
+/** A FICHA FINANCEIRA: a base de cálculo de cada filiado, mês a mês.
+ *
+ *  É o que o painel cobra como "a base de cálculo (ficha financeira)", e
+ *  não havia onde entregá-la. As mesmas duas etapas da planilha e do rol.
+ *  É REMUNERAÇÃO: a tela mostra contagens, nunca valor. */
+function FichaFinanceira({
+  entidade,
+  token,
+  onMudou,
+}: {
+  entidade: string;
+  token: string;
+  onMudou: () => void;
+}) {
+  const [recebidas, setRecebidas] = useState<api.FichasRecebidas | null>(null);
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [previa, setPrevia] = useState<api.PreviaDaFicha | null>(null);
+  const [indo, setIndo] = useState(false);
+  const [erro, setErro] = useState("");
+  const [versao, setVersao] = useState(0);
+
+  useEffect(() => {
+    void api
+      .verFichas(entidade, token)
+      .then(setRecebidas)
+      .catch(() => setRecebidas(null));
+  }, [entidade, token, versao]);
+
+  async function fazer(passo: () => Promise<void>) {
+    setIndo(true);
+    setErro("");
+    try {
+      await passo();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "não foi possível enviar");
+    } finally {
+      setIndo(false);
+    }
+  }
+  const conferir = () =>
+    fazer(async () => {
+      if (arquivo) setPrevia(await api.enviarFicha(entidade, token, arquivo));
+    });
+  const gravar = () =>
+    fazer(async () => {
+      if (!arquivo || !previa) return;
+      setPrevia(await api.enviarFicha(entidade, token, arquivo, previa.sha256));
+      setVersao((v) => v + 1);
+      onMudou();
+    });
+
+  return (
+    <Cartao
+      titulo="Ficha financeira"
+      explicacao="A base de cálculo de cada filiado, mês a mês. Sem ela não há do que tirar o percentual da verba, e o portal não mostra valor. Nada é gravado antes de você conferir."
+    >
+      {recebidas ? (
+        <p className="text-[15px] text-tinta/80">
+          {recebidas.pessoas > 0
+            ? `Já recebemos a ficha de ${pessoas(recebidas.pessoas)}. ` +
+              `${recebidas.sem_ficha > 0 ? `${pessoas(recebidas.sem_ficha)} da base ainda ${recebidas.sem_ficha === 1 ? "está" : "estão"} sem ficha.` : "Toda a base tem ficha."}`
+            : "Nenhuma ficha foi enviada ainda."}
+        </p>
+      ) : null}
+      <div className="space-y-3 rounded-lg border border-borda bg-carta p-4">
+        <label className="block text-[15px] font-medium text-tinta">
+          A planilha da ficha (Excel ou CSV)
+          <input
+            type="file"
+            accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="mt-2 block text-sm font-normal"
+            onChange={(e) => {
+              setArquivo(e.target.files?.[0] ?? null);
+              setPrevia(null);
+            }}
+          />
+        </label>
+        <p className="text-sm text-tinta/60">
+          Três colunas: CPF, Competência (o mês, como 03/2004) e Base (o
+          valor sobre o qual a verba incide). Uma linha por pessoa e por mês.
+          Mês que não vier não é contado como zero: a conta só sai com todos.
+        </p>
+        {previa ? (
+          <div className="space-y-2">
+            {previa.gravado ? (
+              <Aviso tom="bom">Ficha financeira gravada.</Aviso>
+            ) : (
+              <Aviso tom="neutro">
+                <strong>Confira antes de gravar.</strong> Nada foi gravado
+                ainda.
+              </Aviso>
+            )}
+            {resumoDoEnvioDaFicha(previa).map((linha) => (
+              <p key={linha} className="text-sm text-tinta/80">
+                {linha}
+              </p>
+            ))}
+          </div>
+        ) : null}
+        <div className="flex flex-wrap gap-3">
+          {!previa ? (
+            <Botao tamanho="pequeno" disabled={!arquivo || indo} onClick={() => void conferir()}>
+              {indo ? "Lendo…" : "Conferir a ficha"}
+            </Botao>
+          ) : !previa.gravado && previa.pessoas > 0 ? (
+            <Botao tamanho="pequeno" disabled={indo} onClick={() => void gravar()}>
+              {indo ? "Gravando…" : "Confirmar e gravar a ficha"}
+            </Botao>
+          ) : null}
+        </div>
+      </div>
+      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
+    </Cartao>
+  );
+}
+
 export function Painel({
   entidade,
   token,
@@ -1817,6 +1934,14 @@ export function Painel({
         {/* O `id` é o destino do atalho "Enviar o rol" das pendências. */}
         <div id="rol-de-substituidos" className="scroll-mt-4">
           <RolDeSubstituidos
+            entidade={entidade}
+            token={token}
+            onMudou={() => setVersaoDaFila((v) => v + 1)}
+          />
+        </div>
+
+        <div id="ficha-financeira" className="scroll-mt-4">
+          <FichaFinanceira
             entidade={entidade}
             token={token}
             onMudou={() => setVersaoDaFila((v) => v + 1)}

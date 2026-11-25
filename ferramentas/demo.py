@@ -377,6 +377,28 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
         r.raise_for_status()
         confirmar = r.json()["sha256"]
 
+    # A FICHA FINANCEIRA, também pelo gestor e pela porta da frente: a base
+    # de cálculo dos quatro que podem, de 03/2004 a 12/2008. Com a verba
+    # fictícia do catálogo (10%), a conta deles sai — e os outros continuam
+    # mostrando o que falta para ela. Valores redondos de propósito: 58
+    # meses de 10% sobre 5.000,00 se conferem de cabeça (29.000,00).
+    meses = [f"{m:02d}/{a}" for a in range(2004, 2009) for m in range(1, 13)
+             if (a, m) >= (2004, 3)]
+    ficha = "CPF;Competência;Base\r\n" + "".join(
+        f"{pessoas[i][0]};{mes};{base}\r\n"
+        for i, base in ((4, "5.000,00"), (10, "6.200,00"),
+                        (14, "4.800,00"), (15, "5.500,00"))
+        for mes in meses)
+    confirmar = ""
+    for _ in range(2):
+        r = c.post(f"/api/entidade/{APELIDO}/ficha-financeira",
+                   data={"confirmar": confirmar},
+                   files={"arquivo": ("ficha-financeira.csv",
+                                      ficha.encode("utf-8"), "text/csv")},
+                   headers={"Authorization": f"Bearer {token(gestor)}"})
+        r.raise_for_status()
+        confirmar = r.json()["sha256"]
+
     # Um andamento já registrado, para a área de processos ter o que contar
     # sem a demonstração falar com tribunal nenhum.
     numero = "".join(ch for ch in PROCESSO if ch.isdigit())

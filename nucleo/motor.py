@@ -96,6 +96,11 @@ class Fatos:
     ja_executou_conferido: bool = False
     #: Já tem ação própria sobre o mesmo objeto?
     tem_acao_propria: bool | None = None
+    #: A FICHA FINANCEIRA: (competência AAAA-MM, base de cálculo), do que o
+    #: SINDICATO enviou (`servidor/fichas.py`). Vazia é o estado normal, e
+    #: quer dizer que não há do que tirar percentual — a conta recusa. Mês
+    #: que não está aqui NÃO é zero: é mês sem base, e impede o total.
+    bases: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -414,10 +419,14 @@ def _avaliar_executar(
     periodo = mod_valor.periodo_apuravel(
         faz_parte.inicio, faz_parte.fim, acao.ajuizada_em
     )
+    # A VERBA VEM DO CATÁLOGO, onde o advogado a confere, e a FICHA vem dos
+    # fatos da pessoa. Sem verba declarada para a ação, entra uma vazia e
+    # não homologada: a recusa continua nomeando o que falta.
     apuracao = mod_valor.apurar(
         periodo,
-        mod_valor.Verba(id=acao.id, fonte=acao.fonte),
-        bases={},
+        catalogo.verba_de(acao.id)
+        or mod_valor.Verba(id=acao.id, fonte=acao.fonte),
+        bases=dict(fatos.bases),
     )
     if periodo.meses_prescritos:
         j.nota(dito(

@@ -478,6 +478,22 @@ export interface OportunidadeDoFiliado {
   notas: string[];
   fonte: string;
   falta: FaltaDoFiliado[];
+  /** A apuração, quando o servidor a mandou. `apurado` é texto decimal
+   *  ("29000.00") ou `null` enquanto faltar insumo. */
+  valor?: ValorApurado | null;
+}
+
+export interface PassoDaConta {
+  o_que: string;
+  resultado: string;
+  fonte: string;
+}
+
+export interface ValorApurado {
+  apurado: string | null;
+  /** O que este número NÃO é. Fica junto dele, não no rodapé. */
+  aviso: string;
+  memoria: PassoDaConta[];
 }
 
 export interface GrupoDePendencia {
@@ -756,6 +772,61 @@ export function enviarRol(
   return enviarFormulario(
     rolEm(apelido), token, corpo, "não foi possível enviar o rol",
   );
+}
+
+/** O que o servidor responde ao envio da ficha financeira. Só contagens:
+ *  é remuneração, e valor nenhum volta para a tela do gestor. */
+export interface PreviaDaFicha {
+  sha256: string;
+  pessoas: number;
+  competencias: number;
+  fora_da_base: number;
+  invalidas: number;
+  divergentes: number;
+  gravado: boolean;
+}
+
+function fichaEm(apelido: string): string {
+  return `${BASE}/api/entidade/${encodeURIComponent(apelido)}/ficha-financeira`;
+}
+
+/** A ficha financeira: a base de cálculo de cada filiado, mês a mês. As
+ *  mesmas duas etapas da planilha e do rol — sem `confirmar`, só conta. */
+export function enviarFicha(
+  apelido: string,
+  token: string,
+  arquivo: File,
+  confirmar = "",
+): Promise<PreviaDaFicha> {
+  const corpo = new FormData();
+  corpo.append("arquivo", arquivo);
+  corpo.append("confirmar", confirmar);
+  return enviarFormulario(
+    fichaEm(apelido), token, corpo, "não foi possível enviar a ficha financeira",
+  );
+}
+
+export interface FichasRecebidas {
+  pessoas: number;
+  sem_ficha: number;
+  enviado_em: string;
+  arquivo: string;
+}
+
+export async function verFichas(
+  apelido: string,
+  token: string,
+): Promise<FichasRecebidas> {
+  const r = await fetch(fichaEm(apelido), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const dados = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    throw new ErroDoServidor(
+      dados?.detail?.erro ?? "não foi possível abrir a ficha financeira", r.status,
+    );
+  }
+  return dados as FichasRecebidas;
 }
 
 export async function verRois(

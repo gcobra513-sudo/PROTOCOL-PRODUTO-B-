@@ -419,6 +419,12 @@ def _semear_em_todo_lugar(apelido: str, cpf: str):
                      "campos": {"nome_completo": "PESSOA (FICTÍCIO)"},
                      "achados": []}],
     }, ensure_ascii=False) + "\n")
+    # 8: a ficha financeira que o sindicato enviou — é REMUNERAÇÃO dela
+    from servidor import fichas
+    deposito.anexar_com_fsync(pasta / fichas.ARQUIVO, _json.dumps({
+        "quando": "2026-11-25T00:00:00+00:00", "quem": "x", "arquivo": "f.csv",
+        "sha256": "0" * 64, "fichas": {cpf: {"2004-03": "5000.00"}},
+    }) + "\n")
     return ent, raiz
 
 

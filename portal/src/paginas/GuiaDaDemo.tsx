@@ -174,9 +174,12 @@ export function GuiaDaDemo({ onPrivacidade }: { onPrivacidade: () => void }) {
                 “E o valor que cada um tem a receber?”
               </dt>
               <dd className="mt-2 text-[15px] leading-relaxed text-tinta/80">
-                O portal ainda não mostra valor, e diz o que falta para
-                calcular: a ficha financeira de cada mês e a conferência da
-                verba por advogado. Ele não estima.
+                O portal mostra uma apuração preliminar e bruta quando tem
+                as duas coisas: a ficha financeira do filiado, enviada pelo
+                sindicato, e a verba conferida por advogado. É o percentual
+                da verba sobre a base de cada mês, sem correção, juros nem
+                imposto, e isso vem escrito junto do número. Sem a ficha,
+                ele diz o que falta e não estima.
               </dd>
             </div>
             <div className="rounded-xl bg-carta p-6 shadow-cartao">

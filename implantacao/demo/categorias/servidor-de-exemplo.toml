@@ -40,3 +40,15 @@ demonstração ter os três resultados: quem pode, quem ainda depende de
 alguma coisa, e quem não pode por estar fora do rol.
 """
 homologado      = "S"
+
+# A VERBA, também inventada: 10% sobre o vencimento básico. O percentual e o
+# "sobre o quê" são redondos de propósito, para a conta da demonstração ser
+# conferível de cabeça.
+[[verbas]]
+id            = "GRATIFICACAO-DE-EXEMPLO"
+acao          = "EXEMPLO-FICTICIA"
+descricao     = "Gratificação de Exemplo (verba FICTÍCIA)"
+percentual    = "0.10"
+incide_sobre  = "o vencimento básico de cada mês"
+fonte         = "FICTÍCIA — dispositivo inventado para a demonstração"
+homologado    = "S"

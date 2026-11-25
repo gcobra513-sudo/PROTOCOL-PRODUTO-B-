@@ -35,7 +35,10 @@ import os
 import tomllib
 import unicodedata
 from dataclasses import dataclass, field, replace
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
+
+from . import valor as mod_valor
 
 #: As duas trilhas. "ambas" existe para entendimento que vale nas duas —
 #: prescrição, por exemplo, corre tanto para quem executa quanto para quem
@@ -220,6 +223,15 @@ class Catalogo:
     #: conteúdo não tem é prova FALSA, e prova falsa é pior que prova
     #: nenhuma — por isso quem grava compara os dois e recusa na divergência.
     digestos: dict[str, str] = field(default_factory=dict)
+    #: O que cada ação manda pagar, e sobre o quê (`[[verbas]]`). É daqui
+    #: que a conta tira o percentual — e só de verba homologada.
+    verbas: tuple[mod_valor.Verba, ...] = ()
+
+    def verba_de(self, acao_id: str) -> mod_valor.Verba | None:
+        for v in self.verbas:
+            if v.acao == acao_id:
+                return v
+        return None
 
     #: Derivado de `cargos`: grafia normalizada -> categoria. Montado no
     #: __post_init__ para não poder divergir, e porque a busca roda uma vez
@@ -315,6 +327,11 @@ class Catalogo:
             entendimentos=tuple(e for e in self.entendimentos
                                 if e.categoria in manter),
             acoes=tuple(a for a in self.acoes if a.categoria in manter),
+            verbas=tuple(
+                v for v in self.verbas
+                if v.acao in {a.id for a in self.acoes
+                              if a.categoria in manter}
+            ),
         )
 
     def homologando(self, ids: tuple[str, ...]) -> "Catalogo":
@@ -514,8 +531,30 @@ def carregar(caminho: Path | str) -> Catalogo:
             homologado=str(bruto.get("homologado", "N")),
         ))
 
+    verbas: list[mod_valor.Verba] = []
+    for bruto in dados.get("verbas") or []:
+        try:
+            percentual = Decimal(str(bruto.get("percentual", "0")))
+        except InvalidOperation:
+            erros.append(
+                f"{caminho.name}: a verba {bruto.get('id')!r} tem percentual "
+                f"que não é número: {bruto.get('percentual')!r}"
+            )
+            percentual = Decimal("0")
+        verbas.append(mod_valor.Verba(
+            id=str(bruto.get("id", "")),
+            acao=str(bruto.get("acao", "")),
+            descricao=str(bruto.get("descricao", "")),
+            percentual=percentual,
+            incide_sobre=str(bruto.get("incide_sobre", "")),
+            fonte=str(bruto.get("fonte", "")),
+            homologado=str(bruto.get("homologado", "N")),
+        ))
+
     erros += [p for e in entradas for p in _conferir(e)]
     erros += [p for a in acoes for p in _conferir_acao(a)]
+    erros += [p for v in verbas
+              for p in _conferir_verba(v, {a.id for a in acoes})]
     vistos = [e.id for e in entradas] + [a.id for a in acoes]
     repetidos = sorted({i for i in vistos if vistos.count(i) > 1})
     if repetidos:
@@ -536,7 +575,28 @@ def carregar(caminho: Path | str) -> Catalogo:
         digestos={slug: hashlib.sha256(bruto_em_bytes).hexdigest()},
         entendimentos=tuple(entradas),
         acoes=tuple(acoes),
+        verbas=tuple(verbas),
     )
+
+
+def _conferir_verba(v: mod_valor.Verba, acoes: set[str]) -> list[str]:
+    """Verba homologada é uma conta assinada: tem de dizer quanto, sobre o
+    quê, de onde saiu e de qual ação deste arquivo. Sem homologação pode
+    estar pela metade — é rascunho, e rascunho não calcula nada."""
+    if not v.esta_homologada:
+        return []
+    erros = []
+    faltando = lambda t: not t.strip() or t.strip().startswith("PREENCHER")  # noqa: E731
+    if v.acao not in acoes:
+        erros.append(f"verba {v.id}: homologada para uma ação que este "
+                     f"catálogo não tem ({v.acao!r})")
+    if v.percentual <= 0:
+        erros.append(f"verba {v.id}: homologada sem percentual")
+    if faltando(v.incide_sobre):
+        erros.append(f"verba {v.id}: homologada sem dizer sobre o que incide")
+    if faltando(v.fonte):
+        erros.append(f"verba {v.id}: homologada sem fonte citada")
+    return erros
 
 
 def juntar(catalogos: list[Catalogo]) -> Catalogo:
@@ -558,6 +618,7 @@ def juntar(catalogos: list[Catalogo]) -> Catalogo:
     versoes: dict[str, int] = {}
     digestos: dict[str, str] = {}
     entendimentos: list[Entendimento] = []
+    verbas: list[mod_valor.Verba] = []
     acoes: list[AcaoColetiva] = []
     dono_do_cargo: dict[str, str] = {}
 
@@ -586,6 +647,7 @@ def juntar(catalogos: list[Catalogo]) -> Catalogo:
         digestos.update(cat.digestos)
         entendimentos += list(cat.entendimentos)
         acoes += list(cat.acoes)
+        verbas += list(cat.verbas)
 
     vistos = [e.id for e in entendimentos] + [a.id for a in acoes]
     repetidos = sorted({i for i in vistos if vistos.count(i) > 1})
@@ -604,6 +666,7 @@ def juntar(catalogos: list[Catalogo]) -> Catalogo:
         digestos=digestos,
         entendimentos=tuple(entendimentos),
         acoes=tuple(acoes),
+        verbas=tuple(verbas),
     )
 
 

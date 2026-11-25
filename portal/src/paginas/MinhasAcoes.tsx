@@ -31,6 +31,7 @@ import {
   comoFrase,
   explicacaoDaTrilha,
   periodo,
+  emReais,
   fonteQueViraLink,
   resumo,
   rotuloDaTrilha,
@@ -192,6 +193,37 @@ function Trilha({
                   <li key={n}>{comoFrase(semPrefixo(n, o.rotulo))}</li>
                 ))}
               </ul>
+            ) : null}
+            {/* A CONTA, quando ela existe. O número vem com o que ele NÃO
+                é escrito logo abaixo, no mesmo quadro: separado dele, o
+                aviso viraria rodapé e o número viraria promessa. */}
+            {emReais(o.valor?.apurado) ? (
+              <div className="mt-3 rounded-md border border-borda bg-carta p-4">
+                <p className="text-sm font-semibold uppercase tracking-wide text-tinta/60">
+                  Apuração preliminar e bruta
+                </p>
+                <p className="mt-1 text-2xl font-bold text-tinta">
+                  {emReais(o.valor?.apurado)}
+                </p>
+                <p className="mt-2 text-[14px] leading-relaxed text-tinta/75">
+                  {o.valor?.aviso}
+                </p>
+                {o.valor?.memoria.length ? (
+                  <details className="mt-3">
+                    <summary className="cursor-pointer text-[15px] font-medium text-acento underline">
+                      Ver como a conta foi feita
+                    </summary>
+                    <ol className="mt-2 list-decimal space-y-2 pl-5 text-[14px] leading-relaxed text-tinta/80">
+                      {o.valor.memoria.map((p) => (
+                        <li key={`${p.o_que}-${p.resultado}`}>
+                          <strong>{p.o_que}:</strong> {p.resultado}
+                          {p.fonte ? <span className="text-tinta/60"> — {p.fonte}</span> : null}
+                        </li>
+                      ))}
+                    </ol>
+                  </details>
+                ) : null}
+              </div>
             ) : null}
             {/* A fonte fica na tela, não no rodapé: quem quiser conferir o
                 que dizemos tem de poder ir ao texto do tribunal. */}

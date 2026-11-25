@@ -390,7 +390,146 @@ def teste_o_que_falta_para_o_valor_nomeia_as_duas_pecas():
     print(f"  ok     {textos[:92]}...")
 
 
+# ------------------------------- a conta chega ao motor: verba + ficha
+#
+# Até aqui `apurar` sabia fazer a conta e ninguém lhe entregava os insumos:
+# o motor passava uma verba vazia e ficha nenhuma. Agora a VERBA vem do
+# catálogo (percentual e fonte, homologada por advogado) e a FICHA vem dos
+# fatos da pessoa (o que o sindicato enviou, mês a mês).
+
+CATALOGO_COM_VERBA = """
+[catalogo]
+versao = 1
+categoria = "Carreira Exemplo V"
+cargos = ["carreira exemplo v"]
+
+[[acoes_coletivas]]
+id = "EX-V-ACAO"
+descricao = "Ação coletiva de exemplo V"
+situacao = "transitado_em_julgado"
+periodo_inicio = "2003-01"
+periodo_fim = "2003-12"
+exige_rol = false
+ajuizada_em = "2004-01"
+fonte = "exemplo://v-acao"
+homologado = "S"
+
+[[verbas]]
+id = "EX-V-VERBA"
+acao = "EX-V-ACAO"
+descricao = "Gratificação de exemplo V"
+percentual = "0.10"
+incide_sobre = "o vencimento básico"
+fonte = "exemplo://v-sentenca, fl. 10"
+homologado = "S"
+"""
+
+
+def _catalogo_v(corpo: str = CATALOGO_COM_VERBA):
+    import tempfile
+    from nucleo import entendimentos
+
+    pasta = Path(tempfile.mkdtemp())
+    (pasta / "exemplo-v.toml").write_text(corpo, encoding="utf-8")
+    return entendimentos.carregar_categorias(pasta, ("exemplo-v",))
+
+
+def _pessoa_v(**trocas):
+    from nucleo import motor
+
+    base = dict(
+        cpf="11144477735", cargo="Carreira Exemplo V", situacao="aposentado",
+        filiado_desde="2003-03", tem_titulo=True, no_rol=True,
+        ja_executou=False, ja_executou_conferido=True, tem_acao_propria=False,
+    )
+    base.update(trocas)
+    return motor.Fatos(**base)
+
+
+def _executar_v(fatos, catalogo=None):
+    from nucleo import motor
+
+    return [o for o in motor.avaliar(fatos, catalogo or _catalogo_v())
+            if o.trilha == motor.EXECUTAR][0]
+
+
+def teste_com_verba_homologada_e_ficha_inteira_o_motor_apura():
+    secao("a conta chega ao motor")
+    meses = [f"2003-{m:02d}" for m in range(3, 13)]
+    o = _executar_v(_pessoa_v(bases=tuple((m, "5000.00") for m in meses)))
+    checa(o.apuracao is not None and o.apuracao.total == Decimal("5000.00"),
+          f"10 meses de 10% sobre 5.000,00 dão 5.000,00; veio "
+          f"{o.apuracao.total if o.apuracao else None} / "
+          f"{[f.o_que for f in o.falta_para_valor]}")
+    checa(not o.falta_para_valor,
+          f"apurou e ainda diz que falta: {[f.o_que for f in o.falta_para_valor]}")
+    checa("PRELIMINAR" in o.apuracao.aviso,
+          "o número saiu sem dizer que é apuração preliminar e bruta")
+    print(f"  ok     verba do catálogo + ficha dos fatos: {o.apuracao.total}")
+
+
+def teste_sem_a_ficha_o_motor_continua_recusando():
+    o = _executar_v(_pessoa_v())
+    checa(o.apuracao.total is None, "apurou sem ficha financeira")
+    pedidos = [f.o_que for f in o.falta_para_valor]
+    checa(any("ficha financeira" in p for p in pedidos),
+          f"não pediu a ficha: {pedidos}")
+    checa(not any("homologação da verba" in p for p in pedidos),
+          f"a verba está homologada no catálogo e foi cobrada: {pedidos}")
+    # FICHA PELA METADE NÃO VIRA NÚMERO, e a recusa nomeia o mês.
+    o = _executar_v(_pessoa_v(bases=(("2003-03", "5000.00"),)))
+    checa(o.apuracao.total is None, "apurou com a ficha pela metade")
+    print("  ok     sem ficha, ou com ela pela metade: recusa e diz o que falta")
+
+
+def teste_verba_nao_homologada_no_catalogo_nao_apura():
+    cat = _catalogo_v(CATALOGO_COM_VERBA.replace(
+        'fl. 10"\nhomologado = "S"', 'fl. 10"\nhomologado = "N"'))
+    meses = [f"2003-{m:02d}" for m in range(3, 13)]
+    o = _executar_v(_pessoa_v(bases=tuple((m, "5000.00") for m in meses)), cat)
+    checa(o.apuracao.total is None,
+          "apurou com verba que nenhum advogado conferiu")
+    checa(any("homologação da verba" in f.o_que for f in o.falta_para_valor),
+          "não cobrou a homologação da verba")
+    print("  ok     verba sem homologação: não apura, com ficha e tudo")
+
+
+def teste_verba_homologada_sem_percentual_ou_sem_acao_e_recusada():
+    """Homologar uma verba sem dizer quanto, ou de uma ação que o arquivo
+    não tem, é assinar uma conta que não existe."""
+    from nucleo import entendimentos
+
+    for troca, o_que in (
+        (('percentual = "0.10"', 'percentual = "0"'), "percentual"),
+        (('acao = "EX-V-ACAO"', 'acao = "OUTRA"'), "ação"),
+        (('fonte = "exemplo://v-sentenca, fl. 10"', 'fonte = ""'), "fonte"),
+    ):
+        try:
+            _catalogo_v(CATALOGO_COM_VERBA.replace(*troca))
+            checa(False, f"aceitou verba homologada sem {o_que}")
+        except entendimentos.ErroDeCatalogo:
+            pass
+    print("  ok     verba homologada sem percentual, ação ou fonte: recusada")
+
+
+def teste_o_catalogo_de_verdade_continua_sem_verba_homologada():
+    """A verba da GIFA está no catálogo com PREENCHER em tudo. Carregar as
+    verbas não pode transformar isso em conta."""
+    from nucleo import entendimentos
+
+    cat = entendimentos.carregar_categorias(entendimentos.PASTA_PADRAO)
+    checa(all(not v.esta_homologada for v in cat.verbas),
+          "há verba homologada no catálogo de verdade")
+    print(f"  ok     {len(cat.verbas)} verba(s) no catálogo real, nenhuma "
+          f"homologada")
+
+
 TESTES = [
+    teste_com_verba_homologada_e_ficha_inteira_o_motor_apura,
+    teste_sem_a_ficha_o_motor_continua_recusando,
+    teste_verba_nao_homologada_no_catalogo_nao_apura,
+    teste_verba_homologada_sem_percentual_ou_sem_acao_e_recusada,
+    teste_o_catalogo_de_verdade_continua_sem_verba_homologada,
     teste_meses_seguidos_sem_base_viram_um_periodo_na_recusa,
     teste_prescricao_corta_o_que_passou_de_cinco_anos,
     teste_quem_esta_todo_dentro_do_quinquenio_nao_perde_nada,

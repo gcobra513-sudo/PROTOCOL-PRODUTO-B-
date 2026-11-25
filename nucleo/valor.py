@@ -210,6 +210,10 @@ class Verba:
     incide_sobre: str = "a base de cálculo declarada na ficha financeira"
     fonte: str = ""
     homologado: str = "N"
+    #: De qual ação coletiva é esta verba, e como ela se chama. Vêm do
+    #: catálogo (`[[verbas]]`), que é onde o advogado a confere.
+    acao: str = ""
+    descricao: str = ""
 
     @property
     def esta_homologada(self) -> bool:

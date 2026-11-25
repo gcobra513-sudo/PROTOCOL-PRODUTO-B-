@@ -66,6 +66,7 @@ from . import (
     ingestao,
     remetente,
     rol,
+    fichas,
     substituidos,
     trocas,
     validacao,
@@ -1248,6 +1249,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             _entregues_do_cpf(ent, linha["cpf"]),
             _fatos_lidos_do_cpf(ent, linha["cpf"]),
             rol=substituidos.de_cpf(ent.pasta(cfg.raiz), linha["cpf"]),
+            ficha=fichas.de_cpf(ent.pasta(cfg.raiz), linha["cpf"]),
         )
         quem = participacao.Filiado(
             cpf=fatos.cpf,
@@ -1444,7 +1446,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         )
         visao = panorama.montar(
             registros, catalogo, lidos_por_cpf=lidos,
-            rol_por_cpf=substituidos.por_cpf(ent.pasta(cfg.raiz)))
+            rol_por_cpf=substituidos.por_cpf(ent.pasta(cfg.raiz)),
+            fichas_por_cpf=fichas.por_cpf(ent.pasta(cfg.raiz)))
         return {
             "entidade": ent.apelido,
             "nome": ent.nome,
@@ -2183,6 +2186,88 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                      ent.apelido, alvo.id)
         return {"acao": alvo.id, "retirado": retirado}
 
+    # --------------------------------------------- a ficha financeira
+
+    def _processar_ficha(ent: entidades.Entidade, quem: str, nome: str,
+                         corpo: bytes, confirmar: str) -> dict:
+        try:
+            lido = fichas.ler_arquivo(corpo, nome)
+        except fichas.FichaIlegivel as e:
+            raise _problema(422, str(e)) from None
+        soma = hashlib.sha256(corpo).hexdigest()
+
+        def resposta(plano: fichas.Plano, gravado: bool) -> dict:
+            # SÓ CONTAGENS. É remuneração: nem valor, nem CPF, voltam na
+            # resposta — a tela não precisa deles para o gestor decidir.
+            return {
+                "sha256": soma,
+                "pessoas": plano.pessoas,
+                "competencias": plano.competencias,
+                "fora_da_base": plano.fora_da_base,
+                "invalidas": plano.invalidas,
+                "divergentes": plano.divergentes,
+                "gravado": gravado,
+            }
+
+        try:
+            if not _conferir_confirmacao(confirmar, soma):
+                return resposta(
+                    fichas.planejar(lido, _base_sem_apagados(ent)), False)
+            plano = fichas.enviar(
+                ent.pasta(cfg.raiz), lido,
+                base_de=lambda: _base_sem_apagados(ent), quem=quem,
+                arquivo=nome, sha256=soma)
+        except ingestao.IngestaoRecusada as e:
+            log.error("FICHA recusada ent=%s: %s", ent.apelido, e)
+            raise _problema(
+                503,
+                "não conseguimos conferir quem pediu apagamento, e sem isso "
+                "a ficha poderia guardar de novo quem pediu para sair. Nada "
+                "foi gravado: tente de novo.",
+            ) from None
+        log.info("ficha financeira ent=%s pessoas=%d competencias=%d",
+                 ent.apelido, plano.pessoas, plano.competencias)
+        return resposta(plano, True)
+
+    @app.post("/api/entidade/{apelido}/ficha-financeira")
+    async def enviar_ficha_financeira(
+        apelido: str,
+        pedido: Request,
+        arquivo: UploadFile | None = File(None),
+        confirmar: str = Form(""),
+    ) -> dict:
+        """O sindicato envia a ficha financeira: a base de cálculo de cada
+        filiado, mês a mês. É o que faltava para a conta existir.
+
+        EM DUAS ETAPAS, como a planilha e o rol: sem `confirmar`, conta e
+        não grava. As regras estão em `servidor/fichas.py`.
+        """
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        if arquivo is None:
+            raise _problema(422, "envie o arquivo da ficha financeira")
+        corpo = await _ler_limitado(arquivo, LIMITE_DA_PLANILHA)
+        if not corpo:
+            raise _problema(422, "o arquivo da ficha financeira chegou vazio")
+        _auditar(ent, "enviar_ficha_financeira", quem_hash=sessao.cpf_hash)
+        return await run_in_threadpool(
+            _processar_ficha, ent, sessao.cpf_hash, _nome_de_envio(arquivo),
+            corpo, confirmar)
+
+    @app.get("/api/entidade/{apelido}/ficha-financeira")
+    def ver_ficha_financeira(apelido: str, pedido: Request) -> dict:
+        """De quantas pessoas a ficha já chegou. Valor nenhum sai daqui."""
+        ent = _gestor_de(apelido, pedido)
+        _auditar(ent, "ver_ficha_financeira",
+                 quem_hash=_sessao_de(pedido).cpf_hash)
+        pasta = ent.pasta(cfg.raiz)
+        return {
+            "entidade": ent.apelido,
+            **fichas.resumo(
+                pasta,
+                ingestao.cpfs_da_base(cfg.banco_url, ent.apelido, pasta)),
+        }
+
     # --------------------------------------------- nome por nome
 
     def _base_avaliada(ent: entidades.Entidade) -> list:
@@ -2198,7 +2283,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             lidos = None
         return panorama.por_pessoa(
             registros, catalogo, lidos,
-            substituidos.por_cpf(ent.pasta(cfg.raiz)))
+            substituidos.por_cpf(ent.pasta(cfg.raiz)),
+            fichas.por_cpf(ent.pasta(cfg.raiz)))
 
     def _cpf_mascarado(cpf: str) -> str:
         """`***.444.777-**`: dá para o gestor distinguir dois homônimos, e

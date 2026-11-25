@@ -55,7 +55,8 @@ RAIZ_DO_REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ_DO_REPO))
 
 from nucleo import entendimentos, motor, panorama  # noqa: E402
-from servidor import apagamento, banco, entidades, substituidos  # noqa: E402
+from servidor import (apagamento, banco, entidades, fichas,  # noqa: E402
+                      substituidos)
 
 
 def main() -> int:
@@ -114,6 +115,8 @@ def main() -> int:
     # E OS RÓIS QUE O SINDICATO ENVIOU, pelo mesmo motivo: o veredicto
     # guardado é a prova, e não pode ser a resposta mais fraca das quatro.
     rol_por_cpf = substituidos.por_cpf(ent.pasta(raiz))
+    # E AS FICHAS FINANCEIRAS, pela mesma razão.
+    fichas_por_cpf = fichas.por_cpf(ent.pasta(raiz))
     gravadas = 0
     sairam = 0
     try:
@@ -121,7 +124,9 @@ def main() -> int:
             fatos = panorama.fatos_do_cadastro(envio["linha"],
                                                envio["entregues"],
                                                lidos.get(cpf, {}),
-                                               rol=rol_por_cpf.get(cpf, ()))
+                                               rol=rol_por_cpf.get(cpf, ()),
+                                               ficha=fichas_por_cpf.get(
+                                                   cpf, ()))
             oportunidades = motor.avaliar(fatos, catalogo)
             # A BASE FOI LIDA LÁ EM CIMA. Quem pediu para sair desde então
             # teria o veredicto guardado DEPOIS do apagamento (medido em

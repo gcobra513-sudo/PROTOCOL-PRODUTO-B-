@@ -179,3 +179,16 @@ export function resumo(
 export function fonteQueViraLink(fonte: string | null | undefined): string {
   return typeof fonte === "string" && /^https?:\/\//.test(fonte) ? fonte : "";
 }
+
+/** Um valor que veio do servidor (`"29000.00"`), escrito em reais.
+ *
+ *  Vazio para o que não é número, ou é negativo: um valor inventado na tela
+ *  é pior que nenhum. A conta é feita no servidor, em decimal; aqui só se
+ *  ESCREVE — por isso o texto é cortado à mão, sem passar por `Number`. */
+export function emReais(valor: string | null | undefined): string {
+  const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec((valor ?? "").trim());
+  if (!m) return "";
+  const inteiro = (m[1] ?? "").replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  const centavos = (m[2] ?? "").padEnd(2, "0");
+  return `R$ ${inteiro},${centavos}`;
+}

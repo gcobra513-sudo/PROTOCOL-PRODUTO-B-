@@ -21,6 +21,7 @@ import type {
   MudancaDeVeredicto,
   PessoaNaLista,
   PreviaDaPlanilha,
+  PreviaDaFicha,
   PreviaDoRol,
   RolVigente,
   ResultadoDoApagamento,
@@ -698,4 +699,45 @@ export function pendenciasAVista(
  *  três linhas, e quinze delas eram quatro telas de rolagem. */
 export function linhasPorVez(larguraDaTela: number): number {
   return larguraDaTela < 640 ? 6 : 15;
+}
+
+
+// ------------------------------------------------------ a ficha financeira
+
+/** O envio da ficha, em frases. Tudo o que ficou de fora é dito, com o
+ *  motivo: o gestor que lê "4 pessoas" de um arquivo com 6 precisa saber
+ *  o que houve com as outras duas antes de confirmar. */
+export function resumoDoEnvioDaFicha(p: PreviaDaFicha): string[] {
+  const linhas: string[] = [];
+  if (p.pessoas === 0) {
+    linhas.push(
+      "Ninguém deste arquivo é da sua base. Confira se é o arquivo certo.",
+    );
+  } else {
+    linhas.push(
+      `A ficha de ${pessoas(p.pessoas)} da sua base, com ` +
+        `${p.competencias} ${p.competencias === 1 ? "mês" : "meses"} ao todo.`,
+    );
+  }
+  if (p.fora_da_base > 0) {
+    linhas.push(
+      `${pessoas(p.fora_da_base)} do arquivo não ` +
+        `${p.fora_da_base === 1 ? "é" : "são"} da sua base, e a ficha ` +
+        `${p.fora_da_base === 1 ? "dela" : "delas"} não fica guardada.`,
+    );
+  }
+  if (p.invalidas > 0) {
+    linhas.push(
+      `${p.invalidas} ${p.invalidas === 1 ? "linha não pôde ser lida" : "linhas não puderam ser lidas"}` +
+        " (CPF, mês ou valor que não deu para entender) e " +
+        `${p.invalidas === 1 ? "ficou" : "ficaram"} de fora.`,
+    );
+  }
+  if (p.divergentes > 0) {
+    linhas.push(
+      `${pessoas(p.divergentes)} ${p.divergentes === 1 ? "tem" : "têm"} o mesmo mês com dois valores diferentes. ` +
+        `A ficha ${p.divergentes === 1 ? "dela" : "delas"} não entrou: corrija o arquivo e envie de novo.`,
+    );
+  }
+  return linhas;
 }
