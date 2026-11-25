@@ -80,7 +80,7 @@ describe("o roteiro da demonstração", () => {
     // A demonstração tem quem pode (uma ação declaradamente fictícia): o
     // roteiro tem de levar até lá, ou a melhor tela fica sem ser aberta.
     const r = roteiroDaDemonstracao(todos, "demo-x");
-    expect(r[0]?.mostrar.join(" ")).toContain("“Já pode”");
+    expect(r[0]?.mostrar.join(" ")).toContain("já podem");
     expect(r[1]?.mostrar.join(" ")).toContain("“Caminho aberto, já conferido”");
   });
 

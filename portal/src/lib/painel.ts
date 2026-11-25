@@ -649,18 +649,22 @@ export const PERGUNTAS_DO_GESTOR_AO_PROTO = [
 ];
 
 export type QuadroDoTopo =
-  | "acervo" | "inalcancaveis" | "cadastrados" | "sem_cadastro";
+  | "acervo" | "inalcancaveis" | "cadastrados" | "sem_cadastro" | "podem";
 
 /** Para onde leva cada quadro do topo: a LISTA do que ele conta. Número
  *  que não abre em nomes obriga o gestor a procurar por conta própria quem
- *  são aquelas pessoas. */
+ *  são aquelas pessoas.
+ *
+ *  `dono` é o filtro de situação da lista ("PODE", ou de quem depende). */
 export function destinoDoQuadro(
   q: QuadroDoTopo,
-): { aba: AbaDoPainel; portal: FiltroDoPortal; ancora: string } {
-  if (q === "cadastrados") return { aba: "filiados", portal: "entrou", ancora: "" };
-  if (q === "sem_cadastro") return { aba: "filiados", portal: "falta", ancora: "" };
-  if (q === "inalcancaveis") return { aba: "filiados", portal: "", ancora: "nao-alcanca" };
-  return { aba: "filiados", portal: "", ancora: "" };
+): { aba: AbaDoPainel; portal: FiltroDoPortal; dono: string; ancora: string } {
+  const lista = { aba: "filiados" as const, portal: "" as FiltroDoPortal, dono: "", ancora: "" };
+  if (q === "cadastrados") return { ...lista, portal: "entrou" };
+  if (q === "sem_cadastro") return { ...lista, portal: "falta" };
+  if (q === "inalcancaveis") return { ...lista, ancora: "nao-alcanca" };
+  if (q === "podem") return { ...lista, dono: "PODE" };
+  return lista;
 }
 
 

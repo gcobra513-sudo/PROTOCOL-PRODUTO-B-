@@ -279,7 +279,8 @@ export function MinhasAcoes({
       >
         {/* O limite vem do servidor e aparece na tela, não no rodapé: a
             pessoa que lê "não é parecer" é a que não cria expectativa. */}
-        <Aviso tom="alerta">{dados.aviso}</Aviso>
+        {/* NEUTRO: é o limite do que a tela afirma, não um erro. */}
+        <Aviso tom="neutro">{dados.aviso}</Aviso>
         {dados.categorias.length > 0 ? (
           <p className="text-[14px] text-tinta/60">
             Categoria considerada: {dados.categorias.join(", ")}.

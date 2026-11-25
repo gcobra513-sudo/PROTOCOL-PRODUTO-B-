@@ -584,11 +584,17 @@ describe("o painel em abas", () => {
     for (const a of ABAS_DO_PAINEL) expect(a.curto.length).toBeLessThanOrEqual(10);
   });
 
+  it("o quadro de quem já pode abre a lista dessas pessoas", () => {
+    // É o número que o sindicato quer ver primeiro, e ele abre em nomes
+    // como os outros: a aba Filiados com o filtro "Já pode" ligado.
+    expect(destinoDoQuadro("podem")).toEqual({ aba: "filiados", portal: "", dono: "PODE", ancora: "" });
+  });
+
   it("cada quadro do topo leva à lista que ele conta", () => {
-    expect(destinoDoQuadro("acervo")).toEqual({ aba: "filiados", portal: "", ancora: "" });
-    expect(destinoDoQuadro("cadastrados")).toEqual({ aba: "filiados", portal: "entrou", ancora: "" });
-    expect(destinoDoQuadro("sem_cadastro")).toEqual({ aba: "filiados", portal: "falta", ancora: "" });
-    expect(destinoDoQuadro("inalcancaveis")).toEqual({ aba: "filiados", portal: "", ancora: "nao-alcanca" });
+    expect(destinoDoQuadro("acervo")).toEqual({ aba: "filiados", portal: "", dono: "", ancora: "" });
+    expect(destinoDoQuadro("cadastrados")).toEqual({ aba: "filiados", portal: "entrou", dono: "", ancora: "" });
+    expect(destinoDoQuadro("sem_cadastro")).toEqual({ aba: "filiados", portal: "falta", dono: "", ancora: "" });
+    expect(destinoDoQuadro("inalcancaveis")).toEqual({ aba: "filiados", portal: "", dono: "", ancora: "nao-alcanca" });
   });
 
   it("o atalho de uma pendência diz em que aba ela se resolve", () => {

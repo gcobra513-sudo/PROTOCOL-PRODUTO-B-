@@ -183,8 +183,16 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
             nomes = [n for (n,) in con.execute("SELECT nome FROM pessoa")]
         checa(len(nomes) >= 30, f"só {len(nomes)} pessoas no banco da demo")
         for nome in nomes:
-            checa("FICTÍCIO" in nome,
-                  f"nome sem rótulo de fictício: {nome!r}")
+            # NOME DE GENTE, E DECLARADAMENTE DE MENTIRA: o sobrenome é
+            # "DE EXEMPLO" e a marca vem escrita. "FILIADO DE EXEMPLO 05"
+            # era seguro e frio; um nome plausível sem a marca passaria por
+            # pessoa real numa página pública.
+            checa(re.search(r"^[A-ZÀ-Ú]+ DE EXEMPLO \(FICTÍCI[OA]\)$", nome)
+                  is not None,
+                  f"nome fora do formato fictício: {nome!r}")
+            checa(not nome.startswith("FILIADO"),
+                  f"nome que não é nome: {nome!r}")
+        checa(len(set(nomes)) == len(nomes), "há nome repetido na base")
 
         # BANCO QUE JÁ TEM TABELA: recusa, e não toca. (Agora ele tem.)
         r = subprocess.run(
