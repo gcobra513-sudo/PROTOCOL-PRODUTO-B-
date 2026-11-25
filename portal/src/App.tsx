@@ -30,6 +30,7 @@ import { Inicio } from "./etapas/Inicio";
 import { Processos } from "./etapas/Processos";
 import { Voce } from "./etapas/Voce";
 import { Atendimento } from "./paginas/Atendimento";
+import { GUIA, GuiaDaDemo } from "./paginas/GuiaDaDemo";
 import { Landing } from "./paginas/Landing";
 import { ParaOFiliado, ParaOSindicato } from "./paginas/Publica";
 import { MeusProcessos } from "./paginas/MeusProcessos";
@@ -369,6 +370,8 @@ export function App() {
           <ParaOSindicato onPrivacidade={abrirPrivacidade} />
         ) : pagina === "filiado" ? (
           <ParaOFiliado onPrivacidade={abrirPrivacidade} />
+        ) : pagina === "demonstracao" ? (
+          <GuiaDaDemo onPrivacidade={abrirPrivacidade} />
         ) : (
           <Landing onPrivacidade={abrirPrivacidade} />
         )}
@@ -398,9 +401,15 @@ export function App() {
             : "mx-auto max-w-3xl space-y-6"
         }
       >
+        {/* EM TOM NEUTRO, e não de alerta: o vermelho em toda tela fazia a
+            demonstração parecer um erro para quem assistia. O recado é o
+            mesmo, e continua em toda tela. */}
         {avisoDemo ? (
-          <Aviso tom="alerta">
-            <strong>Demonstração.</strong> {avisoDemo}
+          <Aviso tom="neutro">
+            <strong>Demonstração.</strong> {avisoDemo}{" "}
+            <a className="font-semibold underline" href={`./${GUIA}`}>
+              Guia da demonstração
+            </a>
             {/* Quem já entrou não precisa mais da lista. */}
             {!token ? (
               <AcessosDaDemo acessos={acessosDemo} apelido={apelido} />

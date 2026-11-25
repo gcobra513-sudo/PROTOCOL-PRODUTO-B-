@@ -203,8 +203,24 @@ async function faseEntrada(navegador, gritos, resultado) {
     // único jeito de ver a tela parada se fechar sem esperar vinte minutos.
     // Até lá ele anda normalmente.
     await p.clock.install();
+    // O GUIA DA DEMONSTRAÇÃO não pode listar acesso nenhum num servidor que
+    // não é de demonstração: os CPFs vêm do servidor, e sem eles a página
+    // diz que não há o que mostrar — sem botão que leve a portão sem chave.
+    await p.goto(`${cfg.web}/?pagina=demonstracao`, { waitUntil: "networkidle" });
+    await p.getByRole("heading", { name: "Guia da demonstração" }).waitFor({ timeout: 15000 });
+    await p.getByText(/não tem uma demonstração para mostrar/).waitFor({ timeout: 15000 });
+    if (await p.getByText(/CPF de exemplo/).count()) {
+      throw new Error("o guia listou acesso de demonstração num servidor que não é demonstração");
+    }
+    resultado.guia = { semDemonstracaoNaoListaAcesso: true };
     await p.goto(`${cfg.web}/`, { waitUntil: "networkidle" });
+    // A página inicial DIZ O QUE O PRODUTO É no título, e a pergunta que
+    // abria a página continua nela, um andar abaixo.
+    await p.getByRole("heading", { level: 1, name: /O portal que mostra a cada filiado/ }).waitFor({ timeout: 15000 });
     await p.getByRole("heading", { name: /Quem foi buscar/ }).waitFor({ timeout: 15000 });
+    if (await p.getByRole("link", { name: /Ver a demonstração|Abrir a demonstração/ }).count()) {
+      throw new Error("a página inicial ofereceu demonstração num servidor que não tem uma");
+    }
     const campo = p.getByLabel("Código ou link do seu sindicato");
     await campo.fill("sindicato-que-nao-existe");
     await p.getByRole("button", { name: "Sou filiado" }).click();

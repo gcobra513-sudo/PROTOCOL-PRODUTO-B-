@@ -207,3 +207,13 @@ custo, escrita sem medir.
   outra — e, com os critérios preenchidos, oferecia como PODE. Agora é um
   arquivo por categoria, a entidade declara o que contratou, e a tabela de
   grafias de cargo saiu do Python. A tela virou 7c.
+- **Página inicial e guia da demonstração (25/11/2026)** — A demonstração
+  hospedada passou a servir só para apresentar o produto em reunião. A
+  página inicial abria com uma pergunta e não dizia o que o produto era;
+  agora o título diz, e as telas de verdade (com cadastro fictício,
+  `portal/src/retratos/`) aparecem ao lado do texto. "Ver a demonstração"
+  caía num formulário; agora abre o guia (`?pagina=demonstracao`), com a
+  ordem de apresentar, o CPF de exemplo de cada parada e o que dizer. O
+  aviso de demonstração deixou de ser vermelho: parecia erro. Continua em
+  aberto, e é decisão do produto: nada está homologado, então a
+  demonstração nunca mostra um "pode".
