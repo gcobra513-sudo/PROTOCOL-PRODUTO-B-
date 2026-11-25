@@ -46,7 +46,15 @@ sys.path.insert(0, str(REPO))
 APELIDO = "demo-sindicato"      # o prefixo `demo-` é o que o modo ensaio atende
 NOME = "Sindicato de Demonstração"
 DOMINIO = "exemplo.invalid"     # `.invalid` não existe, por norma (RFC 2606)
-PROCESSO = "0010391-24.2006.4.01.3400"
+# NÚMERO QUE NÃO EXISTE: sequencial zero, que nenhum tribunal distribui. A
+# demonstração registra um andamento inventado nele, e inventar andamento
+# num processo de verdade seria afirmar coisa falsa sobre um caso real.
+PROCESSO = "0000000-35.2000.4.01.0000"
+#: O catálogo fictício da demonstração (`implantacao/demo/categorias/`).
+CATALOGO = REPO / "implantacao" / "demo" / "categorias"
+CATEGORIA = "servidor-de-exemplo"
+CARGO = "Servidor de Exemplo"
+ACAO = "EXEMPLO-FICTICIA"
 GESTOR = 9001                   # índice do CPF sintético do gestor
 
 
@@ -304,8 +312,7 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
         if i in (11, 29):
             cpf = cpf[:-1] + str((int(cpf[-1]) + 1) % 10)
         processo = PROCESSO if i in (0, 4, 21) else ""
-        linhas.append(f"{cpf};{nome};{email};Auditor Fiscal da Receita "
-                      f"Federal;2004-03;{processo}")
+        linhas.append(f"{cpf};{nome};{email};{CARGO};2004-03;{processo}")
     planilha = ("\r\n".join(linhas) + "\r\n").encode("latin-1")
     confirmar = ""
     for _ in range(2):          # a primeira mostra o que vai mudar; a segunda confirma
@@ -322,7 +329,8 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
         r = c.post("/api/cadastro", data={
             "token": token(cpf),
             "linha": json.dumps(te.linha(cpf, nome_completo=nome,
-                                         email=email, **respostas))},
+                                         email=email, cargo=CARGO,
+                                         **respostas))},
             files=[("arquivos", (n, b, "application/pdf"))
                    for n, b in arquivos.items()])
         r.raise_for_status()
@@ -337,6 +345,24 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
     for i in (18, 19, 20):      # documento que é só imagem: fica para conferir
         cadastrar(i, {**contrib, "sentenca.pdf": te._so_imagem()})
     cadastrar(21, contrib, quer_aviso="sim")
+
+    # O ROL DE SUBSTITUÍDOS DA AÇÃO FICTÍCIA, enviado pelo gestor como um
+    # sindicato enviaria. É ele que separa os três resultados: dos cinco que
+    # têm título, quatro constam e PODEM; um ficou de fora e não pode. Os
+    # doze últimos da planilha também ficaram de fora. O resto consta e
+    # ainda depende de alguma coisa.
+    no_rol = [pessoas[i][0] for i in range(30) if i != 16]
+    rol = ("CPF\r\n" + "\r\n".join(no_rol) + "\r\n").encode("utf-8")
+    confirmar = ""
+    for _ in range(2):
+        r = c.post(f"/api/entidade/{APELIDO}/rol-de-substituidos",
+                   data={"acao": ACAO, "completo": "sim",
+                         "confirmar": confirmar},
+                   files={"arquivo": ("rol-de-substituidos.csv", rol,
+                                      "text/csv")},
+                   headers={"Authorization": f"Bearer {token(gestor)}"})
+        r.raise_for_status()
+        confirmar = r.json()["sha256"]
 
     # Um andamento já registrado, para a área de processos ter o que contar
     # sem a demonstração falar com tribunal nenhum.
@@ -432,7 +458,7 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
     shutil.rmtree(raiz, ignore_errors=True)
     raiz.mkdir()
     ent = entidades.Cadastro(raiz).criar(
-        APELIDO, NOME, categorias=("auditor-fiscal-receita-federal",))
+        APELIDO, NOME, categorias=(CATEGORIA,))
     pasta_ent = ent.pasta(raiz)
     pasta_ent.mkdir(parents=True, exist_ok=True)
     gestor = _suite(url)._cpf_sintetico(GESTOR)
@@ -461,6 +487,9 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
         **{k: v for k, v in os.environ.items()
            if not k.startswith("PROTOCOL_")},
         "PROTOCOL_MODO_ENSAIO": "1",
+        # O CATÁLOGO FICTÍCIO: uma carreira e uma ação inventadas, para a
+        # demonstração ter quem pode. O servidor só o aceita em modo ensaio.
+        "PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO": str(CATALOGO),
         "PROTOCOL_RAIZ": str(raiz),
         "PROTOCOL_AGENDAR": "0",
         "PROTOCOL_DATABASE_URL": url,

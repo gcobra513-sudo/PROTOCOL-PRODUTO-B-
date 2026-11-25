@@ -214,6 +214,13 @@ custo, escrita sem medir.
   `portal/src/retratos/`) aparecem ao lado do texto. "Ver a demonstração"
   caía num formulário; agora abre o guia (`?pagina=demonstracao`), com a
   ordem de apresentar, o CPF de exemplo de cada parada e o que dizer. O
-  aviso de demonstração deixou de ser vermelho: parecia erro. Continua em
-  aberto, e é decisão do produto: nada está homologado, então a
-  demonstração nunca mostra um "pode".
+  aviso de demonstração deixou de ser vermelho: parecia erro.
+- **Ação fictícia na demonstração (25/11/2026)** — A demonstração usava o
+  catálogo de verdade, onde nada está homologado, e por isso nunca mostrava
+  um "pode". Agora ela tem catálogo próprio (`implantacao/demo/categorias/`):
+  uma carreira e uma ação inventadas, que se dizem fictícias no nome. O
+  "pode" continua saindo do motor, pelas mesmas regras — o rol é enviado
+  pelo gestor da demonstração, pela porta da frente. Medido: 4 podem, 23
+  dependem de alguma coisa, 15 não participam. O catálogo fictício só
+  carrega em modo ensaio, e fora dele o servidor não sobe. O número de
+  processo da demonstração também deixou de ser o de um processo real.

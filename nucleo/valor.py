@@ -279,12 +279,23 @@ def apurar(periodo: Periodo, verba: Verba, bases: dict) -> Apuracao:
 
     sem_base = [c for c in competencias if bases.get(c) is None]
     if sem_base:
-        mostrar = ", ".join(sem_base[:6]) + (
-            f" e mais {len(sem_base) - 6}" if len(sem_base) > 6 else ""
+        seguidos = len(sem_base) > 1 and all(
+            _andar(_mes(a), 1) == _mes(b)
+            for a, b in zip(sem_base, sem_base[1:])
         )
+        if seguidos:
+            # UM PERÍODO, e não uma lista cortada: isto vai para o topo do
+            # painel do sindicato, e "seis meses e mais 52" não diz até
+            # quando a ficha é pedida.
+            mostrar = (f"de {sem_base[0]} a {sem_base[-1]} "
+                       f"({len(sem_base)} meses)")
+        else:
+            mostrar = "de: " + ", ".join(sem_base[:6]) + (
+                f" e mais {len(sem_base) - 6}" if len(sem_base) > 6 else ""
+            )
         falta.append(pendencia.Falta(
             pendencia.CONFERENCIA,
-            f"a base de cálculo (ficha financeira) de: {mostrar}",
+            f"a base de cálculo (ficha financeira) {mostrar}",
         ))
         memoria.append(Passo(
             "base de cálculo",

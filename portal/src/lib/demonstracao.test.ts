@@ -76,6 +76,14 @@ describe("o roteiro da demonstração", () => {
     }
   });
 
+  it("mostra onde ver quem já pode, no painel e na tela do filiado", () => {
+    // A demonstração tem quem pode (uma ação declaradamente fictícia): o
+    // roteiro tem de levar até lá, ou a melhor tela fica sem ser aberta.
+    const r = roteiroDaDemonstracao(todos, "demo-x");
+    expect(r[0]?.mostrar.join(" ")).toContain("“Já pode”");
+    expect(r[1]?.mostrar.join(" ")).toContain("“Caminho aberto, já conferido”");
+  });
+
   it("parada sem acesso não aparece", () => {
     const soGestor = todos.filter((a) => a.gestor);
     expect(roteiroDaDemonstracao(soGestor, "demo-x").map((p) => p.id)).toEqual(["painel"]);

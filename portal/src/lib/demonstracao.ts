@@ -78,7 +78,7 @@ export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string):
       mostrar: [
         "Os quatro números do topo: quantos filiados há na base, com quantos o sindicato não consegue falar, quem já se cadastrou e quem ainda não.",
         "“O que resolver primeiro”: o que está segurando mais gente, e de quem é a vez — do sindicato, do filiado ou do tribunal.",
-        "A aba Filiados: a lista nome por nome, com os contatos, que sai em planilha.",
+        "A aba Filiados: a lista nome por nome, com os contatos, que sai em planilha. Toque em “Já pode” para ver quem tem tudo pronto.",
         "A aba Documentos para ler: as fotos que a máquina não leu e esperam uma pessoa.",
         "A aba Pergunte ao Proto: toque em “Com quantos eu não consigo falar?”.",
       ],
@@ -97,7 +97,7 @@ export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string):
       mostrar: [
         "A entrada sem senha: CPF e um código de seis números.",
         "A Minha área: os documentos que chegaram, as ações e os processos, tudo numa tela.",
-        "Minhas ações: o que falta, e de quem é a vez.",
+        "Minhas ações: este filiado tem “Caminho aberto, já conferido” na ação de exemplo, com o período dele e o que ainda falta para o valor.",
         "Pergunte ao Proto: toque em “Meus documentos chegaram?”.",
       ],
       falar:

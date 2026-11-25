@@ -91,3 +91,17 @@ fonte conferida e sem `homologado = "S"` por advogado.
 Quais ações e quais entendimentos entram na categoria é decisão do jurídico,
 com fonte citada. O catálogo de hoje tem `homologado = "N"` em tudo, e com
 isso o motor **não autoriza nada** — corretamente.
+
+---
+
+## O catálogo fictício da demonstração não mora aqui
+
+A demonstração (`ferramentas/demo.py`) precisa mostrar alguém que **pode**, e
+aqui nada está homologado. Ela usa um catálogo inventado, em
+`implantacao/demo/categorias/`, marcado com `ficticio = true`.
+
+O carregamento trava as duas direções: um arquivo com `ficticio = true`
+**nesta pasta** faz a pasta inteira ser recusada, e a pasta da demonstração
+só é lida com `PROTOCOL_MODO_ENSAIO=1`
+(`PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO`). Num servidor de verdade essa
+variável não existe — com ela e sem o modo ensaio, o servidor não sobe.

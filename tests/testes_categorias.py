@@ -575,6 +575,159 @@ TESTES = [
 ]
 
 
+# ------------------------------------- o catálogo FICTÍCIO da demonstração
+#
+# A demonstração precisa mostrar alguém que PODE, e no catálogo de verdade
+# nada está homologado — corretamente. A saída é um catálogo declaradamente
+# fictício, com uma ação inventada. O que estes testes fixam é que ele NÃO
+# TEM COMO chegar a um sindicato de verdade: só carrega em demonstração, e a
+# demonstração só carrega ele.
+
+CATEGORIA_FICTICIA = CATEGORIA_A.replace(
+    "versao = 3", "versao = 3\nficticio = true"
+)
+
+PASTA_DA_DEMO = RAIZ / "implantacao" / "demo" / "categorias"
+VARIAVEL = "PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO"
+
+
+def _recusa(fazer) -> str:
+    try:
+        fazer()
+    except entendimentos.ErroDeCatalogo as e:
+        return str(e) or "recusou"
+    return ""
+
+
+def teste_catalogo_ficticio_nao_carrega_fora_da_demonstracao():
+    secao("catálogo fictício só existe em demonstração")
+    pasta = Path(tempfile.mkdtemp())
+    _escrever(pasta, "exemplo-a", CATEGORIA_FICTICIA)
+    motivo = _recusa(lambda: entendimentos.carregar_categorias(
+        pasta, ("exemplo-a",)))
+    checa("fict" in motivo.lower(),
+          f"um catálogo fictício carregou como se fosse de verdade: "
+          f"{motivo!r}")
+    # A pasta inteira é conferida: o fictício não passa nem escondido atrás
+    # de uma categoria que a entidade não contratou.
+    _escrever(pasta, "exemplo-b", CATEGORIA_B)
+    motivo = _recusa(lambda: entendimentos.carregar_categorias(
+        pasta, ("exemplo-b",)))
+    checa("fict" in motivo.lower(),
+          "um fictício ao lado de um catálogo de verdade não foi recusado")
+    pasta2 = Path(tempfile.mkdtemp())
+    _escrever(pasta2, "exemplo-a", CATEGORIA_FICTICIA)
+    cat = entendimentos.carregar_categorias(
+        pasta2, ("exemplo-a",), demonstracao=True)
+    checa(cat.categorias == ("Carreira Exemplo A",),
+          f"em demonstração o fictício devia carregar: {cat.categorias}")
+    print("  ok     fictício: recusado fora da demonstração, aceito nela")
+
+
+def teste_a_demonstracao_so_carrega_catalogo_ficticio():
+    """O caminho inverso: se a pasta da demonstração aceitasse um catálogo
+    de verdade, ela seria um jeito de servir ação real com a homologação
+    trocada."""
+    secao("a demonstração não serve catálogo de verdade")
+    motivo = _recusa(lambda: entendimentos.carregar_categorias(
+        duas_categorias(), ("exemplo-a",), demonstracao=True))
+    checa("fict" in motivo.lower(),
+          f"a demonstração carregou um catálogo não fictício: {motivo!r}")
+    print("  ok     catálogo de verdade em demonstração: recusado")
+
+
+def teste_o_ambiente_so_troca_a_pasta_em_ensaio():
+    secao("a pasta da demonstração só vale em modo ensaio")
+    real = ("auditor-fiscal-receita-federal",)
+    cat = entendimentos.do_ambiente(real, {})
+    checa(cat.slugs and set(cat.slugs.values()) == set(real),
+          "sem a variável devia servir o catálogo de verdade")
+    motivo = _recusa(lambda: entendimentos.do_ambiente(
+        ("servidor-de-exemplo",), {VARIAVEL: str(PASTA_DA_DEMO)}))
+    checa("PROTOCOL_MODO_ENSAIO" in motivo,
+          f"fora do ensaio a pasta da demonstração foi aceita: {motivo!r}")
+    cat = entendimentos.do_ambiente(
+        ("servidor-de-exemplo",),
+        {VARIAVEL: str(PASTA_DA_DEMO), "PROTOCOL_MODO_ENSAIO": "1"})
+    checa(len(cat.acoes) == 1, f"a demonstração devia ter uma ação: {cat.acoes}")
+
+    from servidor import config
+    try:
+        config.carregar({"PROTOCOL_SEGREDO": "s" * 40,
+                         "PROTOCOL_SMTP_HOST": "smtp.exemplo.invalid",
+                         "PROTOCOL_SMTP_REMETENTE": "a@exemplo.invalid",
+                         VARIAVEL: str(PASTA_DA_DEMO)})
+        checa(False, "o servidor subiu fora do ensaio com o catálogo "
+                     "fictício apontado")
+    except config.ConfiguracaoInvalida as e:
+        checa(VARIAVEL in str(e),
+              f"recusou, mas por outro motivo: {e}")
+    print("  ok     variável sem ensaio: recusada no catálogo e na subida")
+
+
+def teste_o_catalogo_da_demonstracao_se_declara_ficticio_em_tudo():
+    """Quem vê a tela não vê o arquivo. O nome da carreira e o da ação
+    dizem que são inventados, e a fonte não aponta para lugar nenhum da
+    internet — um endereço de verdade ali emprestaria autoridade."""
+    secao("o catálogo da demonstração é fictício à vista")
+    cat = entendimentos.carregar_categorias(PASTA_DA_DEMO, demonstracao=True)
+    checa(len(cat.categorias) >= 1, "a demonstração não tem catálogo")
+    for c in cat.categorias:
+        checa("FICTÍCI" in c.upper(), f"categoria sem a marca: {c}")
+    for item in (*cat.acoes, *cat.entendimentos):
+        checa("FICTÍCI" in item.rotulo.upper(),
+              f"{item.id}: o nome que vai para a tela não diz que é "
+              f"fictício: {item.rotulo}")
+        checa("http" not in item.fonte.lower()
+              and "FICTÍCI" in item.fonte.upper(),
+              f"{item.id}: a fonte parece de verdade: {item.fonte}")
+    # E NADA DISSO VIVE NA PASTA DE VERDADE.
+    cat_real = entendimentos.carregar_categorias(entendimentos.PASTA_PADRAO)
+    checa(not any("FICTÍCI" in c.upper() for c in cat_real.categorias),
+          "há categoria fictícia no catálogo de verdade")
+    print(f"  ok     {len(cat.acoes)} ação fictícia, marcada no nome e na fonte")
+
+
+def teste_na_demonstracao_quem_tem_tudo_pode_e_a_duvida_continua_duvida():
+    """O PODE da demonstração sai do MOTOR, pelas mesmas regras. O catálogo
+    fictício muda o que está homologado; não muda o que o motor exige."""
+    secao("na demonstração, o motor decide como sempre")
+    cat = entendimentos.carregar_categorias(
+        PASTA_DA_DEMO, ("servidor-de-exemplo",), demonstracao=True)
+
+    def executar(**trocas) -> str:
+        ops = [o for o in motor.avaliar(
+            pessoa("Servidor de Exemplo", **trocas), cat)
+            if o.trilha == motor.EXECUTAR]
+        checa(len(ops) == 1, f"esperava uma ação a executar: {ops}")
+        return ops[0].veredicto if ops else ""
+
+    checa(executar() == motor.PODE,
+          f"com título, rol e sem execução anterior devia poder: {executar()}")
+    checa(executar(tem_titulo=None) == motor.FALTA,
+          "sem saber do título, virou outra coisa que não FALTA")
+    checa(executar(no_rol=None) == motor.FALTA,
+          "sem saber do rol, virou outra coisa que não FALTA")
+    checa(executar(no_rol=False) == motor.NAO_PODE,
+          "fora do rol de uma ação que o exige, não devia poder")
+    checa(executar(tem_titulo=False) == motor.NAO_PODE,
+          "sem título não há o que executar")
+    outra = [o for o in motor.avaliar(pessoa("Carreira Exemplo A"), cat)
+             if o.trilha == motor.EXECUTAR]
+    checa(all(o.veredicto != motor.PODE for o in outra),
+          "cargo de fora da carreira fictícia apareceu como PODE")
+    print("  ok     PODE só com tudo; dúvida é FALTA; fora do rol é NAO_PODE")
+
+
+TESTES += [
+    teste_catalogo_ficticio_nao_carrega_fora_da_demonstracao,
+    teste_a_demonstracao_so_carrega_catalogo_ficticio,
+    teste_o_ambiente_so_troca_a_pasta_em_ensaio,
+    teste_o_catalogo_da_demonstracao_se_declara_ficticio_em_tudo,
+    teste_na_demonstracao_quem_tem_tudo_pode_e_a_duvida_continua_duvida,
+]
+
+
 def main() -> int:
     print("=" * 62)
     print("CATÁLOGO POR CATEGORIA — atender mais de um sindicato")

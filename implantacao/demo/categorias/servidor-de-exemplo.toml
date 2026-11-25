@@ -1,0 +1,42 @@
+# CATÁLOGO FICTÍCIO — SÓ PARA A DEMONSTRAÇÃO.
+#
+# Nada aqui existe: nem a carreira, nem a ação, nem o processo. Ele serve
+# para a demonstração mostrar o que o portal diz quando uma ação JÁ foi
+# conferida e assinada por advogado — coisa que, no catálogo de verdade
+# (`config/categorias/`), ainda não aconteceu com nenhuma.
+#
+# `ficticio = true` é o que impede este arquivo de chegar a um sindicato de
+# verdade: `nucleo/entendimentos.py` só o lê pela demonstração, e a
+# demonstração só sobe em modo ensaio. Não copie este arquivo para
+# `config/categorias/`: o carregamento recusa a pasta inteira.
+#
+# `homologado = "S"` aqui NÃO é a assinatura de ninguém. Não há nome de
+# advogado nem número de OAB neste arquivo, de propósito.
+
+[catalogo]
+versao       = 1
+ficticio     = true
+levantado_em = "2026-11-25"
+categoria    = "Servidor de Exemplo (carreira fictícia)"
+cargos = [
+  "servidor de exemplo",
+  "servidora de exemplo",
+]
+
+[[acoes_coletivas]]
+id              = "EXEMPLO-FICTICIA"
+descricao       = "Gratificação de Exemplo (ação FICTÍCIA)"
+numero_cnj      = ""
+situacao        = "transitado_em_julgado"
+categoria       = "Servidor de Exemplo (carreira fictícia)"
+periodo_inicio  = "2003-01"
+periodo_fim     = "2008-12"
+exige_rol       = true
+ajuizada_em     = "2005-01"
+fonte           = "FICTÍCIA — ação inventada para a demonstração; não existe em tribunal nenhum"
+observacoes = """
+Inventada. O período e a exigência de rol foram escolhidos para a
+demonstração ter os três resultados: quem pode, quem ainda depende de
+alguma coisa, e quem não pode por estar fora do rol.
+"""
+homologado      = "S"
