@@ -112,7 +112,7 @@ function Linha({
             CPF {formatarCpf(caso.cpf)} · {caso.rotulo}
           </span>
           {comSindicato && caso.sindicato ? (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-ceu px-2.5 py-0.5 text-[13px] font-medium text-azul-fundo">
+            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-ceu px-2.5 py-0.5 text-[13px] font-medium text-tinta">
               <Building2 className="h-3.5 w-3.5" aria-hidden="true" /> {caso.sindicato}
             </span>
           ) : null}

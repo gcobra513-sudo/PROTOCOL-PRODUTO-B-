@@ -154,6 +154,28 @@ def t_cpfs_de_exemplo_nao_sao_de_ninguem():
               f"conhecidos. Se for de alguém de verdade, tire daqui")
 
 
+def t_fundo_fixo_nao_leva_texto_que_muda_com_o_tema():
+    """NO MODO ESCURO, `text-tinta` vira claro — e sobre `bg-white`, que não
+    muda, fica branco no branco. Aconteceu na conversa de exemplo do Proto,
+    na página inicial: os balões de resposta sumiram para quem usa tela
+    escura. Fundo de cor fixa pede texto de cor fixa."""
+    import re
+
+    achados = []
+    for caminho in sorted((RAIZ / "portal" / "src").rglob("*.tsx")):
+        for n, linha in enumerate(
+                caminho.read_text(encoding="utf-8").splitlines(), 1):
+            for classes in re.findall(r'className="([^"]*)"', linha):
+                nomes = classes.split()
+                if "bg-white" in nomes and any(
+                        c == "text-tinta" or c.startswith("text-tinta/")
+                        for c in nomes):
+                    achados.append(f"{caminho.relative_to(RAIZ)}:{n}")
+    checa(not achados,
+          "fundo branco fixo com texto que clareia no modo escuro: "
+          + ", ".join(achados))
+
+
 TESTES = [
     ("vetores existem e são coerentes", t_vetores_existem_e_sao_coerentes),
     ("CPF bate com os vetores", t_cpf_bate_com_os_vetores),
@@ -162,6 +184,8 @@ TESTES = [
      t_vetores_foram_gerados_nao_escritos_a_mao),
     ("o TypeScript usa BigInt", t_typescript_usa_bigint),
     ("CPFs de exemplo são sintéticos", t_cpfs_de_exemplo_nao_sao_de_ninguem),
+    ("fundo fixo não leva texto que muda com o tema",
+     t_fundo_fixo_nao_leva_texto_que_muda_com_o_tema),
 ]
 
 
