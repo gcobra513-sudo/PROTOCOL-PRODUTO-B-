@@ -5075,7 +5075,8 @@ def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
     caso = r["casos"][0]
     checa(caso["cpf"] == A and "EXEMPLO" in caso["nome"]
           and caso["situacao"] == "ENCAMINHADO"
-          and "sentenca.pdf" in [d["arquivo"] for d in caso["documentos"]],
+          and ("sentenca.pdf", "sentença") in [
+              (d["arquivo"], d["rotulo"]) for d in caso["documentos"]],
           f"o caso não traz a pessoa e os documentos dela: {caso}")
     checa(cliente.get(casos, headers=adv_b()).json()["casos"] == [],
           "O ESCRITÓRIO B VIU CASO DO A")

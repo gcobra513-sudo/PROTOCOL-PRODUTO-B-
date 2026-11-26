@@ -75,6 +75,7 @@ import {
   rotuloDoDispositivo,
 } from "../lib/painel";
 import { conferirCpf, formatarCpf } from "../lib/validacao";
+import { resumoDoEscritorio } from "../lib/escritorio";
 import { sessaoMorreu } from "../lib/sessao";
 import { Conversa } from "../componentes/Conversa";
 import { Portao } from "./Portao";
@@ -1506,6 +1507,107 @@ function FichaFinanceira({
   );
 }
 
+/** OS ESCRITÓRIOS que o sindicato contratou, e a triagem.
+ *
+ *  O sindicato terceiriza o jurídico, e o que ele faz é encaminhar: esta
+ *  pessoa, por esta ação, a este escritório. Aqui isso é um botão — e o
+ *  retorno, que antes não existia, é a contagem de cada escritório, com os
+ *  casos PARADOS na frente. */
+function Escritorios({
+  entidade,
+  token,
+}: {
+  entidade: string;
+  token: string;
+}) {
+  const [visao, setVisao] = useState<api.VisaoDosEscritorios | null>(null);
+  const [feito, setFeito] = useState("");
+  const [erro, setErro] = useState("");
+  const [indo, setIndo] = useState(false);
+  const [versao, setVersao] = useState(0);
+
+  useEffect(() => {
+    void api
+      .verEscritorios(entidade, token)
+      .then(setVisao)
+      .catch(() => setVisao(null));
+  }, [entidade, token, versao]);
+
+  // Sindicato sem escritório cadastrado não vê um cartão vazio.
+  if (!visao || visao.escritorios.length === 0) return null;
+  const nomeDe = (id: string | null) =>
+    visao.escritorios.find((e) => e.id === id)?.nome ?? "";
+
+  async function encaminhar(acao: api.AcaoATriar) {
+    if (!acao.escritorio) return;
+    setIndo(true);
+    setErro("");
+    setFeito("");
+    try {
+      const r = await api.encaminharAoEscritorio(entidade, token, acao.acao, acao.escritorio);
+      setFeito(
+        `${pessoas(r.encaminhados)} ${r.encaminhados === 1 ? "encaminhada" : "encaminhadas"} a ${nomeDe(acao.escritorio)}.`,
+      );
+      setVersao((v) => v + 1);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "não foi possível encaminhar");
+    } finally {
+      setIndo(false);
+    }
+  }
+
+  return (
+    <Cartao
+      titulo="Escritórios"
+      explicacao="Os escritórios que o sindicato contratou. Você encaminha os filiados de cada ação, e acompanha aqui o que cada escritório já recebeu."
+    >
+      {visao.acoes.map((a) => (
+        <div key={a.acao} className="rounded-lg bg-lilas p-4">
+          <p className="text-[15px] font-medium text-tinta">{a.rotulo}</p>
+          {a.escritorio ? (
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <p className="min-w-0 flex-1 text-[15px] text-tinta/80">
+                {a.a_encaminhar > 0
+                  ? `${pessoas(a.a_encaminhar)} já ${a.a_encaminhar === 1 ? "se cadastrou" : "se cadastraram"} e ainda não ${a.a_encaminhar === 1 ? "foi encaminhada" : "foram encaminhadas"}. Quem cuida desta ação: ${nomeDe(a.escritorio)}.`
+                  : `Todos os que já se cadastraram estão com ${nomeDe(a.escritorio)}.`}
+              </p>
+              {a.a_encaminhar > 0 ? (
+                <Botao tamanho="pequeno" disabled={indo} onClick={() => void encaminhar(a)}>
+                  {indo ? "Encaminhando…" : `Encaminhar ${a.a_encaminhar}`}
+                </Botao>
+              ) : null}
+            </div>
+          ) : (
+            <p className="mt-1 text-[15px] text-tinta/70">
+              Nenhum escritório está cadastrado como responsável por esta ação.
+            </p>
+          )}
+        </div>
+      ))}
+      {feito ? <Aviso tom="bom">{feito}</Aviso> : null}
+      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
+
+      {visao.escritorios.map((e) => (
+        <div key={e.id} className="rounded-lg border border-borda bg-carta p-4">
+          <p className="text-[16px] font-semibold text-tinta">{e.nome}</p>
+          {resumoDoEscritorio(e).map((linha, i) => (
+            <p
+              key={linha}
+              className={
+                i === 0 && e.parados > 0
+                  ? "mt-1 text-[15px] font-medium text-alerta"
+                  : "mt-1 text-[15px] text-tinta/80"
+              }
+            >
+              {linha}
+            </p>
+          ))}
+        </div>
+      ))}
+    </Cartao>
+  );
+}
+
 export function Painel({
   entidade,
   token,
@@ -1925,6 +2027,10 @@ export function Painel({
         hidden={aba !== "envios"}
         className="space-y-6"
       >
+        <div id="escritorios" className="scroll-mt-4">
+          <Escritorios entidade={entidade} token={token} />
+        </div>
+
         <EnviarBase
           entidade={entidade}
           token={token}

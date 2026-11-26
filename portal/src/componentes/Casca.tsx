@@ -9,6 +9,7 @@
 import { BotaoDeTema } from "./BotaoDeTema";
 import {
   Gavel,
+  Briefcase,
   Home,
   CircleUserRound,
   LayoutDashboard,
@@ -107,7 +108,7 @@ export function Casca({
   link,
   onIr,
   temSessao,
-  grupos = { filiado: true, sindicato: true },
+  grupos = { filiado: true, sindicato: true, escritorio: false },
   onSair,
   onPrivacidade,
   children,
@@ -123,7 +124,7 @@ export function Casca({
   temSessao: boolean;
   /** O que o menu oferece a quem entrou (`lib/perfil.ts`). Não é
    *  permissão: é só o que aparece. */
-  grupos?: { filiado: boolean; sindicato: boolean };
+  grupos?: { filiado: boolean; sindicato: boolean; escritorio: boolean };
   onSair: () => void;
   onPrivacidade: () => void;
   children: ReactNode;
@@ -165,6 +166,13 @@ export function Casca({
         <Grupo titulo="Sindicato">
           <Item href={link("painel")} atual={tela === "painel"} onIr={ir("painel")} icone={<LayoutDashboard className={classeDoIcone} aria-hidden="true" />}>
             Painel do sindicato
+          </Item>
+        </Grupo>
+      ) : null}
+      {comServidor && grupos.escritorio ? (
+        <Grupo titulo="Escritório">
+          <Item href={link("escritorio")} atual={tela === "escritorio"} onIr={ir("escritorio")} icone={<Briefcase className={classeDoIcone} aria-hidden="true" />}>
+            Casos encaminhados
           </Item>
         </Grupo>
       ) : null}

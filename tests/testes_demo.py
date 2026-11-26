@@ -120,11 +120,11 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
         # OS ACESSOS IMPRESSOS ENTRAM. Acesso que está no texto e não abre é
         # a pior demonstração possível.
         cpfs = re.findall(r"\d{3}\.\d{3}\.\d{3}-\d{2}", saida)
-        checa(len(cpfs) >= 4, f"esperava 4 acessos impressos, vi {cpfs}")
+        checa(len(cpfs) >= 5, f"esperava 5 acessos impressos, vi {cpfs}")
         m = re.search(r"entidade=([a-z0-9-]+)", saida)
         apelido = m.group(1) if m else "demo-sindicato"
         tokens = []
-        for cpf in cpfs[:4]:
+        for cpf in cpfs[:5]:
             s, corpo = _pedir(base + "/api/acesso/codigo",
                               {"entidade": apelido, "cpf": cpf})
             codigo = json.loads(corpo).get("codigo_do_ensaio", "")
@@ -171,13 +171,38 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
         checa("PRELIMINAR" in (valores[0].get("aviso", "") if valores else ""),
               "o valor saiu sem dizer que é apuração preliminar")
 
+        # E A PONTE COM O ESCRITÓRIO: o gestor já encaminhou, o escritório
+        # fictício já trabalhou em alguns, e os três veem a mesma coisa.
+        enc = json.loads(corpo).get("encaminhamentos", []) if s == 200 else []
+        checa(len(enc) == 1 and "FICTÍCIO" in enc[0]["escritorio"].upper()
+              and enc[0]["situacao"] == "COMPLETO",
+              f"o filiado de exemplo não vê com quem o caso está: {enc}")
+        s, corpo = _pedir(base + f"/api/entidade/{apelido}/escritorio/casos",
+                          token=tokens[4])
+        casos = json.loads(corpo).get("casos", []) if s == 200 else []
+        situacoes = sorted({c["situacao"] for c in casos})
+        checa(situacoes == ["COMPLETO", "ENCAMINHADO", "PENDENTE", "RECEBIDO"],
+              f"a fila do escritório devia ter as quatro situações: {s} "
+              f"{situacoes}")
+        checa(all("FICTÍCI" in c["nome"] for c in casos),
+              "caso com nome que não se declara fictício")
+        s, corpo = _pedir(base + f"/api/entidade/{apelido}/escritorios",
+                          token=tokens[0])
+        visao = json.loads(corpo) if s == 200 else {}
+        checa([e["casos"] for e in visao.get("escritorios", [])]
+              == [len(casos), 0],
+              f"o sindicato não vê o que cada escritório tem: {s} {visao}")
+        checa([a["a_encaminhar"] for a in visao.get("acoes", [])] == [2],
+              f"a demonstração devia ter dois filiados ainda por encaminhar, "
+              f"para o botão da triagem aparecer: {visao.get('acoes')}")
+
         # E OS MESMOS ACESSOS ESTÃO NA TELA: quem abre o link não vê o
         # terminal de quem subiu a demonstração.
         s, corpo = _pedir(base + f"/api/entidade/{apelido}")
         na_tela = [x["cpf"] for x in
                    json.loads(corpo).get("acessos_da_demonstracao", [])]
         checa(sorted(na_tela)
-              == sorted(re.sub(r"\D", "", c) for c in cpfs[:4]),
+              == sorted(re.sub(r"\D", "", c) for c in cpfs[:5]),
               f"os acessos da tela não são os impressos: {na_tela}")
 
         # SÓ CADASTRO DECLARADAMENTE FICTÍCIO.

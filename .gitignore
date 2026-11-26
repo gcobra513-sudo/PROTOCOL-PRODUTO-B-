@@ -27,3 +27,4 @@ dist/
 
 # Artefato do tsc: muda a cada compilação e sujava a árvore em todo build.
 portal/tsconfig.tsbuildinfo
+docs/material/*.pdf

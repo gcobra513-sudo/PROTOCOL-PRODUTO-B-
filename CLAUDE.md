@@ -11,13 +11,25 @@ Existem dois produtos, e **confundi-los é o erro mais caro deste projeto**.
 
 | | **Produto A** | **Produto B** — este |
 |---|---|---|
-| para quem | o escritório de advocacia | **sindicatos e cooperativas** |
+| para quem | o escritório de advocacia, no trabalho de dentro dele | **sindicatos e cooperativas** — e a ponte deles com os escritórios que contratam |
 | o que faz | monta e protocola petições em lote no PJe | organiza os dados do sindicato e diz, nome por nome, o que cada filiado pode fazer |
 | onde vive | `gcobra513-sudo/PROTOCOL` | **aqui** |
 
-**Nunca escreva "escritório" num texto que o filiado ou o sindicato vai
-ler.** Quem fala com o filiado é o **sindicato**. Se um escritório existir na
-relação, ele foi contratado pelo sindicato, e isso é contrato, não arquitetura.
+**O escritório contratado faz parte do Produto B — só como a outra ponta
+da ponte** (decidido em 26/11/2026). O sindicato terceiriza o jurídico: ele
+faz a triagem e encaminha o filiado ao escritório que cuida daquela ação. O B
+cuida dessa passagem: o encaminhamento, a custódia do documento e o retorno
+ao filiado (`servidor/escritorios.py`).
+
+- Quem fala com o filiado continua sendo o **sindicato**. O escritório
+  aparece para ele pelo nome, para dizer com quem o caso está.
+- O escritório vê **só** quem lhe foi encaminhado, e a situação que ele
+  marca é de lista fechada — sem texto livre sobre uma pessoa.
+- **O núcleo não sabe de escritório.** O que alguém pode ou não pode fazer
+  não depende de quem vai propor a ação.
+- O que acontece **dentro** do escritório depois que o documento chega
+  (montar a peça, propor a ação) continua sendo do Produto A. O B termina em
+  "documentação completa".
 
 **Nunca traga código do Produto A para cá.** Se algo do A parece necessário,
 a pergunta certa é "o B precisa mesmo disso, ou estou carregando a hipótese

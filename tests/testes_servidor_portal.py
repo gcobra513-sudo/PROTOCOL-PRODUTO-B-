@@ -2723,11 +2723,11 @@ def teste_a_sessao_diz_que_papeis_a_pessoa_tem():
         checa(r.status_code == 200, f"{cpf}: {r.status_code} {r.text[:120]}")
         return r.json()
 
-    checa(papeis(CPF) == {"filiado": True, "gestor": False},
+    checa(papeis(CPF) == {"filiado": True, "gestor": False, "escritorio": False},
           f"filiado: {papeis(CPF)}")
-    checa(papeis(gestor) == {"filiado": False, "gestor": True},
+    checa(papeis(gestor) == {"filiado": False, "gestor": True, "escritorio": False},
           f"gestor: {papeis(gestor)}")
-    checa(papeis(os_dois) == {"filiado": True, "gestor": True},
+    checa(papeis(os_dois) == {"filiado": True, "gestor": True, "escritorio": False},
           f"filiado e gestor: {papeis(os_dois)}")
 
     # SEM SESSÃO NÃO HÁ PERGUNTA: a rota não recebe CPF, então não serve
@@ -2743,7 +2743,8 @@ def teste_a_sessao_diz_que_papeis_a_pessoa_tem():
     r = c.cliente.get("/api/acesso/papeis",
                       headers={"Authorization": f"Bearer {t}"})
     checa(r.status_code == 200 and r.json() == {"filiado": True,
-                                                "gestor": False},
+                                                "gestor": False,
+                                                "escritorio": False},
           f"gestores ilegível: {r.status_code} {r.text[:120]}")
     print("  ok     filiado, gestor, ou os dois — e só de quem abriu a sessão")
 

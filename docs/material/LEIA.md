@@ -1,6 +1,8 @@
 # Material para deixar com o sindicato
 
-`protocol-uma-pagina.pdf` — uma folha A4 para entregar na reunião.
+`protocol-uma-pagina.pdf` — uma folha A4 para entregar na reunião. O PDF não
+é versionado (o repositório não guarda PDF nenhum, para dado de filiado nunca
+virar commit): gere-o do HTML quando precisar.
 
 É gerado de `uma-pagina.html`, com as duas telas ao lado (`painel.jpg`,
 `conta.png`), tiradas da demonstração: só cadastro, ação e valor fictícios.

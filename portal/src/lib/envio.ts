@@ -148,7 +148,7 @@ export async function conferirCodigo(
  *  antes, em vez de esconder o que talvez seja da pessoa. */
 export async function verPapeis(
   token: string,
-): Promise<{ filiado: boolean; gestor: boolean } | null> {
+): Promise<{ filiado: boolean; gestor: boolean; escritorio: boolean } | null> {
   try {
     const r = await fetch(`${BASE}/api/acesso/papeis`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -158,7 +158,11 @@ export async function verPapeis(
       return null;
     }
     const d = await r.json();
-    return { filiado: Boolean(d.filiado), gestor: Boolean(d.gestor) };
+    return {
+      filiado: Boolean(d.filiado),
+      gestor: Boolean(d.gestor),
+      escritorio: Boolean(d.escritorio),
+    };
   } catch {
     return null;
   }
@@ -416,7 +420,7 @@ export async function verCompletude(
  *  nunca era chamada por ninguém. Tela que não se consegue abrir é tela que
  *  não existe — e o pior é que ela passa por pronta na contagem.
  */
-export const TELAS = ["cadastro", "area", "acoes", "processos", "atendimento", "painel"] as const;
+export const TELAS = ["cadastro", "area", "acoes", "processos", "atendimento", "painel", "escritorio"] as const;
 export type Tela = (typeof TELAS)[number];
 
 /** A área que o link pede, ou `cadastro`.
@@ -512,8 +516,142 @@ export interface MinhasAcoes {
   acoes: AcaoDoFiliado[];
   oportunidades: OportunidadeDoFiliado[];
   pendencias: GrupoDePendencia[];
+  /** Com qual escritório está cada caso da pessoa, e em que situação. */
+  encaminhamentos?: Encaminhamento[];
   aviso: string;
 }
+
+/** O caso de um filiado, encaminhado pelo sindicato a um escritório. */
+export interface Encaminhamento {
+  acao: string;
+  rotulo: string;
+  /** O NOME do escritório, como o sindicato o cadastrou. */
+  escritorio: string;
+  contato: string;
+  /** ENCAMINHADO | RECEBIDO | PENDENTE | COMPLETO */
+  situacao: string;
+  /** Os documentos que faltam, já em palavras. */
+  faltam: string[];
+  encaminhado_em: string;
+}
+
+// ------------------------------------------------- o escritório contratado
+
+export interface EscritorioDoSindicato {
+  id: string;
+  nome: string;
+  contato: string;
+  acoes: string[];
+  casos: number;
+  encaminhados: number;
+  recebidos: number;
+  pendentes: number;
+  completos: number;
+  parados: number;
+}
+
+export interface AcaoATriar {
+  acao: string;
+  rotulo: string;
+  /** O escritório responsável pela ação, segundo o cadastro — ou nulo. */
+  escritorio: string | null;
+  participam: number;
+  a_encaminhar: number;
+}
+
+export interface VisaoDosEscritorios {
+  escritorios: EscritorioDoSindicato[];
+  acoes: AcaoATriar[];
+}
+
+export interface CasoDoEscritorio {
+  cpf: string;
+  nome: string;
+  email: string;
+  telefone: string;
+  documentos: { arquivo: string; rotulo: string }[];
+  acao: string;
+  rotulo: string;
+  situacao: string;
+  faltam: string[];
+  encaminhado_em: string;
+  atualizado_em: string;
+}
+
+export interface CasosDoEscritorio {
+  escritorio: { id: string; nome: string };
+  casos: CasoDoEscritorio[];
+  documentos_possiveis: { tipo: string; rotulo: string }[];
+}
+
+async function comSessao<T>(
+  caminho: string,
+  token: string,
+  falha: string,
+  corpo?: unknown,
+): Promise<T> {
+  const r = await fetch(`${BASE}${caminho}`, {
+    method: corpo === undefined ? "GET" : "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(corpo === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: corpo === undefined ? undefined : JSON.stringify(corpo),
+  });
+  const dados = await r.json().catch(() => ({}));
+  if (!r.ok) throw new ErroDoServidor(dados?.detail?.erro ?? falha, r.status);
+  return dados as T;
+}
+
+const ent = (apelido: string) => `/api/entidade/${encodeURIComponent(apelido)}`;
+
+export const verEscritorios = (apelido: string, token: string) =>
+  comSessao<VisaoDosEscritorios>(
+    `${ent(apelido)}/escritorios`, token, "não foi possível abrir os escritórios",
+  );
+
+export const encaminharAoEscritorio = (
+  apelido: string, token: string, acao: string, escritorio: string,
+) =>
+  comSessao<{ encaminhados: number; ja_estavam: number; rotulo: string }>(
+    `${ent(apelido)}/encaminhamentos`, token, "não foi possível encaminhar",
+    { acao, escritorio },
+  );
+
+export const casosDoEscritorio = (apelido: string, token: string) =>
+  comSessao<CasosDoEscritorio>(
+    `${ent(apelido)}/escritorio/casos`, token, "não foi possível abrir os casos",
+  );
+
+export const situarCaso = (
+  apelido: string, token: string, cpf: string, acao: string,
+  situacao: string, faltam: string[] = [],
+) =>
+  comSessao<{ situacao: string; faltam: string[] }>(
+    `${ent(apelido)}/escritorio/casos`, token, "não foi possível registrar",
+    { cpf, acao, situacao, faltam },
+  );
+
+/** O PDF de um caso, como endereço temporário para abrir em outra aba. Vem
+ *  por POST, com o CPF no corpo: num link ele ficaria no histórico do
+ *  navegador e no log do servidor. */
+export async function abrirDocumentoDoCaso(
+  apelido: string, token: string, cpf: string, arquivo: string,
+): Promise<string> {
+  const r = await fetch(`${BASE}${ent(apelido)}/escritorio/documento`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ cpf, arquivo }),
+  });
+  if (!r.ok) {
+    const dados = await r.json().catch(() => ({}));
+    throw new ErroDoServidor(
+      dados?.detail?.erro ?? "não foi possível abrir o documento", r.status,
+    );
+  }
+  return URL.createObjectURL(await r.blob());
+}
+
 
 /** De quais ações o filiado logado faz parte, e o que cabe em cada uma.
  *

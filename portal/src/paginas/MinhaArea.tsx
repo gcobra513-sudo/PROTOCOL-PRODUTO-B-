@@ -14,6 +14,7 @@ import { FileText, Gavel, ListChecks, MessagesSquare } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Aviso, Botao, Cartao, cn } from "../componentes/ui";
+import { ComQuemEsta } from "../componentes/ComQuemEsta";
 import * as api from "../lib/envio";
 import {
   cartaoDasAcoes,
@@ -124,6 +125,12 @@ export function MinhaArea({
           Aqui está tudo que é seu neste portal.
         </p>
       </div>
+
+      {/* COM QUEM ESTÁ O CASO, logo no topo: é a pergunta que a pessoa
+          fazia por telefone, e a resposta cabe num cartão. */}
+      <ComQuemEsta
+        casos={acoes && acoes !== "erro" ? (acoes.encaminhamentos ?? []) : []}
+      />
 
       {falta.length ? (
         <Cartao

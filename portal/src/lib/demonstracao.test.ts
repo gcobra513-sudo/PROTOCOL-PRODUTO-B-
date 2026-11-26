@@ -87,14 +87,35 @@ describe("o roteiro da demonstração", () => {
     expect(r[0]?.mostrar.join(" ")).toContain("ficha financeira");
   });
 
+  it("com um escritório entre os acessos, ele entra depois do painel", () => {
+    // A ordem da conversa: o sindicato encaminha, o escritório recebe, o
+    // filiado vê. E o acesso do escritório não é tomado por filiado.
+    const comEscritorio = acessosDaDemonstracao({
+      apelido: "demo-x", nome: "X", demonstracao: true,
+      acessos_da_demonstracao: [
+        ...acessos,
+        { quem: "Escritório contratado", cpf: "00000905100", area: "escritorio" },
+      ],
+    });
+    const r = roteiroDaDemonstracao(comEscritorio, "demo-x");
+    expect(r.map((p) => p.id)).toEqual(["painel", "escritorio", "filiado"]);
+    expect(r[1]).toMatchObject({ cpf: "000.009.051-00", link: "?entidade=demo-x&tela=escritorio" });
+    expect(r[2]?.cpf).toBe("000.009.104-90");
+  });
+
   it("parada sem acesso não aparece", () => {
     const soGestor = todos.filter((a) => a.gestor);
     expect(roteiroDaDemonstracao(soGestor, "demo-x").map((p) => p.id)).toEqual(["painel"]);
     expect(roteiroDaDemonstracao([], "demo-x")).toEqual([]);
   });
 
-  it("não usa a palavra que este produto não usa com o sindicato", () => {
+  it("não usa o vocabulário do Produto A", () => {
+    // O escritório contratado passou a fazer parte do produto (26/11/2026),
+    // e o roteiro fala dele. O que continua de fora é o trabalho de DENTRO
+    // do escritório, que é do outro produto.
     const texto = JSON.stringify(roteiroDaDemonstracao(todos, "demo-x")).toLowerCase();
-    expect(texto).not.toContain("escritório");
+    for (const palavra of ["lote", "peticionamento", "pje", "pré-voo", "manifesto", "quarentena", "disjuntor"]) {
+      expect(texto).not.toContain(palavra);
+    }
   });
 });

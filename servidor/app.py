@@ -649,7 +649,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             quem, cpf, area = (str(item.get(k, "")) for k in
                                ("quem", "cpf", "area"))
             if not (cpf.isdigit() and len(cpf) == 11 and 0 < len(quem) <= 60
-                    and area in ("cadastro", "painel")):
+                    and area in ("cadastro", "painel", "escritorio")):
                 return []
             limpos.append({"quem": quem, "cpf": cpf, "area": area})
         return limpos
@@ -2449,8 +2449,11 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 "telefone": str(linha.get("telefone") or ""),
                 "documentos": [
                     {"arquivo": nome,
-                     "rotulo": _rotulo_do_tipo(
-                         panorama.tipo_do_arquivo(nome) or nome)}
+                     # O RÓTULO DO ESCRITÓRIO, não o do filiado: o do
+                     # cadastro diz "Sentença, se você tiver", que é
+                     # conversa com a pessoa.
+                     "rotulo": escritorios.ROTULOS.get(
+                         panorama.tipo_do_arquivo(nome) or "", nome)}
                     for nome in _arquivos_entregues(ent, caso.cpf)],
                 **_caso_para_a_tela(caso, rotulos),
             })

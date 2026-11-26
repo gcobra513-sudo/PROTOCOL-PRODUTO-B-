@@ -68,6 +68,7 @@ NOMES = (
     "ELZA", "BENEDITO", "IVONE", "WALTER", "OLGA", "NELSON",
 )
 GESTOR = 9001                   # índice do CPF sintético do gestor
+ADVOGADO = 9051                 # idem, de quem entra pelo escritório A
 
 
 class NaoDa(Exception):
@@ -399,6 +400,45 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
         r.raise_for_status()
         confirmar = r.json()["sha256"]
 
+    # OS ESCRITÓRIOS que o sindicato de demonstração "contratou", e a
+    # triagem — feita pelo gestor, pela porta da frente. Dois escritórios
+    # fictícios: o A cuida da ação de exemplo e recebe os casos; o B existe
+    # para a tela mostrar que um não vê o que é do outro.
+    advogado = te._cpf_sintetico(ADVOGADO)
+    (raiz / APELIDO / "escritorios.json").write_text(json.dumps({
+        "escritorios": [
+            {"id": "exemplo-a", "nome": "Escritório de Exemplo A (fictício)",
+             "contato": f"atendimento@escritorio-a.{DOMINIO}",
+             "acoes": [ACAO],
+             "pessoas": [{"cpf": advogado,
+                          "email": f"equipe@escritorio-a.{DOMINIO}"}]},
+            {"id": "exemplo-b", "nome": "Escritório de Exemplo B (fictício)",
+             "contato": f"atendimento@escritorio-b.{DOMINIO}", "acoes": [],
+             "pessoas": [{"cpf": te._cpf_sintetico(ADVOGADO + 1),
+                          "email": f"equipe@escritorio-b.{DOMINIO}"}]},
+        ]}, ensure_ascii=False), encoding="utf-8")
+    r = c.post(f"/api/entidade/{APELIDO}/encaminhamentos",
+               json={"acao": ACAO, "escritorio": "exemplo-a"},
+               headers={"Authorization": f"Bearer {token(gestor)}"})
+    r.raise_for_status()
+    # DOIS FILIADOS SE CADASTRAM DEPOIS DA TRIAGEM: são eles que o painel
+    # mostra como "ainda não encaminhados", para quem apresenta ter um
+    # botão de encaminhar para apertar.
+    for i in (22, 24):
+        cadastrar(i, contrib)
+
+    # E O ESCRITÓRIO JÁ TRABALHOU EM ALGUNS, para as três telas terem o que
+    # mostrar: o filiado de exemplo com a documentação completa, um com
+    # documento faltando, um só recebido. O resto espera — e é a fila.
+    do_escritorio = {"Authorization": f"Bearer {token(advogado)}"}
+    for i, situacao, faltam in ((4, "COMPLETO", []), (10, "RECEBIDO", []),
+                                (0, "PENDENTE", ["procuracao", "identidade"])):
+        r = c.post(f"/api/entidade/{APELIDO}/escritorio/casos",
+                   json={"cpf": pessoas[i][0], "acao": ACAO,
+                         "situacao": situacao, "faltam": faltam},
+                   headers=do_escritorio)
+        r.raise_for_status()
+
     # Um andamento já registrado, para a área de processos ter o que contar
     # sem a demonstração falar com tribunal nenhum.
     numero = "".join(ch for ch in PROCESSO if ch.isdigit())
@@ -416,12 +456,14 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
     acessos = [("Gestor do sindicato", gestor),
                ("Filiado com processo", pessoas[4][0]),
                ("Filiado que pediu aviso", pessoas[21][0]),
-               ("Filiado que ainda não entrou", pessoas[30][0])]
+               ("Filiado que ainda não entrou", pessoas[30][0]),
+               ("Escritório contratado", advogado)]
     # NA TELA TAMBÉM: quem abre o link não vê este terminal. O servidor só
     # publica este arquivo em modo ensaio.
     (raiz / APELIDO / "acessos_da_demonstracao.json").write_text(json.dumps([
         {"quem": quem, "cpf": cpf,
-         "area": "painel" if cpf == gestor else "cadastro"}
+         "area": ("painel" if cpf == gestor
+                  else "escritorio" if cpf == advogado else "cadastro")}
         for quem, cpf in acessos], ensure_ascii=False), encoding="utf-8")
     return acessos
 

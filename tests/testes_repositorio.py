@@ -130,29 +130,33 @@ def t_a_pasta_antiga_continua_ignorada():
 
 
 def t_escritorio_nao_e_arquitetura():
-    """A REGRA ZERO, conferida por programa.
+    """ONDE O ESCRITÓRIO PODE EXISTIR NO CÓDIGO, conferido por programa.
 
-    `CLAUDE.md` diz: "Se um escritório existir na relação, ele foi contratado
-    pelo sindicato, e **isso é contrato, não arquitetura**."
+    A regra mudou em 26/11/2026, por decisão de quem é dono do produto: o
+    sindicato terceiriza o jurídico, e a ponte entre ele e o escritório
+    contratado passou a ser parte do Produto B (`servidor/escritorios.py`).
+    O escritório deixou de ser "só contrato".
 
-    A casa já guardava os TEXTOS — três testes conferem que nenhum aviso,
-    pendência ou tela fala de escritório ao filiado. O que não tinha guarda
-    era a ESTRUTURA: `entidades.Entidade` tinha um campo `escritorio`, e
-    campo é arquitetura. Ele não era lido por ninguém, o que é o pior caso:
-    o produto carregava a hipótese do Produto A sem receber nada por ela, e
-    cada entidade criada gravava a chave no `entidades.json`.
+    O QUE CONTINUA VALENDO, e é o que este teste guarda:
+
+    1. **O NÚCLEO não sabe de escritório.** O que uma pessoa pode ou não
+       pode fazer não depende de quem vai propor a ação. Se o motor passar
+       a perguntar pelo escritório, o veredicto vira coisa do Produto A.
+    2. **A ENTIDADE não tem um campo `escritorio`.** Um sindicato contrata
+       vários, por ação; um campo na entidade é a hipótese antiga — um
+       escritório dono do sindicato — voltando pela estrutura.
 
     A conferência é sobre IDENTIFICADOR, não sobre a palavra: `escritorio`
-    sem acento é o jeito de a palavra virar código. A palavra com acento
-    continua podendo aparecer em comentário — inclusive para explicar esta
-    regra, que é o que `nucleo/pendencia.py` faz.
+    sem acento é o jeito de a palavra virar código.
     """
     import re
 
     alvo = re.compile(r"\bescritorio\b")
     achados = []
-    for pasta in ("nucleo", "servidor", "ferramentas", "portal/src"):
-        for caminho in sorted((RAIZ / pasta).rglob("*")):
+    onde = [*sorted((RAIZ / "nucleo").rglob("*")),
+            RAIZ / "servidor" / "entidades.py"]
+    for _ in (0,):
+        for caminho in onde:
             if caminho.suffix not in (".py", ".ts", ".tsx"):
                 continue
             if ".test." in caminho.name:
@@ -170,8 +174,9 @@ def t_escritorio_nao_e_arquitetura():
                     achados.append(
                         f"{caminho.relative_to(RAIZ)}:{n}: {nua[:70]}")
     checa(not achados,
-          "escritório voltou a ser arquitetura, e a Regra Zero diz que ele é "
-          "contrato:\n  " + "\n  ".join(achados))
+          "o escritório entrou no núcleo ou virou campo da entidade — a ponte "
+          "com ele mora em servidor/escritorios.py:\n  "
+          + "\n  ".join(achados))
 
 
 def t_ha_um_so_lugar_que_monta_os_fatos_de_uma_pessoa():

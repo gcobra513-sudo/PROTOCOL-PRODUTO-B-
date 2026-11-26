@@ -26,6 +26,7 @@ import { useEffect, useState } from "react";
 import { Aviso, Cartao } from "../componentes/ui";
 import { sessaoMorreu } from "../lib/sessao";
 import { Portao } from "./Portao";
+import { ComQuemEsta } from "../componentes/ComQuemEsta";
 import * as api from "../lib/envio";
 import {
   comoFrase,
@@ -320,6 +321,7 @@ export function MinhasAcoes({
         ) : null}
       </Cartao>
 
+      <ComQuemEsta casos={dados.encaminhamentos ?? []} />
       <Pendencias grupos={dados.pendencias} />
       <Acoes acoes={dados.acoes} />
       <Trilha
