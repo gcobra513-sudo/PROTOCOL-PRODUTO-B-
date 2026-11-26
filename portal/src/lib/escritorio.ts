@@ -113,11 +113,12 @@ function plano(texto: string): string {
  *  os registros dele. */
 export function filtrarCasos(
   casos: CasoDoEscritorio[],
-  filtro: { texto: string; situacao: string },
+  filtro: { texto: string; situacao: string; entidade?: string },
 ): CasoDoEscritorio[] {
   const texto = plano(filtro.texto).trim();
   const digitos = texto.replace(/\D/g, "");
   return casos.filter((c) => {
+    if (filtro.entidade && c.entidade !== filtro.entidade) return false;
     if (filtro.situacao && c.situacao !== filtro.situacao) return false;
     if (!texto) return true;
     if (plano(c.nome).includes(texto)) return true;
@@ -152,6 +153,9 @@ export function csvDosCasos(
   possiveis: { tipo: string; rotulo: string }[],
 ): string {
   const rotulo = (t: string) => possiveis.find((p) => p.tipo === t)?.rotulo ?? t;
+  // COM VÁRIOS SINDICATOS, a primeira coluna diz de qual é cada caso: sem
+  // ela a planilha junta filiados de entidades diferentes numa lista só.
+  const varios = casos.some((c) => c.sindicato);
   const linhas = [
     ["Nome", "CPF", "E-mail", "Telefone", "Ação", "Situação", "Falta", "Documentos enviados", "Encaminhado em"],
     ...casos.map((c) => [
@@ -159,6 +163,6 @@ export function csvDosCasos(
       rotuloDaSituacao(c.situacao), c.faltam.map(rotulo).join(", "),
       c.documentos.map((d) => d.rotulo).join(", "), dia(c.encaminhado_em),
     ]),
-  ];
+  ].map((l, i) => (varios ? [i === 0 ? "Sindicato" : (casos[i - 1]?.sindicato ?? ""), ...l] : l));
   return "\uFEFF" + linhas.map((l) => l.map(celula).join(";")).join("\r\n") + "\r\n";
 }

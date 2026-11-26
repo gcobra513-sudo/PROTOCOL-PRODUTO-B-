@@ -186,6 +186,19 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
               f"{situacoes}")
         checa(all("FICTÍCI" in c["nome"] for c in casos),
               "caso com nome que não se declara fictício")
+
+        # A VISÃO ÚNICA: com o MESMO login, os casos dos dois sindicatos de
+        # demonstração que cadastraram este escritório.
+        s, corpo = _pedir(base + "/api/escritorio/casos", token=tokens[4])
+        unica = json.loads(corpo) if s == 200 else {}
+        checa(len(unica.get("sindicatos", [])) == 2
+              and all(x["casos"] > 0 for x in unica["sindicatos"]),
+              f"a visão única devia ter dois sindicatos com casos: {s} "
+              f"{unica.get('sindicatos')}")
+        checa(len(unica.get("casos", [])) == sum(
+                  x["casos"] for x in unica.get("sindicatos", []))
+              and all("FICTÍCI" in c["nome"] for c in unica.get("casos", [])),
+              "os casos da visão única não batem, ou há nome não fictício")
         s, corpo = _pedir(base + f"/api/entidade/{apelido}/escritorios",
                           token=tokens[0])
         visao = json.loads(corpo) if s == 200 else {}

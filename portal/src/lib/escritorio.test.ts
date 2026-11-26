@@ -132,4 +132,17 @@ describe("o painel do escritório", () => {
     // Célula que começa com = + - @ viraria fórmula no Excel de quem abre.
     expect(linhas[4]?.startsWith("'=CMD()")).toBe(true);
   });
+
+  it("com vários sindicatos, filtra por um deles e a planilha diz de qual é cada caso", () => {
+    const dos_dois = [
+      { ...casos[0]!, entidade: "sind-a", sindicato: "Sindicato A" },
+      { ...casos[1]!, entidade: "sind-b", sindicato: "Sindicato B" },
+    ];
+    expect(filtrarCasos(dos_dois, { texto: "", situacao: "", entidade: "sind-b" }).map((c) => c.nome))
+      .toEqual(["JOSÉ DE EXEMPLO (FICTÍCIO)"]);
+    expect(filtrarCasos(dos_dois, { texto: "", situacao: "", entidade: "" })).toHaveLength(2);
+    const linhas = csvDosCasos(dos_dois, []).split("\r\n");
+    expect(linhas[0]).toBe("\uFEFFSindicato;Nome;CPF;E-mail;Telefone;Ação;Situação;Falta;Documentos enviados;Encaminhado em");
+    expect(linhas[2]?.startsWith("Sindicato B;JOSÉ")).toBe(true);
+  });
 });

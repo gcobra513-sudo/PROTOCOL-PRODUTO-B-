@@ -385,7 +385,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
                 "O escritório vê só quem foi encaminhado a ele.",
                 "O sindicato vê, por escritório, o que foi recebido e o que está parado.",
                 "Cada documento aberto fica registrado, com quem abriu.",
-                "Um escritório que atende vários sindicatos entra no portal de cada um.",
+                "Um escritório que atende vários sindicatos vê todos num painel só, com um login.",
               ].map((t) => (
                 <li key={t} className="flex items-start gap-3">
                   <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white/20">

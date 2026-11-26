@@ -5160,6 +5160,124 @@ def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
     print("  ok     encaminha, recebe, abre, marca; o filiado e o sindicato veem")
 
 
+def _outro_sindicato(raiz, apelido: str, filiado: str, escritorio_cadastro: dict):
+    """Mais um sindicato NA MESMA RAIZ: um filiado, o gestor de sempre e o
+    cadastro de escritórios dele."""
+    import csv
+    import json as _json
+
+    from servidor import entidades as mod
+    from servidor import escritorios
+
+    ent = mod.Cadastro(raiz).criar(
+        apelido, f"Sindicato {apelido}",
+        categorias=("auditor-fiscal-receita-federal",))
+    pasta = raiz / apelido
+    pasta.mkdir(parents=True, exist_ok=True)
+    with open(pasta / "filiados.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["cpf", "email", "nome"])
+        w.writerow([filiado, "f@exemplo.invalid", "FILIADO (CADASTRO DE EXEMPLO)"])
+    with open(pasta / "gestores.csv", "w", newline="", encoding="utf-8") as fh:
+        w = csv.writer(fh)
+        w.writerow(["cpf", "email"])
+        w.writerow([B, "gestor@exemplo.org"])
+    (pasta / escritorios.CADASTRO).write_text(
+        _json.dumps(escritorio_cadastro, ensure_ascii=False), encoding="utf-8")
+    return ent
+
+
+def teste_o_escritorio_ve_num_lugar_so_os_sindicatos_que_o_contrataram():
+    """UM ESCRITÓRIO ATENDE VÁRIOS SINDICATOS, e entrar no portal de cada um
+    para ver a fila é o que ele não vai fazer. Com um login só ele vê todos
+    — TODOS OS QUE O CADASTRARAM, e nem um a mais.
+
+    A regra: o login provou que ele controla UM e-mail. Um sindicato entra
+    na visão dele se, no cadastro DAQUELE sindicato, o mesmo CPF está com
+    esse mesmo e-mail. Mesmo CPF com outro e-mail não entra: seria abrir os
+    filiados de um sindicato com a prova feita na caixa postal que outro
+    sindicato informou.
+    """
+    secao("a visão única do escritório")
+    um, dois, tres, quatro = (f"demo-multi-{n}" for n in (1, 2, 3, 4))
+    cliente, ent, raiz = _servidor(um)
+    _cadastrar_escritorios(ent, raiz)
+    pessoa = lambda email, cpf=ADV_A: {"escritorios": [{  # noqa: E731
+        "id": "exemplo-a", "nome": "Escritório de Exemplo A (fictício)",
+        "contato": "", "acoes": ["GIFA-2006"],
+        "pessoas": [{"cpf": cpf, "email": email}]}]}
+    _outro_sindicato(raiz, dois, C_PLAN, pessoa("A@Exemplo-A.invalid"))
+    _outro_sindicato(raiz, tres, D_PLAN, pessoa("outro@exemplo-a.invalid"))
+    _outro_sindicato(raiz, quatro, D_PLAN, pessoa("b@exemplo-b.invalid", ADV_B))
+    filiado_de = {um: A, dois: C_PLAN, tres: D_PLAN, quatro: D_PLAN}
+    for apelido, cpf in filiado_de.items():
+        _cadastrar_com_titulo(cliente, cpf, apelido)
+        r = cliente.post(f"/api/entidade/{apelido}/encaminhamentos",
+                         json={"acao": "GIFA-2006", "escritorio": "exemplo-a"},
+                         headers=_gestor(cliente, apelido))
+        checa(r.status_code == 200 and r.json()["encaminhados"] == 1,
+              f"{apelido}: {r.status_code} {r.text[:200]}")
+
+    # UM LOGIN, no sindicato 1.
+    adv = _de(cliente, ADV_A, um)
+    r = cliente.get("/api/escritorio/casos", headers=adv)
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:300]}")
+    visao = r.json()
+    checa([s["entidade"] for s in visao["sindicatos"]] == [um, dois],
+          f"devia ver os dois sindicatos que o cadastraram com ESTE e-mail, "
+          f"e só eles: {[s['entidade'] for s in visao['sindicatos']]}")
+    checa(sorted((c["entidade"], c["cpf"]) for c in visao["casos"])
+          == [(um, A), (dois, C_PLAN)],
+          f"os casos da visão única: "
+          f"{[(c['entidade'], c['cpf']) for c in visao['casos']]}")
+    checa(all(c["sindicato"] for c in visao["casos"])
+          and visao["sindicatos"][1]["casos"] == 1,
+          "cada caso tem de dizer de qual sindicato é")
+
+    # E TRABALHA NOS DOIS com o mesmo login: marca, abre documento.
+    r = cliente.post(f"/api/entidade/{dois}/escritorio/casos",
+                     json={"cpf": C_PLAN, "acao": "GIFA-2006",
+                           "situacao": "RECEBIDO"}, headers=adv)
+    checa(r.status_code == 200 and r.json()["situacao"] == "RECEBIDO",
+          f"não marcou um caso do segundo sindicato: {r.status_code} {r.text[:200]}")
+    r = cliente.post(f"/api/entidade/{dois}/escritorio/documento",
+                     json={"cpf": C_PLAN, "arquivo": "sentenca.pdf"},
+                     headers=adv)
+    checa(r.status_code == 200 and r.content[:5] == b"%PDF-",
+          f"não abriu documento do segundo sindicato: {r.status_code}")
+
+    # O QUE ELE NÃO ALCANÇA: o sindicato que o cadastrou com OUTRO e-mail,
+    # e o que nem o cadastrou.
+    for apelido, por_que in ((tres, "o cadastrou com outro e-mail"),
+                             (quatro, "não o cadastrou")):
+        for rota, corpo in (("casos", None),
+                            ("casos", {"cpf": D_PLAN, "acao": "GIFA-2006",
+                                       "situacao": "RECEBIDO"}),
+                            ("documento", {"cpf": D_PLAN,
+                                           "arquivo": "sentenca.pdf"})):
+            url = f"/api/entidade/{apelido}/escritorio/{rota}"
+            r = (cliente.get(url, headers=adv) if corpo is None
+                 else cliente.post(url, json=corpo, headers=adv))
+            checa(r.status_code == 403,
+                  f"ALCANÇOU O SINDICATO QUE {por_que.upper()}: "
+                  f"{rota} -> {r.status_code}")
+
+    # QUEM NÃO É DE ESCRITÓRIO não tem visão única nenhuma.
+    for cab, quem in ((_gestor(cliente, um), "o gestor"),
+                      (_de(cliente, A, um), "o filiado")):
+        checa(cliente.get("/api/escritorio/casos", headers=cab).status_code
+              == 403, f"{quem} abriu a visão única do escritório")
+    checa(cliente.get("/api/escritorio/casos").status_code == 401,
+          "sem sessão abriu a visão única")
+
+    # O PROTO responde sobre a fila INTEIRA dele, dos dois sindicatos.
+    r = cliente.post("/api/escritorio/atendimento",
+                     json={"pergunta": "quantos casos eu tenho?"}, headers=adv)
+    checa(r.status_code == 200 and "2 casos" in " ".join(r.json()["resposta"]),
+          f"o Proto não somou os dois sindicatos: {r.status_code} {r.text[:200]}")
+    print("  ok     um login: os sindicatos que o cadastraram, e nem um a mais")
+
+
 def teste_o_painel_mostra_o_rol_de_cada_acao():
     """O gestor precisa ver, por ação, se o rol já entrou e quanta gente
     ficou sem resposta — é esse número que diz que vale enviar de novo."""
@@ -5503,6 +5621,7 @@ TESTES = [
     teste_o_gestor_envia_o_rol_e_as_superficies_mudam_juntas,
     teste_o_painel_mostra_o_rol_de_cada_acao,
     teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve,
+    teste_o_escritorio_ve_num_lugar_so_os_sindicatos_que_o_contrataram,
     teste_o_gestor_envia_a_ficha_financeira_em_duas_etapas,
     teste_lista_parcial_nao_poe_ninguem_fora_do_rol,
     teste_rol_so_de_acao_do_catalogo_e_so_para_gestor,

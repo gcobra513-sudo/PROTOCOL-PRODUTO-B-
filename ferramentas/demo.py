@@ -67,6 +67,10 @@ NOMES = (
     "GERALDO", "EDNA", "FERNANDO", "ZELIA", "EDSON", "NAIR", "JOAQUIM",
     "ELZA", "BENEDITO", "IVONE", "WALTER", "OLGA", "NELSON",
 )
+#: O segundo sindicato de demonstração, que contratou o mesmo escritório A.
+APELIDO_B = "demo-sindicato-b"
+NOME_B = "Sindicato de Demonstração B"
+NOMES_B = ("RUI", "LIA", "IVO", "EVA", "ARI", "ISA", "NEI", "ZITA")
 GESTOR = 9001                   # índice do CPF sintético do gestor
 ADVOGADO = 9051                 # idem, de quem entra pelo escritório A
 
@@ -310,11 +314,11 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
                for i, nome in enumerate(NOMES)]
     c = httpx.Client(base_url=api, timeout=120, trust_env=False)
 
-    def token(cpf: str) -> str:
+    def token(cpf: str, apelido: str = APELIDO) -> str:
         codigo = c.post("/api/acesso/codigo", json={
-            "entidade": APELIDO, "cpf": cpf}).json()["codigo_do_ensaio"]
+            "entidade": apelido, "cpf": cpf}).json()["codigo_do_ensaio"]
         return c.post("/api/acesso/conferir", json={
-            "entidade": APELIDO, "cpf": cpf, "codigo": codigo}).json()["token"]
+            "entidade": apelido, "cpf": cpf, "codigo": codigo}).json()["token"]
 
     # A PLANILHA TEM DEFEITO DE PROPÓSITO — cinco sem e-mail, dois com CPF
     # que não fecha —, porque é isso que a base de um sindicato tem, e é o
@@ -439,6 +443,55 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
                    headers=do_escritorio)
         r.raise_for_status()
 
+    # O SEGUNDO SINDICATO, que contratou O MESMO escritório. Existe para a
+    # visão única: com um login, o escritório A vê os casos dos dois — e é
+    # o que um escritório que atende vários sindicatos precisa ver. Pela
+    # porta da frente, como o primeiro: planilha, cadastro, triagem.
+    gestor_b = te._cpf_sintetico(GESTOR + 1)
+    da_b = [(te._cpf_sintetico(9300 + i), f"{nome} DE EXEMPLO (FICTÍCI"
+             f"{'O' if i % 2 == 0 else 'A'})", f"filiado{i + 1:02d}@b.{DOMINIO}")
+            for i, nome in enumerate(NOMES_B)]
+    planilha_b = ("\r\n".join(
+        ["CPF;Nome Completo;E-mail;Cargo;Filiado desde;Processo"]
+        + [f"{cpf};{nome};{email};{CARGO};2005-01;"
+           for cpf, nome, email in da_b]) + "\r\n").encode("latin-1")
+    confirmar = ""
+    for _ in range(2):
+        r = c.post(f"/api/entidade/{APELIDO_B}/planilha",
+                   data={"confirmar": confirmar},
+                   files={"arquivo": ("base.csv", planilha_b, "text/csv")},
+                   headers={"Authorization":
+                            f"Bearer {token(gestor_b, APELIDO_B)}"})
+        r.raise_for_status()
+        confirmar = r.json()["sha256"]
+    for i, (cpf, nome, email) in enumerate(da_b[:5]):
+        r = c.post("/api/cadastro", data={
+            "token": token(cpf, APELIDO_B),
+            "linha": json.dumps(te.linha(cpf, nome_completo=nome, email=email,
+                                         cargo=CARGO))},
+            files=[("arquivos", (n, b, "application/pdf"))
+                   for n, b in (titulo if i < 2 else contrib).items()])
+        r.raise_for_status()
+    # O MESMO CPF E O MESMO E-MAIL do escritório A: é isso que faz o
+    # servidor juntar os dois sindicatos na visão dele.
+    (raiz / APELIDO_B / "escritorios.json").write_text(json.dumps({
+        "escritorios": [
+            {"id": "exemplo-a", "nome": "Escritório de Exemplo A (fictício)",
+             "contato": f"atendimento@escritorio-a.{DOMINIO}",
+             "acoes": [ACAO],
+             "pessoas": [{"cpf": advogado,
+                          "email": f"equipe@escritorio-a.{DOMINIO}"}]},
+        ]}, ensure_ascii=False), encoding="utf-8")
+    r = c.post(f"/api/entidade/{APELIDO_B}/encaminhamentos",
+               json={"acao": ACAO, "escritorio": "exemplo-a"},
+               headers={"Authorization":
+                        f"Bearer {token(gestor_b, APELIDO_B)}"})
+    r.raise_for_status()
+    r = c.post(f"/api/entidade/{APELIDO_B}/escritorio/casos",
+               json={"cpf": da_b[0][0], "acao": ACAO, "situacao": "RECEBIDO",
+                     "faltam": []}, headers=do_escritorio)
+    r.raise_for_status()
+
     # Um andamento já registrado, para a área de processos ter o que contar
     # sem a demonstração falar com tribunal nenhum.
     numero = "".join(ch for ch in PROCESSO if ch.isdigit())
@@ -542,6 +595,15 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
     (pasta_ent / "gestores.csv").write_text(
         f"cpf,email\n{gestor},gestor@{DOMINIO}\n", encoding="utf-8")
     (pasta_ent / trocas.ARQUIVO_DE_DOMINIOS).write_text(
+        DOMINIO + "\n", encoding="utf-8")
+    # O segundo sindicato (`semear` diz para que serve).
+    pasta_b = entidades.Cadastro(raiz).criar(
+        APELIDO_B, NOME_B, categorias=(CATEGORIA,)).pasta(raiz)
+    pasta_b.mkdir(parents=True, exist_ok=True)
+    (pasta_b / "gestores.csv").write_text(
+        f"cpf,email\n{_suite(url)._cpf_sintetico(GESTOR + 1)},"
+        f"gestor@b.{DOMINIO}\n", encoding="utf-8")
+    (pasta_b / trocas.ARQUIVO_DE_DOMINIOS).write_text(
         DOMINIO + "\n", encoding="utf-8")
 
     if a.portal_pronto:
