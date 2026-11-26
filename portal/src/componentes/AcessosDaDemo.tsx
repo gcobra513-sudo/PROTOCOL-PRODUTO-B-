@@ -1,75 +1,95 @@
 /**
- * Em demonstração: com que CPF entrar, dito na própria tela.
+ * Em demonstração: ENTRAR COMO cada um dos perfis, com um toque.
  *
- * Visto na primeira demonstração hospedada: a tela pedia um CPF e quem
- * abria o link não tinha como saber qual. A lista vem do servidor, que só a
- * manda em modo de demonstração (`lib/demonstracao.ts`).
+ * A primeira versão listava CPFs para copiar e colar, e o código aparecia na
+ * tela para digitar: quem assistia via um formulário de teste, não um
+ * aplicativo. Agora cada perfil é um botão — "Entrar como o sindicato",
+ * "como o escritório", "como o filiado" — e cada um cai na PRÓPRIA área,
+ * que é o que o portal de verdade faz.
+ *
+ * O que o botão faz é o que a pessoa faria à mão: pede o código para aquele
+ * CPF fictício e o confere. Só existe em modo de demonstração — a lista de
+ * acessos vem do servidor (`lib/demonstracao.ts`), e no portal de verdade o
+ * código vai para o e-mail e não volta na resposta.
  */
+import { Briefcase, LayoutDashboard, UserRound } from "lucide-react";
 import { useState } from "react";
 
 import type { AcessoDaDemo } from "../lib/demonstracao";
-import { enderecoDaArea } from "../lib/entrada";
+import * as api from "../lib/envio";
 
 export function AcessosDaDemo({
   acessos,
   apelido,
+  onEntrar,
 }: {
   acessos: AcessoDaDemo[];
   apelido: string;
+  onEntrar: (token: string, cpf: string, tela: api.Tela) => void;
 }) {
-  const [copiado, setCopiado] = useState("");
+  const [indo, setIndo] = useState("");
+  const [erro, setErro] = useState("");
   if (!acessos.length) return null;
 
-  async function copiar(cpf: string) {
+  async function entrar(a: AcessoDaDemo) {
+    setIndo(a.cpf);
+    setErro("");
     try {
-      await navigator.clipboard.writeText(cpf);
-      setCopiado(cpf);
-    } catch {
-      // Sem permissão de área de transferência: o CPF está escrito ao lado,
-      // e dá para digitar.
-      setCopiado("");
+      const pedido = await api.pedirCodigo(apelido, a.cpf);
+      if (!pedido.codigoDoEnsaio) {
+        throw new Error("esta página não está em modo de demonstração");
+      }
+      const { token } = await api.conferirCodigo(apelido, a.cpf, pedido.codigoDoEnsaio);
+      onEntrar(token, a.cpf, a.gestor ? "painel" : a.area === "escritorio" ? "escritorio" : "area");
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : "não foi possível entrar");
+    } finally {
+      setIndo("");
     }
   }
 
+  const icone = (a: AcessoDaDemo) =>
+    a.gestor ? (
+      <LayoutDashboard className="h-5 w-5" aria-hidden="true" />
+    ) : a.area === "escritorio" ? (
+      <Briefcase className="h-5 w-5" aria-hidden="true" />
+    ) : (
+      <UserRound className="h-5 w-5" aria-hidden="true" />
+    );
+  const onde = (a: AcessoDaDemo) =>
+    a.gestor ? "Painel do sindicato" : a.area === "escritorio" ? "Painel do escritório" : "Área do filiado";
+
   return (
     <div className="mt-3 border-t border-tinta/15 pt-3 text-tinta">
-      <p className="font-semibold">Para entrar, use um destes CPFs de exemplo:</p>
-      <ul className="mt-2 space-y-2">
+      <p className="font-semibold">Entre na demonstração como:</p>
+      <ul className="mt-2 grid gap-2 sm:grid-cols-2">
         {acessos.map((a) => (
-          <li key={a.cpf} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <code className="rounded bg-carta px-2 py-1 text-base font-semibold">
-              {a.cpf}
-            </code>
+          <li key={a.cpf}>
             <button
               type="button"
-              onClick={() => void copiar(a.cpf)}
-              className="rounded border border-tinta/20 bg-carta px-2 py-1 text-sm underline-offset-2 hover:underline"
+              disabled={Boolean(indo)}
+              onClick={() => void entrar(a)}
+              className="flex w-full items-center gap-3 rounded-lg bg-carta px-4 py-3 text-left shadow-cartao hover:bg-carta/70 disabled:opacity-60"
             >
-              {copiado === a.cpf ? "Copiado" : "Copiar"}
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-acento text-carta">
+                {icone(a)}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[16px] font-semibold text-tinta">
+                  {indo === a.cpf ? "Entrando…" : a.quem}
+                </span>
+                <span className="block text-sm text-tinta/65">
+                  {onde(a)} · CPF de exemplo {a.cpf}
+                </span>
+              </span>
             </button>
-            <span>
-              {a.quem}
-              {" — "}
-              <a
-                className="underline"
-                href={enderecoDaArea(
-                  a.gestor ? "painel" : a.area === "escritorio" ? "escritorio" : "area",
-                  apelido,
-                )}
-              >
-                {a.gestor
-                  ? "abre o Painel do sindicato"
-                  : a.area === "escritorio"
-                    ? "abre a Área do escritório"
-                    : "abre a Minha área do filiado"}
-              </a>
-            </span>
           </li>
         ))}
       </ul>
+      {erro ? <p className="mt-2 text-sm text-alerta">{erro}</p> : null}
       <p className="mt-2 text-sm">
-        Depois de digitar o CPF e pedir o código, ele aparece na própria tela.
-        Todos os cadastros aqui são fictícios.
+        No portal de verdade cada pessoa entra com o próprio CPF e um código
+        que chega no e-mail cadastrado pelo sindicato. Aqui tudo é fictício.
       </p>
     </div>
   );

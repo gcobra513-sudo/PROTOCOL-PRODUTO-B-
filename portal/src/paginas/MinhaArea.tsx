@@ -10,11 +10,12 @@
  * ELA NÃO DÁ VEREDICTO. Resume o que as outras áreas dizem e manda para
  * elas; as frases vêm de `lib/minhaArea.ts`, que tem os testes disso.
  */
-import { FileText, Gavel, ListChecks, MessagesSquare } from "lucide-react";
+import { FileText, Gavel, ListChecks } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Aviso, Botao, Cartao, cn } from "../componentes/ui";
 import { ComQuemEsta } from "../componentes/ComQuemEsta";
+import { ProtoNoTopo } from "../componentes/ProtoNoTopo";
 import * as api from "../lib/envio";
 import {
   cartaoDasAcoes,
@@ -126,6 +127,22 @@ export function MinhaArea({
         </p>
       </div>
 
+      {/* O PROTO, NO TOPO: era o último cartão da tela, e quem não rolava
+          até o fim não sabia que havia quem perguntar. */}
+      <ProtoNoTopo
+        para="Estou aqui para ajudar você: digo em quais processos você está, se os seus documentos chegaram e o que falta. Respondo na hora, sem você ligar para a sede."
+        abertura={[]}
+        sugestoes={
+          acoes && acoes !== "erro" && acoes.encaminhamentos?.length
+            ? ["Com quem está o meu caso?", ...PERGUNTAS_AO_PROTO]
+            : PERGUNTAS_AO_PROTO
+        }
+        perguntar={(p) => api.perguntar(token, p)}
+        consultando="Consultando o seu cadastro…"
+        onSessaoMorta={onSessaoMorta}
+        onEscolher={onPerguntar}
+      />
+
       {/* COM QUEM ESTÁ O CASO, logo no topo: é a pergunta que a pessoa
           fazia por telefone, e a resposta cabe num cartão. */}
       <ComQuemEsta
@@ -170,30 +187,6 @@ export function MinhaArea({
           cartao={cartaoDosProcessos(processos)}
           onIr={onIr}
         />
-        <section className="flex flex-col rounded-xl bg-carta p-5 shadow-cartao sm:p-6">
-          <div className="flex items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-roxo text-white">
-              <MessagesSquare className="h-5 w-5" aria-hidden="true" />
-            </span>
-            <h2 className="text-xl font-semibold text-tinta">Pergunte ao Proto</h2>
-          </div>
-          <p className="mt-4 text-[17px] leading-relaxed text-tinta/80">
-            O assistente do portal. Responde na hora, com o que está no seu
-            cadastro.
-          </p>
-          <div className="mt-4 flex flex-1 flex-col gap-2">
-            {PERGUNTAS_AO_PROTO.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => onPerguntar(p)}
-                className="rounded-lg bg-lilas px-4 py-3 text-left text-base font-medium text-acento hover:bg-lilas/70"
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        </section>
       </div>
 
       <Aviso tom="neutro">

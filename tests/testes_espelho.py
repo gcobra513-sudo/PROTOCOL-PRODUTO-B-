@@ -5122,6 +5122,17 @@ def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
           and enc[0]["faltam"] == ["procuração"],
           f"o filiado não vê o encaminhamento dele: {enc}")
 
+    # E O PROTO DO FILIADO SABE RESPONDER a pergunta que ia para o telefone.
+    r = cliente.post("/api/atendimento",
+                     json={"pergunta": "com quem está o meu caso?"},
+                     headers=_de(cliente, A, entidade)).json()
+    fala = " ".join(r["resposta"])
+    checa("Escritório de Exemplo A (fictício)" in fala and "procuração" in fala
+          and "contato@exemplo-a.invalid" in fala,
+          f"o Proto não disse ao filiado com quem o caso está: {r}")
+    checa("Com quem está o meu caso?" in r["sugestoes"],
+          "quem tem caso encaminhado não recebe a sugestão de perguntar")
+
     # E O SINDICATO VÊ o retorno, em contagem.
     visao = cliente.get(f"/api/entidade/{entidade}/escritorios",
                         headers=gestor()).json()
@@ -5132,6 +5143,20 @@ def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
     checa(cliente.get(f"/api/entidade/{entidade}/escritorios",
                       headers=adv_a()).status_code == 403,
           "o escritório abriu a visão do sindicato")
+    # O PROTO DO ESCRITÓRIO: responde com a fila dele, e só a quem é dele.
+    proto = f"/api/entidade/{entidade}/escritorio/atendimento"
+    r = cliente.post(proto, json={"pergunta": "de quem falta documento?"},
+                     headers=adv_a())
+    checa(r.status_code == 200 and "procuração" in " ".join(r.json()["resposta"])
+          and "EXEMPLO" in " ".join(r.json()["resposta"]),
+          f"o Proto não respondeu ao escritório: {r.status_code} {r.text[:200]}")
+    r = cliente.post(proto, json={"pergunta": "de quem falta documento?"},
+                     headers=adv_b())
+    checa(r.status_code == 200 and "EXEMPLO" not in " ".join(r.json()["resposta"]),
+          "O PROTO CONTOU AO ESCRITÓRIO B UM CASO DO A")
+    checa(cliente.post(proto, json={"pergunta": "oi"},
+                       headers=gestor()).status_code == 403,
+          "quem não é de escritório falou com o Proto do escritório")
     print("  ok     encaminha, recebe, abre, marca; o filiado e o sindicato veem")
 
 

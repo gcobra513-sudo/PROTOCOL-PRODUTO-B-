@@ -1302,6 +1302,18 @@ export async function perguntar(
 
 /** Pergunta ao Proto DO GESTOR: responde sobre a base do sindicato, com o
  *  que o painel já diz. O servidor recusa quem não é gestor dele. */
+/** O Proto do ESCRITÓRIO: responde com a fila dele, e só com ela. */
+export async function perguntarComoEscritorio(
+  entidade: string,
+  token: string,
+  pergunta: string,
+): Promise<RespostaDoAtendimento> {
+  return perguntarEm(
+    `/api/entidade/${encodeURIComponent(entidade)}/escritorio/atendimento`,
+    token, pergunta,
+  );
+}
+
 export async function perguntarComoGestor(
   entidade: string,
   token: string,
