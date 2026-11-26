@@ -5064,6 +5064,18 @@ def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
                      json=pedido, headers=gestor())
     checa(r.status_code == 200 and r.json().get("encaminhados") == 1,
           f"{r.status_code} {r.text[:300]}")
+    # O ESCRITÓRIO É AVISADO POR E-MAIL — e o aviso não leva dado de ninguém.
+    correio = lambda: (raiz / "mensagens_enviadas.log").read_text("utf-8") \
+        if (raiz / "mensagens_enviadas.log").exists() else ""  # noqa: E731
+    checa(r.json().get("avisados") == 1
+          and "a@exemplo-a.invalid" in correio()
+          and "1 caso novo" in correio(),
+          f"o escritório não foi avisado do caso novo: {r.json()} / "
+          f"{correio()[:300]}")
+    checa(A not in correio() and "FULANO" not in correio(),
+          "O AVISO AO ESCRITÓRIO LEVOU CPF OU NOME DE FILIADO")
+    checa("b@exemplo-b.invalid" not in correio(),
+          "avisou o escritório que não recebeu caso nenhum")
     r = cliente.post(f"/api/entidade/{entidade}/encaminhamentos",
                      json={"acao": "GIFA-2006", "escritorio": "nao-existe"},
                      headers=gestor())
@@ -5110,6 +5122,37 @@ def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
     r = cliente.post(casos, json=marca, headers=adv_a())
     checa(r.status_code == 200 and r.json()["situacao"] == "PENDENTE",
           f"{r.status_code} {r.text[:200]}")
+    # O FILIADO É AVISADO, no e-mail que o SINDICATO tem — e só do que falta.
+    checa(r.json().get("avisado") is True
+          and "fulana@exemplo.org" in correio() and "procuração" in correio()
+          and A not in correio(),
+          f"o filiado não foi avisado do documento que falta: {r.json()}")
+
+    # O HISTÓRICO, para o escritório: o caminho do caso enquanto é dele.
+    dele = cliente.get(casos, headers=adv_a()).json()["casos"][0]
+    passos = [h["o_que"] for h in dele.get("historico") or []]
+    checa(passos == [
+        "O sindicato encaminhou o caso a Escritório de Exemplo A (fictício).",
+        "O escritório foi avisado por e-mail.",
+        "O escritório abriu: sentença.",
+        "O escritório pediu: procuração.",
+        "O filiado foi avisado por e-mail.",
+    ], f"o histórico que o escritório vê: {passos}")
+    # E PARA O SINDICATO: os casos de cada escritório, com o mesmo caminho,
+    # o nome da pessoa e o CPF mascarado — a custódia é dele.
+    r = cliente.get(f"/api/entidade/{entidade}/escritorios/casos",
+                    headers=gestor())
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    do_sindicato = r.json()["casos"]
+    checa(len(do_sindicato) == 1 and "EXEMPLO" in do_sindicato[0]["nome"]
+          and do_sindicato[0]["escritorio"]
+          == "Escritório de Exemplo A (fictício)"
+          and [h["o_que"] for h in do_sindicato[0]["historico"]] == passos
+          and A not in r.text,
+          f"o sindicato não vê o histórico do caso: {r.text[:400]}")
+    checa(cliente.get(f"/api/entidade/{entidade}/escritorios/casos",
+                      headers=adv_a()).status_code == 403,
+          "o escritório abriu a lista de casos do sindicato")
 
     # O FILIADO VÊ com quem está, e o que falta — sem ligar para ninguém.
     meu = cliente.get("/api/minhas-acoes",
@@ -5276,6 +5319,48 @@ def teste_o_escritorio_ve_num_lugar_so_os_sindicatos_que_o_contrataram():
     checa(r.status_code == 200 and "2 casos" in " ".join(r.json()["resposta"]),
           f"o Proto não somou os dois sindicatos: {r.status_code} {r.text[:200]}")
     print("  ok     um login: os sindicatos que o cadastraram, e nem um a mais")
+
+
+def teste_o_correio_fora_nao_derruba_o_encaminhamento():
+    """O aviso é um favor; o encaminhamento é o trabalho. Com o correio
+    fora, o caso entra do mesmo jeito, a tela diz que o aviso não saiu, e o
+    histórico guarda isso — para alguém ligar."""
+    from servidor import remetente
+
+    entidade = "demo-escr-2"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_escritorios(ent, raiz)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    original = remetente.ParaArquivo.enviar_mensagem
+
+    def fora_do_ar(self, destino, assunto, corpo):
+        raise OSError("correio fora do ar")
+
+    remetente.ParaArquivo.enviar_mensagem = fora_do_ar
+    try:
+        r = cliente.post(f"/api/entidade/{entidade}/encaminhamentos",
+                         json={"acao": "GIFA-2006", "escritorio": "exemplo-a"},
+                         headers=_gestor(cliente, entidade))
+        checa(r.status_code == 200 and r.json()["encaminhados"] == 1
+              and r.json()["avisados"] == 0,
+              f"o correio fora derrubou o encaminhamento: {r.status_code} "
+              f"{r.text[:200]}")
+        r = cliente.post(f"/api/entidade/{entidade}/escritorio/casos",
+                         json={"cpf": A, "acao": "GIFA-2006",
+                               "situacao": "PENDENTE",
+                               "faltam": ["procuracao"]},
+                         headers=_de(cliente, ADV_A, entidade))
+        checa(r.status_code == 200 and r.json()["avisado"] is False,
+              f"o correio fora derrubou a marcação: {r.status_code} {r.text[:200]}")
+    finally:
+        remetente.ParaArquivo.enviar_mensagem = original
+    passos = [h["o_que"] for h in cliente.get(
+        f"/api/entidade/{entidade}/escritorios/casos",
+        headers=_gestor(cliente, entidade)).json()["casos"][0]["historico"]]
+    checa("O aviso por e-mail ao escritório não saiu." in passos
+          and "O aviso por e-mail ao filiado não saiu." in passos,
+          f"o histórico não guardou que os avisos falharam: {passos}")
+    print("  ok     correio fora: o caso entra, e o histórico diz que o aviso não saiu")
 
 
 def teste_o_painel_mostra_o_rol_de_cada_acao():
@@ -5622,6 +5707,7 @@ TESTES = [
     teste_o_painel_mostra_o_rol_de_cada_acao,
     teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve,
     teste_o_escritorio_ve_num_lugar_so_os_sindicatos_que_o_contrataram,
+    teste_o_correio_fora_nao_derruba_o_encaminhamento,
     teste_o_gestor_envia_a_ficha_financeira_em_duas_etapas,
     teste_lista_parcial_nao_poe_ninguem_fora_do_rol,
     teste_rol_so_de_acao_do_catalogo_e_so_para_gestor,

@@ -75,9 +75,10 @@ import {
   rotuloDoDispositivo,
 } from "../lib/painel";
 import { conferirCpf, formatarCpf } from "../lib/validacao";
-import { resumoDoEscritorio } from "../lib/escritorio";
+import { resumoDoEscritorio, rotuloDaSituacao } from "../lib/escritorio";
 import { sessaoMorreu } from "../lib/sessao";
 import { Conversa } from "../componentes/Conversa";
+import { Historico } from "../componentes/Historico";
 import { ProtoNoTopo } from "../componentes/ProtoNoTopo";
 import { Portao } from "./Portao";
 
@@ -1527,6 +1528,9 @@ function Escritorios({
   token: string;
 }) {
   const [visao, setVisao] = useState<api.VisaoDosEscritorios | null>(null);
+  const [casos, setCasos] = useState<api.CasoDoSindicato[]>([]);
+  const [abertoEm, setAbertoEm] = useState("");
+  const [casoAberto, setCasoAberto] = useState("");
   const [feito, setFeito] = useState("");
   const [erro, setErro] = useState("");
   const [indo, setIndo] = useState(false);
@@ -1537,6 +1541,11 @@ function Escritorios({
       .verEscritorios(entidade, token)
       .then(setVisao)
       .catch(() => setVisao(null));
+    // Os casos, com o histórico: a custódia que o sindicato lê.
+    void api
+      .verCasosDosEscritorios(entidade, token)
+      .then((r) => setCasos(r.casos))
+      .catch(() => setCasos([]));
   }, [entidade, token, versao]);
 
   // Sindicato sem escritório cadastrado não vê um cartão vazio.
@@ -1552,7 +1561,10 @@ function Escritorios({
     try {
       const r = await api.encaminharAoEscritorio(entidade, token, acao.acao, acao.escritorio);
       setFeito(
-        `${pessoas(r.encaminhados)} ${r.encaminhados === 1 ? "encaminhada" : "encaminhadas"} a ${nomeDe(acao.escritorio)}.`,
+        `${pessoas(r.encaminhados)} ${r.encaminhados === 1 ? "encaminhada" : "encaminhadas"} a ${nomeDe(acao.escritorio)}. ` +
+          (r.avisados > 0
+            ? "O escritório foi avisado por e-mail."
+            : "O aviso por e-mail ao escritório não saiu: avise por outro meio."),
       );
       setVersao((v) => v + 1);
     } catch (e) {
@@ -1608,6 +1620,53 @@ function Escritorios({
               {linha}
             </p>
           ))}
+          {e.casos > 0 ? (
+            <div className="mt-3">
+              <Botao
+                tipo="secundario"
+                tamanho="pequeno"
+                aria-expanded={abertoEm === e.id}
+                onClick={() => setAbertoEm((a) => (a === e.id ? "" : e.id))}
+              >
+                {abertoEm === e.id ? "Fechar os casos" : "Ver os casos e o histórico"}
+              </Botao>
+            </div>
+          ) : null}
+          {/* A CUSTÓDIA: cada caso, com quem recebeu, o que foi pedido e
+              que documento foi aberto. É o que por e-mail não existia. */}
+          {abertoEm === e.id ? (
+            <div className="mt-3 space-y-2">
+              {casos
+                .filter((c) => c.escritorio_id === e.id)
+                .map((c) => {
+                  const chave = `${c.cpf}-${c.rotulo}-${c.encaminhado_em}`;
+                  return (
+                    <div key={chave} className="rounded-lg border border-borda bg-papel">
+                      <button
+                        type="button"
+                        aria-expanded={casoAberto === chave}
+                        onClick={() => setCasoAberto((a) => (a === chave ? "" : chave))}
+                        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-left hover:bg-lilas/40"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[15px] font-semibold text-tinta">{c.nome}</span>
+                          <span className="block text-sm text-tinta/65">{c.cpf} · {c.rotulo}</span>
+                        </span>
+                        <span className="rounded-full border border-borda bg-carta px-3 py-1 text-[13px] font-semibold text-tinta/80">
+                          {rotuloDaSituacao(c.situacao)}
+                          {c.faltam_em_palavras.length ? `: ${c.faltam_em_palavras.join(", ")}` : ""}
+                        </span>
+                      </button>
+                      {casoAberto === chave ? (
+                        <div className="border-t border-borda px-4 py-3">
+                          <Historico passos={c.historico} />
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+            </div>
+          ) : null}
         </div>
       ))}
     </Cartao>

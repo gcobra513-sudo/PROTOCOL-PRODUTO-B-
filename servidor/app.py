@@ -2447,9 +2447,101 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                      "foi gravado: tente de novo.") from None
         log.info("encaminhamento ent=%s acao=%s novos=%d", ent.apelido,
                  alvo.id, plano.encaminhados)
+        avisados = _avisar_o_escritorio(ent, plano, alvo)
         return {"acao": alvo.id, "rotulo": alvo.rotulo,
                 "encaminhados": plano.encaminhados,
-                "ja_estavam": plano.ja_estavam}
+                "ja_estavam": plano.ja_estavam,
+                "avisados": avisados}
+
+    def _avisar_o_escritorio(ent: entidades.Entidade,
+                             plano: escritorios.Plano, acao) -> int:
+        """Avisa por e-mail quem é do escritório de que chegaram casos, e
+        anota no histórico de cada caso se o aviso saiu. Devolve a quantas
+        pessoas o aviso chegou.
+
+        NUNCA DERRUBA O ENCAMINHAMENTO. O aviso é um favor; o caso já está
+        gravado e aparece no painel do escritório de qualquer jeito. O que
+        o correio fora não pode é passar calado: o histórico guarda.
+        """
+        if not plano.novos:
+            return 0
+        pasta = ent.pasta(cfg.raiz)
+        dono = escritorios.por_id(
+            pasta, escritorios.de_cpf(pasta, plano.novos[0])[0].escritorio
+        ) if escritorios.de_cpf(pasta, plano.novos[0]) else None
+        if dono is None:
+            return 0
+        assunto, corpo = escritorios.mensagem_ao_escritorio(
+            sindicato=ent.nome, acao=acao.rotulo, novos=len(plano.novos))
+        chegou = 0
+        for destino in sorted(set(dono.pessoas.values())):
+            try:
+                correio.enviar_mensagem(destino, assunto, corpo)
+                chegou += 1
+            except Exception:  # noqa: BLE001
+                log.exception("AVISO ao escritório falhou ent=%s", ent.apelido)
+        for cpf in plano.novos:
+            escritorios.registrar(pasta, "aviso", cpf=cpf, acao=acao.id,
+                                  escritorio=dono.id, para="escritorio",
+                                  saiu=chegou > 0)
+        return chegou
+
+    def _avisar_o_filiado(ent: entidades.Entidade, dono,
+                          caso: escritorios.Caso, rotulo: str) -> bool:
+        """Avisa o filiado de que falta documento — NO E-MAIL QUE O
+        SINDICATO TEM, nunca num digitado por alguém. Sem e-mail no rol, ou
+        com o correio fora, não avisa, e o histórico diz."""
+        pasta = ent.pasta(cfg.raiz)
+        saiu = False
+        try:
+            destino = rol.carregar(pasta).email_de(caso.cpf)
+            if destino:
+                correio.enviar_mensagem(destino, *escritorios.mensagem_ao_filiado(
+                    sindicato=ent.nome, escritorio=dono.nome, acao=rotulo,
+                    faltam=caso.faltam))
+                saiu = True
+        except Exception:  # noqa: BLE001
+            log.exception("AVISO ao filiado falhou ent=%s", ent.apelido)
+        escritorios.registrar(pasta, "aviso", cpf=caso.cpf, acao=caso.acao,
+                              escritorio=dono.id, para="filiado", saiu=saiu)
+        return saiu
+
+    @app.get("/api/entidade/{apelido}/escritorios/casos")
+    def ver_casos_dos_escritorios(apelido: str, pedido: Request) -> dict:
+        """A CUSTÓDIA, para o SINDICATO: cada caso que ele encaminhou, com
+        quem está, em que situação, e o histórico inteiro — quem recebeu,
+        o que foi pedido, que documento foi aberto e quando.
+
+        Com o NOME e o CPF mascarado, como a lista "nome por nome".
+        """
+        ent = _gestor_de(apelido, pedido)
+        _auditar(ent, "ver_casos_dos_escritorios",
+                 quem_hash=_sessao_de(pedido).cpf_hash)
+        pasta = ent.pasta(cfg.raiz)
+        todos_os_casos = escritorios.todos(pasta)
+        nomes: dict[str, str] = {}
+        if todos_os_casos:
+            registros = (banco.base(cfg.banco_url, ent.apelido)
+                         if cfg.tem_banco else deposito.ler_diario(pasta))
+            nomes = {cpf: str(envio["linha"].get("nome_completo") or "")
+                     for cpf, envio in
+                     panorama.ultimo_envio_por_cpf(registros).items()}
+        rotulos = _rotulos_das_acoes(ent)
+        dos = {e.id: e.nome for e in escritorios.cadastrados(pasta)}
+        saida = []
+        for caso in sorted(todos_os_casos,
+                           key=lambda c: (c.encaminhado_em, c.cpf)):
+            saida.append({
+                "nome": nomes.get(caso.cpf) or "(sem nome)",
+                "cpf": _cpf_mascarado(caso.cpf),
+                "escritorio_id": caso.escritorio,
+                "escritorio": dos.get(caso.escritorio, ""),
+                "faltam_em_palavras": [escritorios.ROTULOS.get(f, f)
+                                       for f in caso.faltam],
+                "historico": escritorios.historico(pasta, caso.cpf, caso.acao),
+                **_caso_para_a_tela(caso, rotulos),
+            })
+        return {"entidade": ent.apelido, "casos": saida}
 
     @app.get("/api/entidade/{apelido}/escritorio/casos")
     def casos_do_escritorio(apelido: str, pedido: Request) -> dict:
@@ -2488,6 +2580,9 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                      "rotulo": escritorios.ROTULOS.get(
                          panorama.tipo_do_arquivo(nome) or "", nome)}
                     for nome in _arquivos_entregues(ent, caso.cpf)],
+                # SÓ O QUE ACONTECEU ENQUANTO O CASO É DELE.
+                "historico": escritorios.historico(
+                    pasta, caso.cpf, caso.acao, so_do=dele.id),
                 **_caso_para_a_tela(caso, rotulos),
             })
         return {
@@ -2522,7 +2617,12 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             # outro escritório é contar a um o que é do concorrente.
             nao_e_dele = "não foi encaminhado" in str(e)
             raise _problema(404 if nao_e_dele else 422, str(e)) from None
-        return _caso_para_a_tela(caso, _rotulos_das_acoes(ent))
+        rotulos = _rotulos_das_acoes(ent)
+        resposta = _caso_para_a_tela(caso, rotulos)
+        if caso.situacao == escritorios.PENDENTE:
+            resposta["avisado"] = _avisar_o_filiado(
+                ent, dele, caso, rotulos.get(caso.acao, caso.acao))
+        return resposta
 
     @app.post("/api/entidade/{apelido}/escritorio/atendimento")
     def atender_o_escritorio(apelido: str, pedido: Request,
@@ -2625,6 +2725,9 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         _auditar(ent, "ver_documento_pelo_escritorio",
                  quem_hash=_sessao_de(pedido).cpf_hash,
                  alvo_hash=portao.marcar_cpf(cpf))
+        # E NO HISTÓRICO DO CASO, que é onde o sindicato lê quem abriu o quê.
+        escritorios.registrar(ent.pasta(cfg.raiz), "documento", cpf=cpf,
+                              escritorio=dele.id, arquivo=pedido_de)
         corpo_pdf = (ent.entrega(cfg.raiz) / cpf / pedido_de).read_bytes()
         return Response(
             content=corpo_pdf, media_type="application/pdf",
