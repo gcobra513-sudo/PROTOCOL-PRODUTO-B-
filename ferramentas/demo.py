@@ -421,6 +421,29 @@ def semear(api: str, url: str, raiz: pathlib.Path) -> list[tuple[str, str]]:
              "pessoas": [{"cpf": te._cpf_sintetico(ADVOGADO + 1),
                           "email": f"equipe@escritorio-b.{DOMINIO}"}]},
         ]}, ensure_ascii=False), encoding="utf-8")
+    # TRÊS CASOS PARADOS, e é a ÚNICA coisa desta semente que não entra
+    # pela porta da frente. Não há como: a porta grava "encaminhado agora",
+    # e um caso só fica parado depois de sete dias. Então estes três são
+    # gravados pelo MESMO módulo que a rota usa, com a data de dez dias
+    # atrás — e o lembrete é o do agendador, rodado como ele rodaria no
+    # oitavo dia. O que a tela mostra deles (o alerta em vermelho, "há 10
+    # dias", o lembrete no histórico) é o que o portal mostraria de verdade.
+    import datetime as dt
+
+    from servidor import escritorios, remetente
+
+    agora = dt.datetime.now(dt.UTC).replace(microsecond=0)
+    pasta_do_sindicato = raiz / APELIDO
+    parados = {pessoas[i][0] for i in (1, 2, 3)}
+    escritorios.encaminhar(
+        pasta_do_sindicato, parados, acao=ACAO, escritorio="exemplo-a",
+        base_de=lambda: parados, quem="demonstracao",
+        quando=(agora - dt.timedelta(days=10)).isoformat())
+    escritorios.lembrar_parados(
+        pasta_do_sindicato, sindicato=NOME,
+        correio=remetente.ParaArquivo(raiz),
+        agora=(agora - dt.timedelta(days=2)).isoformat())
+
     r = c.post(f"/api/entidade/{APELIDO}/encaminhamentos",
                json={"acao": ACAO, "escritorio": "exemplo-a"},
                headers={"Authorization": f"Bearer {token(gestor)}"})

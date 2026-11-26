@@ -101,6 +101,7 @@ export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string):
         "No painel do sindicato, antes: a aba Envios e pedidos, cartão Escritórios — é onde o sindicato encaminha os filiados de cada ação e vê o que cada escritório já recebeu.",
         "“Seus sindicatos”: este escritório foi contratado por dois sindicatos de demonstração, e vê os dois com um login só. Toque em um para ver só os casos dele.",
         "A fila do escritório: só quem o sindicato encaminhou a ele, com o que ainda não foi aberto na frente.",
+        "Os três primeiros da fila estão parados “há 10 dias”, em vermelho: o sindicato encaminhou e o escritório não confirmou. Abra um: o histórico mostra o lembrete que o portal mandou por e-mail. No painel do sindicato, o cartão Escritórios avisa desses três em vermelho.",
         "Em cada caso: o nome, o CPF, o contato e os documentos que a pessoa enviou, a um toque.",
         "Os três botões: “Confirmar recebimento”, “Falta documento” (e qual) e “Documentação completa”.",
         "O histórico de cada caso: quem encaminhou, o que foi pedido, que documento foi aberto e quem foi avisado por e-mail. O sindicato vê o mesmo, em “Ver os casos e o histórico”.",
