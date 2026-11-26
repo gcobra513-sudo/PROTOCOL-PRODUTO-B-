@@ -99,6 +99,7 @@ export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string):
       botao: "Abrir a área do escritório",
       mostrar: [
         "No painel do sindicato, antes: a aba Envios e pedidos, cartão Escritórios — é onde o sindicato encaminha os filiados de cada ação e vê o que cada escritório já recebeu.",
+        "“Seus sindicatos”: este escritório foi contratado por dois sindicatos de demonstração, e vê os dois com um login só. Toque em um para ver só os casos dele.",
         "A fila do escritório: só quem o sindicato encaminhou a ele, com o que ainda não foi aberto na frente.",
         "Em cada caso: o nome, o CPF, o contato e os documentos que a pessoa enviou, a um toque.",
         "Os três botões: “Confirmar recebimento”, “Falta documento” (e qual) e “Documentação completa”.",

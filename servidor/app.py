@@ -2315,19 +2315,51 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 return escritorios.por_id(pasta, ident)
         return None
 
+    def _pessoa_do_escritorio(sessao: acesso.Sessao) -> tuple[str, str] | None:
+        """(cpf, e-mail) de quem abriu a sessão, se ela entrou como pessoa
+        de um escritório — segundo o cadastro do sindicato EM QUE ENTROU.
+
+        O e-mail é o que importa: foi para ele que o código foi, e é o
+        controle dele que o login provou."""
+        try:
+            pasta = _entidade(sessao.entidade).pasta(cfg.raiz)
+        except HTTPException:
+            return None
+        for e in escritorios.cadastrados(pasta):
+            for cpf, email in e.pessoas.items():
+                if portao.marcar_cpf(cpf) == sessao.cpf_hash:
+                    return cpf, email.strip().casefold()
+        return None
+
     def _do_escritorio(apelido: str, pedido: Request):
         """(entidade, escritório), se quem abriu a sessão é de um escritório
-        contratado POR ELA. A mesma ordem de `_gestor_de`: primeiro que a
-        sessão é desta entidade, depois o papel."""
+        contratado POR ELA.
+
+        A SESSÃO PODE TER SIDO ABERTA EM OUTRO SINDICATO. Um escritório
+        atende vários, e um login por sindicato é o que o faria voltar ao
+        e-mail. O que autoriza é o cadastro DESTE sindicato: o mesmo CPF,
+        com o MESMO E-MAIL que recebeu o código. Mesmo CPF com outro e-mail
+        não entra — seria abrir os filiados daqui com a prova feita na
+        caixa postal que outro sindicato informou.
+
+        403 TAMBÉM PARA SINDICATO QUE NÃO EXISTE: a diferença diria a um
+        escritório quem mais é cliente.
+        """
         sessao = _sessao_de(pedido)
-        if sessao.entidade != apelido:
-            raise _problema(403, "esta sessão não é desta entidade")
-        ent = _entidade(apelido)
-        dele = _escritorio_da_sessao(ent.pasta(cfg.raiz), sessao)
-        if dele is None:
-            raise _problema(
-                403, "esta sessão não é de um escritório deste sindicato")
-        return ent, dele
+        recusa = _problema(
+            403, "esta sessão não é de um escritório deste sindicato")
+        quem = _pessoa_do_escritorio(sessao)
+        if quem is None:
+            raise recusa
+        cpf, email = quem
+        try:
+            ent = _entidade(apelido)
+        except HTTPException:
+            raise recusa from None
+        for e in escritorios.cadastrados(ent.pasta(cfg.raiz)):
+            if e.pessoas.get(cpf, "").strip().casefold() == email:
+                return ent, e
+        raise recusa
 
     def _arquivos_entregues(ent: entidades.Entidade, cpf: str) -> list[str]:
         pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
@@ -2505,6 +2537,60 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         pergunta = str(corpo.get("pergunta") or "")[:500]
         assunto = atendimento_do_escritorio.entender(pergunta)
         log.info("proto do escritório ent=%s assunto=%s", apelido, assunto)
+        return {
+            "assunto": assunto,
+            "resposta": atendimento_do_escritorio.responder(
+                assunto, casos, pergunta),
+            "sugestoes": list(atendimento_do_escritorio.SUGESTOES),
+        }
+
+    def _visao_unica(pedido: Request) -> dict:
+        """Os casos do escritório em TODOS os sindicatos que o cadastraram.
+
+        Não há uma segunda regra de acesso aqui: pergunta, sindicato por
+        sindicato, à MESMA porta de cada um (`casos_do_escritorio`), e fica
+        com os que abriram. O que um sindicato não lhe mostraria sozinho,
+        a visão única também não mostra.
+        """
+        if _pessoa_do_escritorio(_sessao_de(pedido)) is None:
+            raise _problema(
+                403, "esta sessão não é de um escritório")
+        sindicatos, casos, possiveis = [], [], []
+        for ent in sorted(cadastro.todas(), key=lambda e: e.apelido):
+            try:
+                dele = casos_do_escritorio(ent.apelido, pedido)
+            except HTTPException:
+                continue
+            possiveis = dele["documentos_possiveis"]
+            conta_por = lambda s: sum(  # noqa: E731
+                1 for c in dele["casos"] if c["situacao"] == s)
+            sindicatos.append({
+                "entidade": ent.apelido, "nome": ent.nome,
+                "escritorio": dele["escritorio"]["nome"],
+                "casos": len(dele["casos"]),
+                "aguardando": conta_por(escritorios.ENCAMINHADO),
+                "pendentes": conta_por(escritorios.PENDENTE),
+            })
+            casos += [{**c, "entidade": ent.apelido, "sindicato": ent.nome}
+                      for c in dele["casos"]]
+        return {"sindicatos": sindicatos, "casos": casos,
+                "documentos_possiveis": possiveis}
+
+    @app.get("/api/escritorio/casos")
+    def visao_unica_do_escritorio(pedido: Request) -> dict:
+        """A fila do escritório, de todos os sindicatos que o contrataram,
+        com UM login. Cada caso diz de qual sindicato é."""
+        return _visao_unica(pedido)
+
+    @app.post("/api/escritorio/atendimento")
+    def atender_o_escritorio_em_todos(
+            pedido: Request,
+            corpo: dict = Body(default_factory=dict)) -> dict:
+        """O Proto do escritório, sobre a fila inteira dele."""
+        casos = _visao_unica(pedido)["casos"]
+        pergunta = str(corpo.get("pergunta") or "")[:500]
+        assunto = atendimento_do_escritorio.entender(pergunta)
+        log.info("proto do escritório (todos) assunto=%s", assunto)
         return {
             "assunto": assunto,
             "resposta": atendimento_do_escritorio.responder(

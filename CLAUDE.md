@@ -25,6 +25,10 @@ ao filiado (`servidor/escritorios.py`).
   aparece para ele pelo nome, para dizer com quem o caso está.
 - O escritório vê **só** quem lhe foi encaminhado, e a situação que ele
   marca é de lista fechada — sem texto livre sobre uma pessoa.
+- Com um login, o escritório vê os sindicatos que o cadastraram **com o
+  mesmo CPF e o mesmo e-mail** — e nem um a mais. Um sindicato continua não
+  vendo o dado de outro: quem atravessa é o escritório, e só para onde cada
+  sindicato o autorizou.
 - **O núcleo não sabe de escritório.** O que alguém pode ou não pode fazer
   não depende de quem vai propor a ação.
 - O que acontece **dentro** do escritório depois que o documento chega

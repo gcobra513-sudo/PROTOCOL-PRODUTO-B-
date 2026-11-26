@@ -576,6 +576,26 @@ export interface CasoDoEscritorio {
   faltam: string[];
   encaminhado_em: string;
   atualizado_em: string;
+  /** Na visão única: de qual sindicato é o caso. */
+  entidade?: string;
+  sindicato?: string;
+}
+
+/** Um sindicato que contratou o escritório, como ele o vê na visão única. */
+export interface SindicatoDoEscritorio {
+  entidade: string;
+  nome: string;
+  /** Como ESTE sindicato chama o escritório. */
+  escritorio: string;
+  casos: number;
+  aguardando: number;
+  pendentes: number;
+}
+
+export interface VisaoUnicaDoEscritorio {
+  sindicatos: SindicatoDoEscritorio[];
+  casos: CasoDoEscritorio[];
+  documentos_possiveis: { tipo: string; rotulo: string }[];
 }
 
 export interface CasosDoEscritorio {
@@ -621,6 +641,13 @@ export const encaminharAoEscritorio = (
 export const casosDoEscritorio = (apelido: string, token: string) =>
   comSessao<CasosDoEscritorio>(
     `${ent(apelido)}/escritorio/casos`, token, "não foi possível abrir os casos",
+  );
+
+/** A fila do escritório em TODOS os sindicatos que o cadastraram, com um
+ *  login só. O servidor decide quais são — a tela não pede por nome. */
+export const visaoUnicaDoEscritorio = (token: string) =>
+  comSessao<VisaoUnicaDoEscritorio>(
+    "/api/escritorio/casos", token, "não foi possível abrir os casos",
   );
 
 export const situarCaso = (
@@ -1312,6 +1339,14 @@ export async function perguntarComoEscritorio(
     `/api/entidade/${encodeURIComponent(entidade)}/escritorio/atendimento`,
     token, pergunta,
   );
+}
+
+/** O Proto do escritório, sobre a fila inteira dele (todos os sindicatos). */
+export async function perguntarComoEscritorioEmTodos(
+  token: string,
+  pergunta: string,
+): Promise<RespostaDoAtendimento> {
+  return perguntarEm("/api/escritorio/atendimento", token, pergunta);
 }
 
 export async function perguntarComoGestor(

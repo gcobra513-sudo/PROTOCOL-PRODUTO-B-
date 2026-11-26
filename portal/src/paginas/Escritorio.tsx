@@ -16,6 +16,7 @@
  * em "documentação completa".
  */
 import {
+  Building2,
   CheckCheck,
   ChevronDown,
   Clock,
@@ -72,6 +73,7 @@ function Selo({ situacao }: { situacao: string }) {
 
 function Linha({
   caso,
+  comSindicato,
   possiveis,
   aberto,
   ocupado,
@@ -80,6 +82,8 @@ function Linha({
   onSituar,
 }: {
   caso: api.CasoDoEscritorio;
+  /** Com mais de um sindicato, a linha diz de qual é o caso. */
+  comSindicato: boolean;
   possiveis: { tipo: string; rotulo: string }[];
   aberto: boolean;
   ocupado: boolean;
@@ -106,6 +110,11 @@ function Linha({
           <span className="block text-sm text-tinta/65">
             CPF {formatarCpf(caso.cpf)} · {caso.rotulo}
           </span>
+          {comSindicato && caso.sindicato ? (
+            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-ceu px-2.5 py-0.5 text-[13px] font-medium text-azul-fundo">
+              <Building2 className="h-3.5 w-3.5" aria-hidden="true" /> {caso.sindicato}
+            </span>
+          ) : null}
         </span>
         <span className="flex items-center gap-1 text-sm text-tinta/70">
           <FileText className="h-4 w-4" aria-hidden="true" />
@@ -251,7 +260,8 @@ export function Escritorio({
   onToken: (token: string, cpf: string) => void;
   onSessaoMorta: () => void;
 }) {
-  const [dados, setDados] = useState<api.CasosDoEscritorio | null>(null);
+  const [dados, setDados] = useState<api.VisaoUnicaDoEscritorio | null>(null);
+  const [sindicato, setSindicato] = useState("");
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
   const [versao, setVersao] = useState(0);
@@ -263,14 +273,14 @@ export function Escritorio({
   useEffect(() => {
     if (!token) return;
     void api
-      .casosDoEscritorio(entidade, token)
+      .visaoUnicaDoEscritorio(token)
       .then(setDados)
       .catch((e) => {
         if (e instanceof api.ErroDoServidor && e.status === 401) onSessaoMorta();
         else setErro(e instanceof Error ? e.message : "não foi possível abrir");
       });
   }, [entidade, token, versao]);
-  useEffect(() => setMostrando(10), [texto, situacao]);
+  useEffect(() => setMostrando(10), [texto, situacao, sindicato]);
 
   if (!token) {
     return (
@@ -310,7 +320,16 @@ export function Escritorio({
     }
   }
 
-  const todos = ordemDeTrabalho(dados.casos);
+  const varios = dados.sindicatos.length > 1;
+  // O NOME é o que o sindicato em que ele entrou lhe deu; cada sindicato
+  // cadastra o escritório por conta própria.
+  const nome =
+    dados.sindicatos.find((x) => x.entidade === entidade)?.escritorio ??
+    dados.sindicatos[0]?.escritorio ??
+    "Escritório";
+  const todos = ordemDeTrabalho(
+    varios && sindicato ? dados.casos.filter((c) => c.entidade === sindicato) : dados.casos,
+  );
   const quantos = (s: string) => todos.filter((c) => c.situacao === s).length;
   const filtrados = filtrarCasos(todos, { texto, situacao });
   const filtrar = (s: string) => () => {
@@ -325,7 +344,7 @@ export function Escritorio({
     const endereco = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = endereco;
-    a.download = `casos-${dados!.escritorio.id}.csv`;
+    a.download = `casos-do-escritorio${sindicato ? `-${sindicato}` : ""}.csv`;
     a.click();
     URL.revokeObjectURL(endereco);
   }
@@ -344,9 +363,11 @@ export function Escritorio({
         <p className="text-sm font-semibold uppercase tracking-widest text-acento">
           Painel do escritório
         </p>
-        <h1 className="text-2xl font-bold text-tinta sm:text-3xl">{dados.escritorio.nome}</h1>
+        <h1 className="text-2xl font-bold text-tinta sm:text-3xl">{nome}</h1>
         <p className="mt-1 text-[17px] text-tinta/70">
-          Os filiados que o sindicato encaminhou a este escritório, e os documentos de cada um.
+          {varios
+            ? `Os filiados que ${dados.sindicatos.length} sindicatos encaminharam a este escritório, num lugar só.`
+            : "Os filiados que o sindicato encaminhou a este escritório, e os documentos de cada um."}
         </p>
       </div>
 
@@ -354,10 +375,50 @@ export function Escritorio({
         para="Estou aqui para ajudar o escritório: digo quantos casos chegaram, por onde começar e de quem falta documento. Respondo na hora."
         abertura={ABERTURA}
         sugestoes={PERGUNTAS}
-        perguntar={(p) => api.perguntarComoEscritorio(entidade, token, p)}
+        perguntar={(p) => api.perguntarComoEscritorioEmTodos(token, p)}
         consultando="Olhando a sua fila…"
         onSessaoMorta={onSessaoMorta}
       />
+
+      {/* OS SINDICATOS que contrataram este escritório. Com um login ele vê
+          todos — os que o cadastraram, e nem um a mais (quem decide é o
+          servidor). Tocar em um mostra só os casos dele. */}
+      {varios ? (
+        <section aria-label="Sindicatos" className="rounded-xl bg-carta p-5 shadow-cartao sm:p-6">
+          <h2 className="text-xl font-semibold text-tinta">Seus sindicatos</h2>
+          <p className="mt-1 text-[15px] text-tinta/70">
+            Cada sindicato que cadastrou este escritório aparece aqui. Um não vê o que é do outro.
+          </p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[{ entidade: "", nome: "Todos os sindicatos", casos: dados.casos.length,
+                aguardando: dados.casos.filter((c) => c.situacao === "ENCAMINHADO").length,
+                pendentes: dados.casos.filter((c) => c.situacao === "PENDENTE").length },
+              ...dados.sindicatos].map((x) => (
+              <button
+                key={x.entidade || "todos"}
+                type="button"
+                aria-pressed={sindicato === x.entidade}
+                onClick={() => setSindicato(x.entidade)}
+                className={
+                  "rounded-xl border-2 p-4 text-left transition " +
+                  (sindicato === x.entidade
+                    ? "border-acento bg-lilas"
+                    : "border-borda bg-papel hover:border-acento/50")
+                }
+              >
+                <span className="flex items-center gap-2 text-[16px] font-semibold text-tinta">
+                  <Building2 className="h-5 w-5 shrink-0 text-acento" aria-hidden="true" />
+                  {x.nome}
+                </span>
+                <span className="mt-2 block text-sm text-tinta/75">
+                  {x.casos} {x.casos === 1 ? "caso" : "casos"} · {x.aguardando} aguardando você ·{" "}
+                  {x.pendentes} com documento faltando
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* OS NÚMEROS, e cada um ABRE a lista do que conta — como no painel
           do sindicato. */}
@@ -443,11 +504,15 @@ export function Escritorio({
               </p>
               <div className="space-y-2">
                 {filtrados.slice(0, mostrando).map((c) => {
-                  const chave = `${c.cpf}-${c.acao}`;
+                  const chave = `${c.entidade ?? ""}-${c.cpf}-${c.acao}`;
+                  // O CASO É DO SINDICATO DELE: é ao portal daquele
+                  // sindicato que se pede o documento e se marca a situação.
+                  const dono = c.entidade ?? entidade;
                   return (
                     <Linha
                       key={chave}
                       caso={c}
+                      comSindicato={varios}
                       possiveis={dados.documentos_possiveis}
                       aberto={aberto === chave}
                       ocupado={ocupado}
@@ -458,7 +523,7 @@ export function Escritorio({
                           // navegador a trata como janela não pedida e bloqueia.
                           const aba = window.open("", "_blank");
                           try {
-                            const endereco = await api.abrirDocumentoDoCaso(entidade, token, c.cpf, arquivo);
+                            const endereco = await api.abrirDocumentoDoCaso(dono, token, c.cpf, arquivo);
                             if (aba) aba.location.href = endereco;
                             else window.location.assign(endereco);
                           } catch (e) {
@@ -469,7 +534,7 @@ export function Escritorio({
                       }
                       onSituar={(nova, faltam) =>
                         void fazer(async () => {
-                          await api.situarCaso(entidade, token, c.cpf, c.acao, nova, faltam ?? []);
+                          await api.situarCaso(dono, token, c.cpf, c.acao, nova, faltam ?? []);
                           setVersao((v) => v + 1);
                         })
                       }
