@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { Historico } from "../componentes/Historico";
 import { ProtoNoTopo } from "../componentes/ProtoNoTopo";
 import { Aviso, Botao, Campo, Cartao, Destaque, Mini } from "../componentes/ui";
 import * as api from "../lib/envio";
@@ -177,6 +178,8 @@ function Linha({
             )}
             <p className="mt-2 text-sm text-tinta/60">Cada documento aberto fica registrado.</p>
           </div>
+
+          <Historico passos={caso.historico ?? []} />
 
           {caso.situacao === "PENDENTE" && caso.faltam.length ? (
             <Aviso tom="neutro">

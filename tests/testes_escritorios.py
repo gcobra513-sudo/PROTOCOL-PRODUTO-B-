@@ -355,6 +355,91 @@ def teste_o_proto_do_escritorio_responde_com_a_fila_dele():
 TESTES.extend([teste_o_proto_do_escritorio_responde_com_a_fila_dele])
 
 
+# ------------------------------------------- o histórico e os avisos
+
+def teste_o_historico_conta_o_caso_passo_a_passo():
+    """CUSTÓDIA: quem encaminhou, quando o escritório recebeu, o que pediu,
+    qual documento abriu. É o que responde "como o sindicato se
+    responsabiliza pelos documentos" — e é o que não existia por e-mail."""
+    secao("o histórico do caso")
+    pasta = pasta_nova()
+    encaminhar(pasta, [A], quando="2026-11-01T10:00:00+00:00")
+    esc.registrar(pasta, "aviso", cpf=A, acao="ACAO-1",
+                  escritorio="exemplo-a", para="escritorio", saiu=True)
+    esc.situar(pasta, A, "ACAO-1", escritorio="exemplo-a",
+               situacao=esc.RECEBIDO, quem="adv")
+    esc.registrar(pasta, "documento", cpf=A, escritorio="exemplo-a",
+                  arquivo="sentenca.pdf")
+    esc.situar(pasta, A, "ACAO-1", escritorio="exemplo-a",
+               situacao=esc.PENDENTE, faltam=["procuracao"], quem="adv")
+    esc.registrar(pasta, "aviso", cpf=A, acao="ACAO-1",
+                  escritorio="exemplo-a", para="filiado", saiu=False)
+    passos = [h["o_que"] for h in esc.historico(pasta, A, "ACAO-1")]
+    checa(passos == [
+        "O sindicato encaminhou o caso a Escritório de Exemplo A (fictício).",
+        "O escritório foi avisado por e-mail.",
+        "O escritório confirmou o recebimento.",
+        "O escritório abriu: sentença.",
+        "O escritório pediu: procuração.",
+        "O aviso por e-mail ao filiado não saiu.",
+    ], f"o histórico: {passos}")
+    checa(all(h["quando"] for h in esc.historico(pasta, A, "ACAO-1")),
+          "passo sem data")
+    checa(esc.historico(pasta, B, "ACAO-1") == [],
+          "inventou histórico para quem não tem caso")
+    print("  ok     seis passos, na ordem, em palavras")
+
+
+def teste_o_escritorio_so_ve_o_historico_do_que_e_dele():
+    """Reencaminhado, o caso muda de mãos — e o escritório novo não lê o que
+    o anterior fez. O SINDICATO lê tudo: a custódia é dele."""
+    pasta = pasta_nova()
+    encaminhar(pasta, [A])
+    esc.situar(pasta, A, "ACAO-1", escritorio="exemplo-a",
+               situacao=esc.RECEBIDO, quem="adv")
+    encaminhar(pasta, [A], escritorio="exemplo-b")
+    do_b = [h["o_que"] for h in esc.historico(pasta, A, "ACAO-1",
+                                              so_do="exemplo-b")]
+    checa(do_b == ["O sindicato encaminhou o caso a Escritório de Exemplo B "
+                   "(fictício)."],
+          f"o escritório B leu o que o A fez: {do_b}")
+    checa(len(esc.historico(pasta, A, "ACAO-1")) == 3,
+          "o sindicato devia ler o caminho inteiro")
+    # E O HISTÓRICO NÃO MUDA O ESTADO: ato de registro não é ato de caso.
+    checa(esc.casos_de(pasta, "exemplo-b")[0].situacao == esc.ENCAMINHADO,
+          "registrar um passo mexeu na situação do caso")
+    print("  ok     o escritório lê o dele; o sindicato lê tudo")
+
+
+def teste_os_avisos_nao_levam_dado_de_ninguem():
+    """E-MAIL É CARTÃO-POSTAL. O aviso diz que há o que ver e manda entrar
+    no portal: não leva nome de filiado, CPF, nem o documento."""
+    secao("os avisos por e-mail")
+    assunto, corpo = esc.mensagem_ao_escritorio(
+        sindicato="Sindicato de Exemplo", acao="Ação X", novos=3)
+    checa("3 casos" in corpo and "Sindicato de Exemplo" in corpo
+          and "Ação X" in corpo and "portal" in corpo.lower(),
+          f"o aviso ao escritório não diz o essencial: {corpo}")
+    assunto_f, corpo_f = esc.mensagem_ao_filiado(
+        sindicato="Sindicato de Exemplo", escritorio="Escritório A",
+        acao="Ação X", faltam=["procuracao", "identidade"])
+    checa("procuração" in corpo_f and "documento de identidade" in corpo_f
+          and "Escritório A" in corpo_f and "Sindicato de Exemplo" in corpo_f,
+          f"o aviso ao filiado não diz o que falta: {corpo_f}")
+    for texto in (assunto, corpo, assunto_f, corpo_f):
+        checa(A not in texto and "\r" not in texto, "CPF ou CR no aviso")
+    checa("\n" not in assunto and "\n" not in assunto_f,
+          "assunto com quebra de linha")
+    print("  ok     dizem o que há para ver, e mandam entrar no portal")
+
+
+TESTES.extend([
+    teste_o_historico_conta_o_caso_passo_a_passo,
+    teste_o_escritorio_so_ve_o_historico_do_que_e_dele,
+    teste_os_avisos_nao_levam_dado_de_ninguem,
+])
+
+
 def main() -> int:
     print("=" * 70)
     print("ESCRITÓRIOS — o encaminhamento do filiado, e o retorno")

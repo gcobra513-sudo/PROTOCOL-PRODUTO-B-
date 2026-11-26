@@ -103,6 +103,7 @@ export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string):
         "A fila do escritório: só quem o sindicato encaminhou a ele, com o que ainda não foi aberto na frente.",
         "Em cada caso: o nome, o CPF, o contato e os documentos que a pessoa enviou, a um toque.",
         "Os três botões: “Confirmar recebimento”, “Falta documento” (e qual) e “Documentação completa”.",
+        "O histórico de cada caso: quem encaminhou, o que foi pedido, que documento foi aberto e quem foi avisado por e-mail. O sindicato vê o mesmo, em “Ver os casos e o histórico”.",
       ],
       falar:
         "O que hoje corre por e-mail e WhatsApp fica num lugar só: o sindicato sabe o que o escritório recebeu, e o escritório recebe o caso já organizado.",

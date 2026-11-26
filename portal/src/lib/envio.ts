@@ -576,9 +576,30 @@ export interface CasoDoEscritorio {
   faltam: string[];
   encaminhado_em: string;
   atualizado_em: string;
+  /** O caso, passo a passo — só o que aconteceu enquanto é deste escritório. */
+  historico?: PassoDoCaso[];
   /** Na visão única: de qual sindicato é o caso. */
   entidade?: string;
   sindicato?: string;
+}
+
+export interface PassoDoCaso {
+  quando: string;
+  o_que: string;
+}
+
+/** Um caso, como o SINDICATO o vê: com quem está e o caminho inteiro. */
+export interface CasoDoSindicato {
+  nome: string;
+  /** Mascarado. */
+  cpf: string;
+  escritorio_id: string;
+  escritorio: string;
+  rotulo: string;
+  situacao: string;
+  faltam_em_palavras: string[];
+  encaminhado_em: string;
+  historico: PassoDoCaso[];
 }
 
 /** Um sindicato que contratou o escritório, como ele o vê na visão única. */
@@ -630,10 +651,15 @@ export const verEscritorios = (apelido: string, token: string) =>
     `${ent(apelido)}/escritorios`, token, "não foi possível abrir os escritórios",
   );
 
+export const verCasosDosEscritorios = (apelido: string, token: string) =>
+  comSessao<{ casos: CasoDoSindicato[] }>(
+    `${ent(apelido)}/escritorios/casos`, token, "não foi possível abrir os casos",
+  );
+
 export const encaminharAoEscritorio = (
   apelido: string, token: string, acao: string, escritorio: string,
 ) =>
-  comSessao<{ encaminhados: number; ja_estavam: number; rotulo: string }>(
+  comSessao<{ encaminhados: number; ja_estavam: number; rotulo: string; avisados: number }>(
     `${ent(apelido)}/encaminhamentos`, token, "não foi possível encaminhar",
     { acao, escritorio },
   );

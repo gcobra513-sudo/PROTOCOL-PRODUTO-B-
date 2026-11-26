@@ -113,6 +113,8 @@ class Plano:
     encaminhados: int
     ja_estavam: int
     fora_da_base: int
+    #: Os CPFs encaminhados AGORA — para o aviso e o histórico de cada um.
+    novos: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------- o cadastro
@@ -264,7 +266,7 @@ def encaminhar(pasta_entidade: pathlib.Path, cpfs: set[str], *, acao: str,
     with deposito.travada(pasta_entidade, deposito.TRAVA_DO_APAGAMENTO):
         base = {validacao.so_digitos(c) for c in base_de() if c}
         estado = _estado(pasta_entidade)
-        novos, ja = 0, 0
+        novos, ja = [], 0
         for cpf in sorted(pedidos & base):
             atual = estado.get((cpf, acao))
             if atual and atual.escritorio == escritorio:
@@ -275,9 +277,9 @@ def encaminhar(pasta_entidade: pathlib.Path, cpfs: set[str], *, acao: str,
                 "cpf": cpf, "acao": acao, "escritorio": escritorio,
                 "quem": quem,
             })
-            novos += 1
-    return Plano(encaminhados=novos, ja_estavam=ja,
-                 fora_da_base=len(pedidos - base))
+            novos.append(cpf)
+    return Plano(encaminhados=len(novos), ja_estavam=ja,
+                 fora_da_base=len(pedidos - base), novos=tuple(novos))
 
 
 def desfazer(pasta_entidade: pathlib.Path, cpf: str, acao: str, *,
@@ -417,3 +419,131 @@ def remover_pessoa(pasta_entidade: pathlib.Path, cpf: str) -> int:
         os.close(fd)
     tmp.replace(caminho)
     return saem
+
+
+# ------------------------------------------------- o histórico do caso
+
+#: Atos que só REGISTRAM — não mudam a situação do caso. `_estado` os pula.
+DE_REGISTRO = ("aviso", "documento")
+
+
+def registrar(pasta_entidade: pathlib.Path, ato: str, *, cpf: str,
+              escritorio: str, acao: str = "", **mais) -> None:
+    """Anota um passo no histórico: um documento aberto, um aviso enviado.
+
+    É A CUSTÓDIA. O sindicato responde pelo documento que o filiado lhe
+    confiou, e até aqui não tinha como dizer quem o abriu nem quando.
+    """
+    if ato not in DE_REGISTRO:
+        raise Recusado("ato de registro que não existe")
+    with deposito.travada(pasta_entidade, deposito.TRAVA_DO_APAGAMENTO):
+        _anexar(pasta_entidade, {
+            "ato": ato, "quando": _agora(),
+            "cpf": validacao.so_digitos(cpf), "acao": acao,
+            "escritorio": escritorio, **mais,
+        })
+
+
+def _passo(r: dict, nomes: dict[str, str]) -> str:
+    """Um ato do arquivo, em uma frase. Vazio para o que não se conhece:
+    passo inventado num histórico é pior que passo nenhum."""
+    ato = r.get("ato")
+    if ato == "encaminhado":
+        a_quem = nomes.get(str(r.get("escritorio")), "um escritório")
+        return f"O sindicato encaminhou o caso a {a_quem}."
+    if ato == "desfeito":
+        return "O sindicato desfez o encaminhamento."
+    if ato == "situacao":
+        situacao = r.get("situacao")
+        if situacao == RECEBIDO:
+            return "O escritório confirmou o recebimento."
+        if situacao == COMPLETO:
+            return "O escritório marcou a documentação como completa."
+        if situacao == PENDENTE:
+            faltas = ", ".join(ROTULOS.get(f, f) for f in r.get("faltam") or ()
+                               if f in DOCUMENTOS)
+            return f"O escritório pediu: {faltas}." if faltas else ""
+        return ""
+    if ato == "documento":
+        nome = str(r.get("arquivo") or "").removesuffix(".pdf")
+        tipo = next((t for t in sorted(DOCUMENTOS, key=len, reverse=True)
+                     if nome.startswith(t)), "")
+        return f"O escritório abriu: {ROTULOS.get(tipo, 'um documento')}."
+    if ato == "aviso":
+        quem = "escritório" if r.get("para") == "escritorio" else "filiado"
+        if r.get("saiu"):
+            return f"O {quem} foi avisado por e-mail."
+        return f"O aviso por e-mail ao {quem} não saiu."
+    return ""
+
+
+def historico(pasta_entidade: pathlib.Path, cpf: str, acao: str, *,
+              so_do: str | None = None) -> list[dict]:
+    """O caso, passo a passo: `[{quando, o_que}, ...]`, do primeiro ao último.
+
+    `so_do` é para a tela do ESCRITÓRIO: ele lê só o que aconteceu enquanto
+    o caso é dele — do encaminhamento a ele em diante. O que outro
+    escritório fez antes não é assunto dele. O sindicato lê tudo.
+    """
+    digitos = validacao.so_digitos(cpf)
+    nomes = {e.id: e.nome for e in cadastrados(pasta_entidade)}
+    passos: list[dict] = []
+    for bruta in _linhas(pasta_entidade):
+        try:
+            r = json.loads(bruta)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(r, dict) or str(r.get("cpf")) != digitos:
+            continue
+        # O documento é da PESSOA, não de uma ação: entra no histórico de
+        # todo caso dela com aquele escritório.
+        if r.get("ato") != "documento" and r.get("acao") != acao:
+            continue
+        if so_do is not None:
+            if r.get("ato") == "encaminhado":
+                # Novo encaminhamento: o que veio antes não é deste dono.
+                passos = []
+            if r.get("escritorio") != so_do:
+                continue
+        frase = _passo(r, nomes)
+        if frase:
+            passos.append({"quando": str(r.get("quando") or ""),
+                           "o_que": frase})
+    return passos
+
+
+# --------------------------------------------------- os avisos por e-mail
+#
+# E-MAIL É CARTÃO-POSTAL. Os dois avisos dizem que há o que ver e mandam a
+# pessoa entrar no portal: não levam nome de filiado, CPF, nem documento.
+
+def mensagem_ao_escritorio(*, sindicato: str, acao: str,
+                           novos: int) -> tuple[str, str]:
+    """(assunto, corpo) do aviso de caso novo."""
+    casos = "1 caso novo" if novos == 1 else f"{novos} casos novos"
+    return (
+        f"{sindicato}: {casos} para o seu escritório",
+        f"O {sindicato} encaminhou {casos} ao seu escritório, pela ação "
+        f"\"{acao}\".\n\n"
+        f"Entre no portal do sindicato para ver quem são, abrir os "
+        f"documentos e confirmar o recebimento. O que você marcar aparece "
+        f"para o filiado e para o sindicato.\n\n"
+        f"Este aviso não traz o nome nem os dados de ninguém: eles ficam "
+        f"no portal.\n",
+    )
+
+
+def mensagem_ao_filiado(*, sindicato: str, escritorio: str, acao: str,
+                        faltam) -> tuple[str, str]:
+    """(assunto, corpo) do aviso de documento faltando."""
+    lista = ", ".join(ROTULOS.get(f, f) for f in faltam if f in DOCUMENTOS)
+    return (
+        f"{sindicato}: falta documento no seu caso",
+        f"O {escritorio}, que cuida do seu caso na ação \"{acao}\" pelo "
+        f"{sindicato}, precisa de: {lista}.\n\n"
+        f"Envie pelo portal do seu sindicato, em \"Meu cadastro\". Não "
+        f"responda a este e-mail com o documento: ele só é recebido pelo "
+        f"portal.\n\n"
+        f"Na sua área do portal você acompanha com quem o caso está e o "
+        f"que falta.\n",
+    )
