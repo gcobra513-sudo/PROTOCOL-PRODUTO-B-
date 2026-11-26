@@ -205,6 +205,21 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
         checa([e["casos"] for e in visao.get("escritorios", [])]
               == [len(casos), 0],
               f"o sindicato não vê o que cada escritório tem: {s} {visao}")
+        # TRÊS CASOS PARADOS, para a demonstração ter o que mostrar do
+        # alerta e do lembrete: encaminhados há dez dias, e o escritório
+        # ainda não confirmou. O sindicato vê a contagem; o escritório vê
+        # os três, com o lembrete no histórico.
+        checa([e["parados"] for e in visao.get("escritorios", [])] == [3, 0],
+              f"a demonstração devia nascer com três casos parados: "
+              f"{[(e['nome'], e['parados']) for e in visao.get('escritorios', [])]}")
+        velhos = [c for c in casos if c["encaminhado_em"][:10]
+                  < time.strftime("%Y-%m-%d", time.gmtime(time.time() - 8 * 86400))]
+        checa(len(velhos) == 3
+              and all(c["situacao"] == "ENCAMINHADO" for c in velhos)
+              and all(any("lembrado por e-mail" in h["o_que"]
+                          for h in c["historico"]) for c in velhos),
+              f"os casos parados não têm a data antiga ou o lembrete no "
+              f"histórico: {[(c['encaminhado_em'], [h['o_que'] for h in c['historico']]) for c in velhos]}")
         checa([a["a_encaminhar"] for a in visao.get("acoes", [])] == [2],
               f"a demonstração devia ter dois filiados ainda por encaminhar, "
               f"para o botão da triagem aparecer: {visao.get('acoes')}")
