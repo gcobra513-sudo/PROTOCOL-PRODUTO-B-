@@ -440,6 +440,128 @@ TESTES.extend([
 ])
 
 
+# ------------------------------------------------ o lembrete de caso parado
+
+class _Correio:
+    def __init__(self, fora: bool = False) -> None:
+        self.mandadas: list[tuple[str, str, str]] = []
+        self.fora = fora
+
+    def enviar_mensagem(self, destino, assunto, corpo):
+        if self.fora:
+            raise OSError("correio fora do ar")
+        self.mandadas.append((destino, assunto, corpo))
+
+
+def teste_caso_parado_ha_mais_de_sete_dias_e_lembrado():
+    """O aviso da hora pode se perder, e o caso fica esperando sem ninguém
+    saber. O lembrete repete — para o escritório, sobre o que ELE ainda não
+    confirmou — e não vira spam: um por semana, por caso."""
+    secao("o lembrete de caso parado")
+    pasta = pasta_nova()
+    encaminhar(pasta, [A, B], quando="2026-11-01T10:00:00+00:00")   # parados
+    encaminhar(pasta, [C], quando="2026-11-24T10:00:00+00:00")      # recente
+    esc.situar(pasta, B, "ACAO-1", escritorio="exemplo-a",
+               situacao=esc.RECEBIDO, quem="adv")                   # já aberto
+    correio = _Correio()
+    agora = "2026-11-26T10:00:00+00:00"
+
+    r = esc.lembrar_parados(pasta, sindicato="Sindicato de Exemplo",
+                            correio=correio, agora=agora)
+    checa((r["casos"], r["escritorios"], r["falharam"]) == (1, 1, 0), f"{r}")
+    checa(len(correio.mandadas) == 1
+          and correio.mandadas[0][0] == "um@exemplo-a.invalid",
+          f"o lembrete devia ir só ao escritório A: {correio.mandadas}")
+    assunto, corpo = correio.mandadas[0][1:]
+    checa("1 caso" in corpo and "25 dias" in corpo
+          and "Sindicato de Exemplo" in corpo and A not in corpo
+          and "\n" not in assunto,
+          f"o lembrete não diz quantos e há quanto tempo: {corpo}")
+    passos = [h["o_que"] for h in esc.historico(pasta, A, "ACAO-1")]
+    checa(passos[-1] == "O escritório foi lembrado por e-mail de que o caso "
+                        "espera a confirmação dele.",
+          f"o lembrete não ficou no histórico: {passos}")
+
+    # NO DIA SEGUINTE NÃO REPETE; uma semana depois, sim.
+    esc.lembrar_parados(pasta, sindicato="S", correio=correio,
+                        agora="2026-11-27T10:00:00+00:00")
+    checa(len(correio.mandadas) == 1, "lembrou de novo no dia seguinte")
+    r = esc.lembrar_parados(pasta, sindicato="S", correio=correio,
+                            agora="2026-12-04T10:00:00+00:00")
+    checa(len(correio.mandadas) == 2 and r["casos"] == 2,
+          f"uma semana depois devia lembrar de A e, agora, de C: {r}")
+
+    # QUEM CONFIRMOU não é mais lembrado.
+    esc.situar(pasta, A, "ACAO-1", escritorio="exemplo-a",
+               situacao=esc.RECEBIDO, quem="adv")
+    esc.situar(pasta, C, "ACAO-1", escritorio="exemplo-a",
+               situacao=esc.RECEBIDO, quem="adv")
+    r = esc.lembrar_parados(pasta, sindicato="S", correio=correio,
+                            agora="2027-01-10T10:00:00+00:00")
+    checa(r["casos"] == 0 and len(correio.mandadas) == 2,
+          "lembrou de caso que o escritório já confirmou")
+    print("  ok     lembra do que está parado, uma vez por semana, e para")
+
+
+def teste_lembrete_que_nao_sai_e_tentado_de_novo_no_dia_seguinte():
+    pasta = pasta_nova()
+    encaminhar(pasta, [A], quando="2026-11-01T10:00:00+00:00")
+    r = esc.lembrar_parados(pasta, sindicato="S", correio=_Correio(fora=True),
+                            agora="2026-11-26T10:00:00+00:00")
+    checa((r["casos"], r["falharam"]) == (1, 1), f"{r}")
+    passos = [h["o_que"] for h in esc.historico(pasta, A, "ACAO-1")]
+    checa(passos[-1] == "O lembrete por e-mail ao escritório não saiu.",
+          f"a falha não ficou no histórico: {passos}")
+    bom = _Correio()
+    esc.lembrar_parados(pasta, sindicato="S", correio=bom,
+                        agora="2026-11-27T10:00:00+00:00")
+    checa(len(bom.mandadas) == 1,
+          "lembrete que falhou devia ser tentado de novo no dia seguinte")
+    print("  ok     correio fora: fica no histórico, e tenta de novo amanhã")
+
+
+def teste_a_ferramenta_do_agendador_lembra_e_diz_como_foi():
+    """O que o agendador roda todo dia. Sai com 0 quando não há o que
+    lembrar ou o lembrete saiu, e com 2 quando a entidade não existe."""
+    import os
+    import subprocess
+
+    from servidor import agenda, entidades
+
+    raiz = pathlib.Path(tempfile.mkdtemp(prefix="esc-raiz-"))
+    ent = entidades.Cadastro(raiz).criar("demo-lembra", "Sindicato de Exemplo")
+    pasta = ent.pasta(raiz)
+    pasta.mkdir(parents=True, exist_ok=True)
+    (pasta / esc.CADASTRO).write_text(json.dumps(CADASTRO), encoding="utf-8")
+    encaminhar(pasta, [A], quando="2026-01-01T10:00:00+00:00")
+
+    def rodar(entidade):
+        return subprocess.run(
+            [sys.executable, str(RAIZ / "ferramentas" / "lembrar_parados.py"),
+             "--entidade", entidade, "--raiz", str(raiz)],
+            capture_output=True, text=True,
+            env={**os.environ, "PROTOCOL_MODO_ENSAIO": "1"})
+
+    r = rodar("demo-lembra")
+    checa(r.returncode == 0 and "1 caso" in r.stdout,
+          f"{r.returncode} {r.stdout} {r.stderr[-300:]}")
+    enviado = (raiz / "mensagens_enviadas.log")
+    checa(enviado.exists() and "um@exemplo-a.invalid" in enviado.read_text("utf-8"),
+          "a ferramenta não mandou o lembrete")
+    checa(A not in r.stdout + r.stderr, "a saída da ferramenta levou CPF")
+    checa(rodar("nao-existe").returncode == 2, "entidade inexistente não deu 2")
+    checa("parados" in agenda.TAREFAS,
+          "o lembrete não é tarefa do agendador: só rodaria se alguém lembrasse")
+    print("  ok     a ferramenta lembra, e o agendador a conhece")
+
+
+TESTES.extend([
+    teste_caso_parado_ha_mais_de_sete_dias_e_lembrado,
+    teste_lembrete_que_nao_sai_e_tentado_de_novo_no_dia_seguinte,
+    teste_a_ferramenta_do_agendador_lembra_e_diz_como_foi,
+])
+
+
 def main() -> int:
     print("=" * 70)
     print("ESCRITÓRIOS — o encaminhamento do filiado, e o retorno")

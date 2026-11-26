@@ -469,6 +469,11 @@ def _passo(r: dict, nomes: dict[str, str]) -> str:
         tipo = next((t for t in sorted(DOCUMENTOS, key=len, reverse=True)
                      if nome.startswith(t)), "")
         return f"O escritório abriu: {ROTULOS.get(tipo, 'um documento')}."
+    if ato == "aviso" and r.get("motivo") == "parado":
+        if r.get("saiu"):
+            return ("O escritório foi lembrado por e-mail de que o caso "
+                    "espera a confirmação dele.")
+        return "O lembrete por e-mail ao escritório não saiu."
     if ato == "aviso":
         quem = "escritório" if r.get("para") == "escritorio" else "filiado"
         if r.get("saiu"):
@@ -547,3 +552,109 @@ def mensagem_ao_filiado(*, sindicato: str, escritorio: str, acao: str,
         f"Na sua área do portal você acompanha com quem o caso está e o "
         f"que falta.\n",
     )
+
+
+# ------------------------------------------------ o lembrete de caso parado
+
+#: Um lembrete por caso a cada tantos dias. Todo dia viraria ruído, e ruído
+#: é o que faz o escritório parar de abrir os e-mails do portal.
+DIAS_ENTRE_LEMBRETES = 7
+
+
+def _instante(iso: str) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return None
+
+
+def parados_a_lembrar(pasta_entidade: pathlib.Path, *, agora: str | None = None
+                      ) -> dict[str, list[Caso]]:
+    """escritório -> os casos PARADOS que merecem lembrete hoje.
+
+    Parado é o que o sindicato encaminhou há mais de `DIAS_PARADO` dias e o
+    escritório ainda não confirmou. Merece lembrete o que não recebeu um
+    QUE SAIU nos últimos `DIAS_ENTRE_LEMBRETES` — lembrete que falhou não
+    conta, e é tentado de novo na rodada seguinte.
+    """
+    momento = _instante(agora or _agora())
+    ultimo: dict[tuple[str, str, str], dt.datetime] = {}
+    for bruta in _linhas(pasta_entidade):
+        try:
+            r = json.loads(bruta)
+        except json.JSONDecodeError:
+            continue
+        if (isinstance(r, dict) and r.get("ato") == "aviso"
+                and r.get("motivo") == "parado" and r.get("saiu")):
+            quando = _instante(str(r.get("quando") or ""))
+            if quando:
+                ultimo[(str(r.get("cpf")), str(r.get("acao")),
+                        str(r.get("escritorio")))] = quando
+    saida: dict[str, list[Caso]] = {}
+    for caso in _estado(pasta_entidade).values():
+        desde = _instante(caso.encaminhado_em)
+        if caso.situacao != ENCAMINHADO or not desde or not momento:
+            continue
+        if momento - desde <= dt.timedelta(days=DIAS_PARADO):
+            continue
+        antes = ultimo.get((caso.cpf, caso.acao, caso.escritorio))
+        if antes and momento - antes < dt.timedelta(days=DIAS_ENTRE_LEMBRETES):
+            continue
+        saida.setdefault(caso.escritorio, []).append(caso)
+    return saida
+
+
+def mensagem_de_parados(*, sindicato: str, casos: int,
+                        dias: int) -> tuple[str, str]:
+    """(assunto, corpo) do lembrete. Como os outros avisos: sem nome, sem
+    CPF — a lista está no portal."""
+    quantos = "1 caso espera" if casos == 1 else f"{casos} casos esperam"
+    return (
+        f"{sindicato}: {quantos} a confirmação do seu escritório",
+        f"{quantos[0].upper()}{quantos[1:]} a confirmação de recebimento "
+        f"do seu escritório no portal do {sindicato}. O mais antigo foi "
+        f"encaminhado há {dias} dias.\n\n"
+        f"Enquanto o recebimento não é confirmado, o filiado vê na área "
+        f"dele que o escritório ainda não respondeu.\n\n"
+        f"Entre no portal do sindicato: os casos que esperam aparecem "
+        f"primeiro na sua fila.\n",
+    )
+
+
+def lembrar_parados(pasta_entidade: pathlib.Path, *, sindicato: str,
+                    correio, agora: str | None = None) -> dict:
+    """Manda o lembrete a cada escritório com caso parado, e anota no
+    histórico de cada caso se ele saiu. Não levanta: devolve a conta.
+
+    `falharam` é quantos ESCRITÓRIOS ficaram sem lembrete — quem chama
+    decide o que isso significa (o agendador registra falha).
+    """
+    quando = agora or _agora()
+    momento = _instante(quando)
+    resultado = {"casos": 0, "escritorios": 0, "falharam": 0}
+    for ident, casos in sorted(parados_a_lembrar(
+            pasta_entidade, agora=quando).items()):
+        dono = por_id(pasta_entidade, ident)
+        if dono is None:
+            continue
+        mais_antigo = min(_instante(c.encaminhado_em) for c in casos)
+        assunto, corpo = mensagem_de_parados(
+            sindicato=sindicato, casos=len(casos),
+            dias=(momento - mais_antigo).days)
+        saiu = False
+        for destino in sorted(set(dono.pessoas.values())):
+            try:
+                correio.enviar_mensagem(destino, assunto, corpo)
+                saiu = True
+            except Exception:  # noqa: BLE001 — a conta volta para quem chama
+                pass
+        with deposito.travada(pasta_entidade, deposito.TRAVA_DO_APAGAMENTO):
+            for c in casos:
+                _anexar(pasta_entidade, {
+                    "ato": "aviso", "quando": quando, "cpf": c.cpf,
+                    "acao": c.acao, "escritorio": ident,
+                    "para": "escritorio", "motivo": "parado", "saiu": saiu,
+                })
+        resultado["casos"] += len(casos)
+        resultado["escritorios" if saiu else "falharam"] += 1
+    return resultado

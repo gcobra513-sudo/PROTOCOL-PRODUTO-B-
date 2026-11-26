@@ -88,7 +88,7 @@ const TONS = {
   lilas: "bg-lilas text-acento",
   rosa: "bg-alerta/10 text-alerta",
   ambar: "bg-ambar text-tinta",
-  ceu: "bg-ceu text-azul-fundo",
+  ceu: "bg-ceu text-azul",
 } as const;
 
 function Passo({
@@ -282,7 +282,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
           <h2 className="text-3xl font-bold text-tinta">O que cada um vê</h2>
           <div id="sindicato" className="grid items-center gap-8 rounded-xl bg-carta p-7 shadow-cartao md:grid-cols-2 sm:p-10">
             <div>
-              <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-ceu text-azul-fundo">
+              <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-ceu text-azul">
                 <LayoutDashboard className="h-5 w-5" aria-hidden="true" />
               </span>
               <h3 className="mt-4 text-xl font-bold text-tinta">O sindicato vê a base inteira</h3>
@@ -455,7 +455,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
                 <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-white/20 px-4 py-3 text-[15px] text-white">
                   Meus documentos chegaram?
                 </p>
-                <p className="w-fit max-w-[90%] rounded-2xl rounded-bl-sm bg-white px-4 py-3 text-[15px] text-tinta">
+                <p className="w-fit max-w-[90%] rounded-2xl rounded-bl-sm bg-white px-4 py-3 text-[15px] text-slate-900">
                   Já recebemos de você: certidão de trânsito em julgado,
                   comprovante de contribuição, sentença. Não há documento seu
                   pendente agora.
@@ -463,7 +463,7 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
                 <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-white/20 px-4 py-3 text-[15px] text-white">
                   Com quem está o meu caso?
                 </p>
-                <p className="w-fit max-w-[90%] rounded-2xl rounded-bl-sm bg-white px-4 py-3 text-[15px] text-tinta">
+                <p className="w-fit max-w-[90%] rounded-2xl rounded-bl-sm bg-white px-4 py-3 text-[15px] text-slate-900">
                   O seu caso está com o Escritório de Exemplo A. A
                   documentação está completa: não falta nada da sua parte.
                 </p>
