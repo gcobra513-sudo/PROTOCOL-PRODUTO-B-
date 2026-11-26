@@ -419,6 +419,12 @@ def _semear_em_todo_lugar(apelido: str, cpf: str):
                      "campos": {"nome_completo": "PESSOA (FICTÍCIO)"},
                      "achados": []}],
     }, ensure_ascii=False) + "\n")
+    # 9: o encaminhamento dela a um escritório contratado
+    from servidor import escritorios
+    deposito.anexar_com_fsync(pasta / escritorios.ARQUIVO, _json.dumps({
+        "ato": "encaminhado", "quando": "2026-11-25T00:00:00+00:00",
+        "cpf": cpf, "acao": "X", "escritorio": "exemplo-a", "quem": "x",
+    }) + "\n")
     # 8: a ficha financeira que o sindicato enviou — é REMUNERAÇÃO dela
     from servidor import fichas
     deposito.anexar_com_fsync(pasta / fichas.ARQUIVO, _json.dumps({

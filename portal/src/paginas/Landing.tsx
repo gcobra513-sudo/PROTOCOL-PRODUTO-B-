@@ -13,6 +13,7 @@
  */
 import {
   ArrowRight,
+  Briefcase,
   Check,
   ChevronDown,
   CircleHelp,
@@ -22,6 +23,7 @@ import {
   MailX,
   MessagesSquare,
   PhoneCall,
+  Send,
   ShieldCheck,
   Smartphone,
   UserCheck,
@@ -48,6 +50,10 @@ const PERGUNTAS: [string, string][] = [
   [
     "O filiado precisa instalar aplicativo ou criar senha?",
     "Não. O portal abre no navegador do celular ou do computador. A entrada é com o CPF e um código que chega no e-mail que o sindicato tem em cadastro.",
+  ],
+  [
+    "O nosso sindicato terceiriza o jurídico para escritórios. O portal serve?",
+    "Serve, e é onde ele mais ajuda. O sindicato encaminha o filiado ao escritório que cuida da ação, o escritório recebe os documentos organizados e marca o que falta, e o filiado acompanha. O que hoje vai por e-mail e WhatsApp fica registrado num lugar só.",
   ],
   [
     "O portal decide quem tem direito?",
@@ -151,8 +157,8 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
                 <p className="mt-5 text-lg leading-relaxed text-white/85">
                   O sindicato envia a planilha de filiados que já tem. O
                   filiado envia os documentos pelo celular. O PROTOCOL
-                  responde, nome por nome: de quais ações a pessoa faz parte,
-                  o que já pode ser feito e o que ainda falta.
+                  responde, nome por nome, o que falta — e leva cada caso,
+                  organizado, ao escritório que o sindicato contratou.
                 </p>
                 <div className="mt-8 flex flex-wrap gap-3">
                   {temDemonstracao ? (
@@ -292,6 +298,66 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
           <p className="text-sm text-tinta/60">
             As telas acima são reais, tiradas da demonstração. Todo cadastro que aparece nelas é fictício.
           </p>
+        </section>
+
+        {/* A PONTE COM O ESCRITÓRIO. Sindicato que terceiriza o jurídico não
+            tem problema de cadastro: tem problema de PASSAGEM — o filiado
+            encaminhado por e-mail, o documento por WhatsApp, e ninguém
+            sabendo o que chegou. */}
+        <section id="escritorio" className="mx-auto max-w-6xl px-4 pb-12 sm:px-6">
+          <div className="rounded-2xl bg-carta p-7 shadow-cartao sm:p-10">
+            <p className="text-sm font-semibold uppercase tracking-widest text-acento">
+              Para quem terceiriza o jurídico
+            </p>
+            <h2 className="mt-2 text-2xl font-bold text-tinta sm:text-3xl">
+              Do sindicato ao escritório, sem e-mail solto.
+            </h2>
+            <p className="mt-3 max-w-3xl text-[17px] leading-relaxed text-tinta/70">
+              O sindicato faz a triagem e encaminha. O escritório contratado
+              recebe o caso organizado. O filiado acompanha. Tudo no portal
+              do sindicato, com registro de quem enviou, quem recebeu e
+              quando.
+            </p>
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <div className="rounded-xl bg-lilas p-6">
+                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-acento text-carta">
+                  <Send className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <h3 className="mt-4 text-lg font-semibold text-tinta">O sindicato encaminha</h3>
+                <p className="mt-2 text-[15px] leading-relaxed text-tinta/75">
+                  Cada ação tem o escritório que cuida dela. Um botão envia a
+                  ele os filiados daquela ação, e fica registrado.
+                </p>
+              </div>
+              <div className="rounded-xl bg-lilas p-6">
+                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-acento text-carta">
+                  <Briefcase className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <h3 className="mt-4 text-lg font-semibold text-tinta">O escritório recebe</h3>
+                <p className="mt-2 text-[15px] leading-relaxed text-tinta/75">
+                  Uma fila só com os casos dele: nome, CPF, contato e os
+                  documentos de cada pessoa. Ele confirma o recebimento e diz
+                  qual documento falta.
+                </p>
+              </div>
+              <div className="rounded-xl bg-lilas p-6">
+                <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-acento text-carta">
+                  <UserCheck className="h-5 w-5" aria-hidden="true" />
+                </span>
+                <h3 className="mt-4 text-lg font-semibold text-tinta">O filiado acompanha</h3>
+                <p className="mt-2 text-[15px] leading-relaxed text-tinta/75">
+                  Na área dele: com qual escritório o caso está, em que
+                  situação, e o que falta enviar. Sem ligar para a sede.
+                </p>
+              </div>
+            </div>
+            <ul className="mt-6 grid gap-x-8 gap-y-2 text-[15px] text-tinta/80 md:grid-cols-2">
+              <li className="flex items-start gap-2"><Check className="mt-1 h-4 w-4 shrink-0 text-bom" aria-hidden="true" />O escritório vê só quem foi encaminhado a ele.</li>
+              <li className="flex items-start gap-2"><Check className="mt-1 h-4 w-4 shrink-0 text-bom" aria-hidden="true" />O sindicato vê, por escritório, o que foi recebido e o que está parado.</li>
+              <li className="flex items-start gap-2"><Check className="mt-1 h-4 w-4 shrink-0 text-bom" aria-hidden="true" />Cada documento aberto fica registrado, com quem abriu.</li>
+              <li className="flex items-start gap-2"><Check className="mt-1 h-4 w-4 shrink-0 text-bom" aria-hidden="true" />Um escritório que atende vários sindicatos entra no portal de cada um.</li>
+            </ul>
+          </div>
         </section>
 
         <OQueNaoFazemos />

@@ -30,6 +30,7 @@ import { Inicio } from "./etapas/Inicio";
 import { Processos } from "./etapas/Processos";
 import { Voce } from "./etapas/Voce";
 import { Atendimento } from "./paginas/Atendimento";
+import { Escritorio } from "./paginas/Escritorio";
 import { GUIA, GuiaDaDemo } from "./paginas/GuiaDaDemo";
 import { Landing } from "./paginas/Landing";
 import { ParaOFiliado, ParaOSindicato } from "./paginas/Publica";
@@ -396,7 +397,7 @@ export function App() {
     >
       <div
         className={
-          tela === "painel"
+          tela === "painel" || tela === "escritorio"
             ? "mx-auto max-w-5xl space-y-6"
             : "mx-auto max-w-3xl space-y-6"
         }
@@ -465,6 +466,9 @@ export function App() {
                        onToken={entrou} onSessaoMorta={sessaoMorta}
                        perguntaInicial={perguntaAoProto}
                        onPerguntaFeita={() => setPerguntaAoProto("")} />
+        ) : tela === "escritorio" ? (
+          <Escritorio key={token} entidade={apelido} token={token}
+                      onToken={entrou} onSessaoMorta={sessaoMorta} />
         ) : tela === "painel" ? (
           <Painel key={token} entidade={apelido} token={token}
                   onToken={entrou} onSessaoMorta={sessaoMorta}

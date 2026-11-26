@@ -13,7 +13,7 @@ export interface AcessoDaDemo {
   quem: string;
   /** Já formatado, como a pessoa vai digitar. */
   cpf: string;
-  area: "cadastro" | "painel";
+  area: "cadastro" | "painel" | "escritorio";
   gestor: boolean;
 }
 
@@ -26,7 +26,7 @@ export function acessosDaDemonstracao(e: Entidade | null): AcessoDaDemo[] {
     saida.push({
       quem: a.quem,
       cpf: `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}`,
-      area: a.area === "painel" ? "painel" : "cadastro",
+      area: a.area === "painel" || a.area === "escritorio" ? a.area : "cadastro",
       gestor: a.area === "painel",
     });
   }
@@ -36,7 +36,7 @@ export function acessosDaDemonstracao(e: Entidade | null): AcessoDaDemo[] {
 /** Uma parada do roteiro: o que abrir, com que CPF, o que mostrar e o que
  *  dizer enquanto mostra. */
 export interface Parada {
-  id: "painel" | "filiado" | "primeiro-acesso";
+  id: "painel" | "escritorio" | "filiado" | "primeiro-acesso";
   titulo: string;
   /** Quem a pessoa finge ser nesta parada. */
   quem: string;
@@ -63,7 +63,8 @@ export interface Parada {
  */
 export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string): Parada[] {
   const gestor = acessos.find((a) => a.gestor);
-  const filiados = acessos.filter((a) => !a.gestor);
+  const escritorio = acessos.find((a) => a.area === "escritorio");
+  const filiados = acessos.filter((a) => !a.gestor && a !== escritorio);
   const novato = filiados.find((a) => /n[ãa]o entrou/i.test(a.quem));
   const filiado = filiados.find((a) => a !== novato);
   const saida: Parada[] = [];
@@ -88,6 +89,24 @@ export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string):
         "O sindicato só enviou a planilha que já tinha. No mesmo dia ficou sabendo com quem não consegue falar e o que precisa resolver primeiro.",
     });
   }
+  if (escritorio) {
+    saida.push({
+      id: "escritorio",
+      titulo: "A área do escritório",
+      quem: escritorio.quem,
+      cpf: escritorio.cpf,
+      link: enderecoDaArea("escritorio", apelido),
+      botao: "Abrir a área do escritório",
+      mostrar: [
+        "No painel do sindicato, antes: a aba Envios e pedidos, cartão Escritórios — é onde o sindicato encaminha os filiados de cada ação e vê o que cada escritório já recebeu.",
+        "A fila do escritório: só quem o sindicato encaminhou a ele, com o que ainda não foi aberto na frente.",
+        "Em cada caso: o nome, o CPF, o contato e os documentos que a pessoa enviou, a um toque.",
+        "Os três botões: “Confirmar recebimento”, “Falta documento” (e qual) e “Documentação completa”.",
+      ],
+      falar:
+        "O que hoje corre por e-mail e WhatsApp fica num lugar só: o sindicato sabe o que o escritório recebeu, e o escritório recebe o caso já organizado.",
+    });
+  }
   if (filiado) {
     saida.push({
       id: "filiado",
@@ -98,7 +117,7 @@ export function roteiroDaDemonstracao(acessos: AcessoDaDemo[], apelido: string):
       botao: "Abrir a Minha área do filiado",
       mostrar: [
         "A entrada sem senha: CPF e um código de seis números.",
-        "A Minha área: os documentos que chegaram, as ações e os processos, tudo numa tela.",
+        "A Minha área: logo no topo, “Com quem está o seu caso” — o escritório, a situação e o que falta. Depois os documentos, as ações e os processos.",
         "Minhas ações: este filiado tem “Caminho aberto, já conferido” na ação de exemplo, com o período dele.",
         "Logo abaixo, a apuração preliminar e bruta, com o aviso do que ela não é. Toque em “Ver como a conta foi feita”.",
         "Pergunte ao Proto: toque em “Meus documentos chegaram?”.",

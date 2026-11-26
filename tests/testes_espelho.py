@@ -4987,6 +4987,154 @@ def teste_o_gestor_envia_a_ficha_financeira_em_duas_etapas():
     print("  ok     só o gestor; prévia não grava; quem é de fora não fica")
 
 
+# ------------------------------ o filiado é encaminhado ao escritório
+
+ADV_A = _cpf_sintetico(8801)
+ADV_B = _cpf_sintetico(8802)
+
+
+def _cadastrar_escritorios(ent, raiz) -> None:
+    import json as _json
+
+    from servidor import escritorios
+
+    (ent.pasta(raiz) / escritorios.CADASTRO).write_text(_json.dumps({
+        "escritorios": [
+            {"id": "exemplo-a", "nome": "Escritório de Exemplo A (fictício)",
+             "contato": "contato@exemplo-a.invalid", "acoes": ["GIFA-2006"],
+             "pessoas": [{"cpf": ADV_A, "email": "a@exemplo-a.invalid"}]},
+            {"id": "exemplo-b", "nome": "Escritório de Exemplo B (fictício)",
+             "contato": "", "acoes": [],
+             "pessoas": [{"cpf": ADV_B, "email": "b@exemplo-b.invalid"}]},
+        ]}, ensure_ascii=False), encoding="utf-8")
+
+
+def _de(cliente, cpf: str, entidade: str) -> dict:
+    return {"Authorization": f"Bearer {_token(cliente, cpf, entidade)}"}
+
+
+def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
+    """A PONTE INTEIRA, pelas portas de quem usa: o gestor encaminha, o
+    escritório vê só os casos dele, abre o documento, diz o que falta — e o
+    filiado lê na tela dele com quem o caso está e o que falta."""
+    secao("o encaminhamento ao escritório")
+    entidade = "demo-escr-1"
+    cliente, ent, raiz = _servidor(entidade)
+    _cadastrar_escritorios(ent, raiz)
+    _cadastrar_com_titulo(cliente, A, entidade)
+    gestor = lambda: _gestor(cliente, entidade)  # noqa: E731
+    adv_a = lambda: _de(cliente, ADV_A, entidade)  # noqa: E731
+    adv_b = lambda: _de(cliente, ADV_B, entidade)  # noqa: E731
+    casos = f"/api/entidade/{entidade}/escritorio/casos"
+    doc = f"/api/entidade/{entidade}/escritorio/documento"
+
+    # QUEM É DO ESCRITÓRIO ENTRA PELO MESMO PORTÃO, e o menu sabe quem é.
+    papeis = cliente.get("/api/acesso/papeis", headers=adv_a()).json()
+    checa(papeis.get("escritorio") is True and papeis.get("gestor") is False,
+          f"o portal não reconhece quem é do escritório: {papeis}")
+    checa(cliente.get("/api/acesso/papeis",
+                      headers=gestor()).json().get("escritorio") is False,
+          "o gestor apareceu como escritório")
+
+    # ANTES DE ENCAMINHAR, o escritório não vê ninguém nem abre nada.
+    r = cliente.get(casos, headers=adv_a())
+    checa(r.status_code == 200 and r.json()["casos"] == [],
+          f"sem encaminhamento: {r.status_code} {r.text[:200]}")
+    r = cliente.post(doc, json={"cpf": A, "arquivo": "sentenca.pdf"},
+                     headers=adv_a())
+    checa(r.status_code == 404,
+          f"O ESCRITÓRIO ABRIU DOCUMENTO DE QUEM NÃO LHE FOI ENCAMINHADO: "
+          f"{r.status_code}")
+
+    # A VISÃO DO SINDICATO, antes: o escritório responsável e quantos há.
+    visao = cliente.get(f"/api/entidade/{entidade}/escritorios",
+                        headers=gestor()).json()
+    acao = {a["acao"]: a for a in visao["acoes"]}["GIFA-2006"]
+    checa(acao["escritorio"] == "exemplo-a" and acao["a_encaminhar"] == 1,
+          f"a triagem não ofereceu o escritório da ação: {acao}")
+
+    # SÓ O GESTOR ENCAMINHA.
+    pedido = {"acao": "GIFA-2006", "escritorio": "exemplo-a"}
+    for cab, quem in ((adv_a(), "o escritório"), (_de(cliente, A, entidade),
+                                                   "o filiado")):
+        r = cliente.post(f"/api/entidade/{entidade}/encaminhamentos",
+                         json=pedido, headers=cab)
+        checa(r.status_code == 403, f"{quem} encaminhou: {r.status_code}")
+    r = cliente.post(f"/api/entidade/{entidade}/encaminhamentos",
+                     json=pedido, headers=gestor())
+    checa(r.status_code == 200 and r.json().get("encaminhados") == 1,
+          f"{r.status_code} {r.text[:300]}")
+    r = cliente.post(f"/api/entidade/{entidade}/encaminhamentos",
+                     json={"acao": "GIFA-2006", "escritorio": "nao-existe"},
+                     headers=gestor())
+    checa(r.status_code == 422, f"escritório inexistente: {r.status_code}")
+
+    # O ESCRITÓRIO A VÊ O CASO, com o que precisa para trabalhar. O B não.
+    r = cliente.get(casos, headers=adv_a()).json()
+    checa(len(r["casos"]) == 1, f"{r}")
+    caso = r["casos"][0]
+    checa(caso["cpf"] == A and "EXEMPLO" in caso["nome"]
+          and caso["situacao"] == "ENCAMINHADO"
+          and ("sentenca.pdf", "sentença") in [
+              (d["arquivo"], d["rotulo"]) for d in caso["documentos"]],
+          f"o caso não traz a pessoa e os documentos dela: {caso}")
+    checa(cliente.get(casos, headers=adv_b()).json()["casos"] == [],
+          "O ESCRITÓRIO B VIU CASO DO A")
+    checa(cliente.get(casos, headers=gestor()).status_code == 403
+          and cliente.get(casos, headers=_de(cliente, A, entidade)
+                          ).status_code == 403,
+          "quem não é de escritório abriu a lista de casos")
+
+    # O DOCUMENTO: só o dono do caso, só arquivo que é dela.
+    r = cliente.post(doc, json={"cpf": A, "arquivo": "sentenca.pdf"},
+                     headers=adv_a())
+    checa(r.status_code == 200 and r.content[:5] == b"%PDF-"
+          and r.headers.get("cache-control") == "no-store",
+          f"o escritório não abriu o documento do caso dele: {r.status_code}")
+    checa(cliente.post(doc, json={"cpf": A, "arquivo": "sentenca.pdf"},
+                       headers=adv_b()).status_code == 404,
+          "O ESCRITÓRIO B ABRIU DOCUMENTO DE UM CASO DO A")
+    for ruim in ("../gestores.csv", "nao-existe.pdf", ""):
+        checa(cliente.post(doc, json={"cpf": A, "arquivo": ruim},
+                           headers=adv_a()).status_code == 404,
+              f"abriu arquivo que não é dela: {ruim!r}")
+
+    # A SITUAÇÃO: o dono marca; o outro não; a falta diz qual.
+    marca = {"cpf": A, "acao": "GIFA-2006", "situacao": "PENDENTE",
+             "faltam": ["procuracao"]}
+    checa(cliente.post(casos, json=marca, headers=adv_b()).status_code == 404,
+          "o escritório B marcou um caso do A")
+    checa(cliente.post(casos, json={**marca, "faltam": []},
+                       headers=adv_a()).status_code == 422,
+          "aceitou 'falta documento' sem dizer qual")
+    r = cliente.post(casos, json=marca, headers=adv_a())
+    checa(r.status_code == 200 and r.json()["situacao"] == "PENDENTE",
+          f"{r.status_code} {r.text[:200]}")
+
+    # O FILIADO VÊ com quem está, e o que falta — sem ligar para ninguém.
+    meu = cliente.get("/api/minhas-acoes",
+                      headers=_de(cliente, A, entidade)).json()
+    enc = meu.get("encaminhamentos") or []
+    checa(len(enc) == 1
+          and enc[0]["escritorio"] == "Escritório de Exemplo A (fictício)"
+          and enc[0]["contato"] == "contato@exemplo-a.invalid"
+          and enc[0]["situacao"] == "PENDENTE"
+          and enc[0]["faltam"] == ["procuração"],
+          f"o filiado não vê o encaminhamento dele: {enc}")
+
+    # E O SINDICATO VÊ o retorno, em contagem.
+    visao = cliente.get(f"/api/entidade/{entidade}/escritorios",
+                        headers=gestor()).json()
+    do_a = {e["id"]: e for e in visao["escritorios"]}["exemplo-a"]
+    checa((do_a["casos"], do_a["pendentes"]) == (1, 1), f"{do_a}")
+    import json as _json
+    checa(A not in _json.dumps(visao), "a visão do sindicato devolveu CPF")
+    checa(cliente.get(f"/api/entidade/{entidade}/escritorios",
+                      headers=adv_a()).status_code == 403,
+          "o escritório abriu a visão do sindicato")
+    print("  ok     encaminha, recebe, abre, marca; o filiado e o sindicato veem")
+
+
 def teste_o_painel_mostra_o_rol_de_cada_acao():
     """O gestor precisa ver, por ação, se o rol já entrou e quanta gente
     ficou sem resposta — é esse número que diz que vale enviar de novo."""
@@ -5329,6 +5477,7 @@ TESTES = [
     teste_o_atendimento_so_fala_de_quem_perguntou,
     teste_o_gestor_envia_o_rol_e_as_superficies_mudam_juntas,
     teste_o_painel_mostra_o_rol_de_cada_acao,
+    teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve,
     teste_o_gestor_envia_a_ficha_financeira_em_duas_etapas,
     teste_lista_parcial_nao_poe_ninguem_fora_do_rol,
     teste_rol_so_de_acao_do_catalogo_e_so_para_gestor,

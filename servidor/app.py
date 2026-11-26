@@ -63,6 +63,7 @@ from . import (
     completude,
     deposito,
     entidades,
+    escritorios,
     ingestao,
     remetente,
     rol,
@@ -648,7 +649,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             quem, cpf, area = (str(item.get(k, "")) for k in
                                ("quem", "cpf", "area"))
             if not (cpf.isdigit() and len(cpf) == 11 and 0 < len(quem) <= 60
-                    and area in ("cadastro", "painel")):
+                    and area in ("cadastro", "painel", "escritorio")):
                 return []
             limpos.append({"quem": quem, "cpf": cpf, "area": area})
         return limpos
@@ -730,7 +731,10 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
 
         destino = lista.email_de(cpf) or (
             dos_gestores.email_de(cpf) if dos_gestores else None
-        )
+        # QUEM É DE UM ESCRITÓRIO CONTRATADO entra pelo mesmo portão: o
+        # e-mail vem do cadastro que o SINDICATO mantém, nunca de quem
+        # digita. Cadastro ilegível é ninguém (`escritorios.cadastrados`).
+        ) or escritorios.email_de(ent.pasta(cfg.raiz), cpf)
         # QUEM PEDIU PARA SAIR NÃO RECEBE CREDENCIAL NOSSA, e a forma como
         # isso é feito importa.
         #
@@ -852,7 +856,8 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             return any(portao.marcar_cpf(c) == sessao.cpf_hash for c in cpfs)
 
         return {"filiado": consta(rol.carregar),
-                "gestor": consta(rol.carregar_gestores)}
+                "gestor": consta(rol.carregar_gestores),
+                "escritorio": _escritorio_da_sessao(pasta, sessao) is not None}
 
     @app.post("/api/acesso/conferir")
     def conferir_codigo(corpo: dict, pedido: Request) -> dict:
@@ -1167,6 +1172,34 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             ),
         }
 
+    def _encaminhamentos_do_filiado(ent: entidades.Entidade,
+                                    cpf: str) -> list[dict]:
+        """Com qual escritório está cada caso DESTA pessoa, em que situação,
+        e o que falta — nas palavras dela, não nos códigos do sistema."""
+        pasta = ent.pasta(cfg.raiz)
+        catalogo = entendimentos.do_ambiente(
+            tuple(ent.categorias), cfg.ambiente_do_catalogo
+        )
+        rotulos = {a.id: a.rotulo for a in catalogo.acoes}
+        saida = []
+        for caso in escritorios.de_cpf(pasta, cpf):
+            dono = escritorios.por_id(pasta, caso.escritorio)
+            if dono is None:
+                # O escritório saiu do cadastro: não se mostra à pessoa um
+                # nome que o sindicato já não reconhece.
+                continue
+            saida.append({
+                "acao": caso.acao,
+                "rotulo": rotulos.get(caso.acao, caso.acao),
+                "escritorio": dono.nome,
+                "contato": dono.contato,
+                "situacao": caso.situacao,
+                "faltam": [escritorios.ROTULOS.get(f, f)
+                           for f in caso.faltam],
+                "encaminhado_em": caso.encaminhado_em,
+            })
+        return saida
+
     @app.get("/api/minhas-acoes")
     def minhas_acoes(pedido: Request) -> dict:
         """De quais ações o filiado participa, e o que pode ser feito em cada.
@@ -1334,6 +1367,9 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 }
                 for dono in pendencia.DONOS
             ],
+            # COM QUEM O CASO ESTÁ. Era o que o filiado perguntava por
+            # telefone: o sindicato encaminhou, e ele não sabia a quem.
+            "encaminhamentos": _encaminhamentos_do_filiado(ent, linha["cpf"]),
             # DITO NA RESPOSTA, não só na tela: quem consumir esta API por
             # fora tem de receber o limite junto com o dado.
             "aviso": (
@@ -2267,6 +2303,230 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 pasta,
                 ingestao.cpfs_da_base(cfg.banco_url, ent.apelido, pasta)),
         }
+
+    # --------------------------------- o encaminhamento ao escritório
+
+    def _escritorio_da_sessao(pasta: pathlib.Path, sessao: acesso.Sessao):
+        """O escritório de quem abriu a sessão, ou `None`. Pelo MARCADOR do
+        CPF, como o resto: a sessão nunca guardou o CPF em claro."""
+        for cpf, ident in escritorios.cpfs_das_pessoas(pasta).items():
+            if portao.marcar_cpf(cpf) == sessao.cpf_hash:
+                return escritorios.por_id(pasta, ident)
+        return None
+
+    def _do_escritorio(apelido: str, pedido: Request):
+        """(entidade, escritório), se quem abriu a sessão é de um escritório
+        contratado POR ELA. A mesma ordem de `_gestor_de`: primeiro que a
+        sessão é desta entidade, depois o papel."""
+        sessao = _sessao_de(pedido)
+        if sessao.entidade != apelido:
+            raise _problema(403, "esta sessão não é desta entidade")
+        ent = _entidade(apelido)
+        dele = _escritorio_da_sessao(ent.pasta(cfg.raiz), sessao)
+        if dele is None:
+            raise _problema(
+                403, "esta sessão não é de um escritório deste sindicato")
+        return ent, dele
+
+    def _arquivos_entregues(ent: entidades.Entidade, cpf: str) -> list[str]:
+        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
+        return sorted(a.name for a in pasta.glob("*.pdf")) \
+            if pasta.is_dir() else []
+
+    def _caso_para_a_tela(caso: escritorios.Caso, rotulos: dict) -> dict:
+        return {
+            "acao": caso.acao,
+            "rotulo": rotulos.get(caso.acao, caso.acao),
+            "situacao": caso.situacao,
+            "faltam": list(caso.faltam),
+            "encaminhado_em": caso.encaminhado_em,
+            "atualizado_em": caso.atualizado_em,
+        }
+
+    def _rotulos_das_acoes(ent: entidades.Entidade) -> dict[str, str]:
+        catalogo = entendimentos.do_ambiente(
+            tuple(ent.categorias), cfg.ambiente_do_catalogo
+        )
+        return {a.id: a.rotulo for a in catalogo.acoes}
+
+    def _a_encaminhar(base: list, acao: str) -> list[str]:
+        """Quem a triagem manda ao escritório, por uma ação: quem JÁ SE
+        CADASTROU no portal e não está fora dela.
+
+        Quem nunca entrou não tem documento nem demanda para o escritório
+        receber — encaminhar a base inteira seria despejar nele uma lista de
+        nomes. E "não está fora" em vez de "participa": enquanto o período
+        ou o rol da ação não estão conferidos, a participação é dúvida, e
+        dúvida é exatamente o que o escritório existe para resolver.
+        """
+        return [p.cpf for p in base if p.cadastrou and any(
+            x.acao == acao and x.estado != participacao.NAO_PARTICIPA
+            for x in p.participacoes)]
+
+    @app.get("/api/entidade/{apelido}/escritorios")
+    def ver_escritorios(apelido: str, pedido: Request) -> dict:
+        """A visão do SINDICATO: cada escritório contratado, quantos casos
+        tem e em que situação — e, por ação, quantos filiados ainda não
+        foram encaminhados. Só contagens."""
+        ent = _gestor_de(apelido, pedido)
+        _auditar(ent, "ver_escritorios",
+                 quem_hash=_sessao_de(pedido).cpf_hash)
+        pasta = ent.pasta(cfg.raiz)
+        com_caso = {(c.cpf, c.acao) for c in escritorios.todos(pasta)}
+        base = _base_avaliada(ent)
+        acoes = []
+        for ident, rotulo in _rotulos_das_acoes(ent).items():
+            responsavel = escritorios.responsavel_por(pasta, ident)
+            participam = _a_encaminhar(base, ident)
+            acoes.append({
+                "acao": ident, "rotulo": rotulo,
+                "escritorio": responsavel.id if responsavel else None,
+                "participam": len(participam),
+                "a_encaminhar": sum(1 for c in participam
+                                    if (c, ident) not in com_caso),
+            })
+        return {"entidade": ent.apelido,
+                "escritorios": escritorios.resumo(pasta),
+                "acoes": acoes}
+
+    @app.post("/api/entidade/{apelido}/encaminhamentos")
+    def encaminhar_ao_escritorio(apelido: str, corpo: dict,
+                                 pedido: Request) -> dict:
+        """A TRIAGEM: o sindicato encaminha a um escritório os filiados que
+        fazem parte de uma ação. Quem já estava com ele fica como estava."""
+        ent = _gestor_de(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        alvo = _acao_do_catalogo(ent, str(corpo.get("acao") or "").strip())
+        _auditar(ent, "encaminhar_ao_escritorio", quem_hash=sessao.cpf_hash)
+        participam = set(_a_encaminhar(_base_avaliada(ent), alvo.id))
+        try:
+            plano = escritorios.encaminhar(
+                ent.pasta(cfg.raiz), participam, acao=alvo.id,
+                escritorio=str(corpo.get("escritorio") or ""),
+                base_de=lambda: _base_sem_apagados(ent),
+                quem=sessao.cpf_hash)
+        except escritorios.Recusado as e:
+            raise _problema(422, str(e)) from None
+        except ingestao.IngestaoRecusada as e:
+            log.error("ENCAMINHAMENTO recusado ent=%s: %s", ent.apelido, e)
+            raise _problema(
+                503, "não conseguimos conferir quem pediu apagamento. Nada "
+                     "foi gravado: tente de novo.") from None
+        log.info("encaminhamento ent=%s acao=%s novos=%d", ent.apelido,
+                 alvo.id, plano.encaminhados)
+        return {"acao": alvo.id, "rotulo": alvo.rotulo,
+                "encaminhados": plano.encaminhados,
+                "ja_estavam": plano.ja_estavam}
+
+    @app.get("/api/entidade/{apelido}/escritorio/casos")
+    def casos_do_escritorio(apelido: str, pedido: Request) -> dict:
+        """O que o ESCRITÓRIO vê: só quem lhe foi encaminhado, com o que ele
+        precisa para trabalhar — o nome, o CPF, o contato e os documentos.
+
+        O CPF VAI INTEIRO, e é a única tela do portal em que isso acontece
+        fora da planilha do gestor: quem vai propor a ação em nome da
+        pessoa precisa dele. Por isso fica registrado quem abriu.
+        """
+        ent, dele = _do_escritorio(apelido, pedido)
+        _auditar(ent, "ver_casos_do_escritorio",
+                 quem_hash=_sessao_de(pedido).cpf_hash)
+        pasta = ent.pasta(cfg.raiz)
+        casos = escritorios.casos_de(pasta, dele.id)
+        linhas: dict[str, dict] = {}
+        if casos:
+            registros = (banco.base(cfg.banco_url, ent.apelido)
+                         if cfg.tem_banco else deposito.ler_diario(pasta))
+            linhas = {cpf: envio["linha"] for cpf, envio in
+                      panorama.ultimo_envio_por_cpf(registros).items()}
+        rotulos = _rotulos_das_acoes(ent)
+        saida = []
+        for caso in casos:
+            linha = linhas.get(caso.cpf, {})
+            saida.append({
+                "cpf": caso.cpf,
+                "nome": str(linha.get("nome_completo") or "(sem nome)"),
+                "email": str(linha.get("email") or ""),
+                "telefone": str(linha.get("telefone") or ""),
+                "documentos": [
+                    {"arquivo": nome,
+                     # O RÓTULO DO ESCRITÓRIO, não o do filiado: o do
+                     # cadastro diz "Sentença, se você tiver", que é
+                     # conversa com a pessoa.
+                     "rotulo": escritorios.ROTULOS.get(
+                         panorama.tipo_do_arquivo(nome) or "", nome)}
+                    for nome in _arquivos_entregues(ent, caso.cpf)],
+                **_caso_para_a_tela(caso, rotulos),
+            })
+        return {
+            "escritorio": {"id": dele.id, "nome": dele.nome},
+            "casos": saida,
+            "documentos_possiveis": [
+                {"tipo": t, "rotulo": escritorios.ROTULOS.get(t, t)}
+                for t in escritorios.DOCUMENTOS],
+        }
+
+    @app.post("/api/entidade/{apelido}/escritorio/casos")
+    def situar_caso_do_escritorio(apelido: str, corpo: dict,
+                                  pedido: Request) -> dict:
+        """O escritório diz em que pé está o caso: recebido, falta documento
+        (e qual), ou documentação completa."""
+        ent, dele = _do_escritorio(apelido, pedido)
+        sessao = _sessao_de(pedido)
+        cpf = conta.so_digitos(str(corpo.get("cpf") or ""))
+        faltam = corpo.get("faltam") or []
+        if not isinstance(faltam, list):
+            raise _problema(422, "a lista do que falta não veio como lista")
+        _auditar(ent, "situar_caso_do_escritorio", quem_hash=sessao.cpf_hash,
+                 alvo_hash=portao.marcar_cpf(cpf) if cpf else "")
+        try:
+            caso = escritorios.situar(
+                ent.pasta(cfg.raiz), cpf, str(corpo.get("acao") or ""),
+                escritorio=dele.id,
+                situacao=str(corpo.get("situacao") or ""),
+                faltam=[str(f) for f in faltam], quem=sessao.cpf_hash)
+        except escritorios.Recusado as e:
+            # "NÃO É SEU" É 404, e não 403: dizer que o caso existe com
+            # outro escritório é contar a um o que é do concorrente.
+            nao_e_dele = "não foi encaminhado" in str(e)
+            raise _problema(404 if nao_e_dele else 422, str(e)) from None
+        return _caso_para_a_tela(caso, _rotulos_das_acoes(ent))
+
+    @app.post("/api/entidade/{apelido}/escritorio/documento")
+    def abrir_documento_do_caso(apelido: str, corpo: dict,
+                                pedido: Request) -> Response:
+        """O PDF de um filiado, para o escritório a quem ele foi encaminhado.
+
+        É A SEGUNDA PORTA por onde documento sai do servidor, e segue a
+        primeira (`abrir_documento_da_fila`): só de caso que é DELE hoje, só
+        arquivo que está na entrega da pessoa, registrado com quem abriu e
+        de quem é, e `no-store`.
+
+        POST, E O CPF NO CORPO: num GET ele iria para a linha de acesso do
+        servidor, que é log.
+        """
+        ent, dele = _do_escritorio(apelido, pedido)
+        cpf = conta.so_digitos(str(corpo.get("cpf") or ""))
+        pedido_de = str(corpo.get("arquivo") or "")
+        nao_ha = _problema(404, "este documento não está entre os casos "
+                                "encaminhados a este escritório")
+        if not cpf or not escritorios.tem_caso(ent.pasta(cfg.raiz),
+                                               dele.id, cpf):
+            raise nao_ha
+        # COMPARA COM A LISTA, não monta caminho com o que veio do pedido.
+        if pedido_de not in _arquivos_entregues(ent, cpf):
+            raise nao_ha
+        _auditar(ent, "ver_documento_pelo_escritorio",
+                 quem_hash=_sessao_de(pedido).cpf_hash,
+                 alvo_hash=portao.marcar_cpf(cpf))
+        corpo_pdf = (ent.entrega(cfg.raiz) / cpf / pedido_de).read_bytes()
+        return Response(
+            content=corpo_pdf, media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'inline; filename="documento.pdf"',
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     # --------------------------------------------- nome por nome
 
