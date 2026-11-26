@@ -294,6 +294,67 @@ TESTES.extend([
 ])
 
 
+# ------------------------------------------------ o Proto do escritório
+
+def _casos_de_exemplo():
+    return [
+        {"nome": "MARIA DE EXEMPLO (FICTÍCIA)", "situacao": "PENDENTE",
+         "faltam": ["procuracao"], "rotulo": "Ação X",
+         "encaminhado_em": "2026-11-01T00:00:00+00:00"},
+        {"nome": "JOSE DE EXEMPLO (FICTÍCIO)", "situacao": "ENCAMINHADO",
+         "faltam": [], "rotulo": "Ação X",
+         "encaminhado_em": "2026-11-20T00:00:00+00:00"},
+        {"nome": "ANA DE EXEMPLO (FICTÍCIA)", "situacao": "ENCAMINHADO",
+         "faltam": [], "rotulo": "Ação X",
+         "encaminhado_em": "2026-11-10T00:00:00+00:00"},
+        {"nome": "HELENA DE EXEMPLO (FICTÍCIA)", "situacao": "COMPLETO",
+         "faltam": [], "rotulo": "Ação X",
+         "encaminhado_em": "2026-11-02T00:00:00+00:00"},
+    ]
+
+
+def teste_o_proto_do_escritorio_responde_com_a_fila_dele():
+    """O mesmo Proto, para o terceiro leitor: quem trabalha no escritório.
+    Lista fechada de assuntos, sem modelo de linguagem, e SÓ com os casos
+    que a rota do escritório já entrega — os dele."""
+    secao("o Proto do escritório")
+    from servidor import atendimento_do_escritorio as proto
+
+    casos = _casos_de_exemplo()
+    falar = lambda p: " ".join(  # noqa: E731
+        proto.responder(proto.entender(p), casos, p))
+
+    checa(proto.entender("quantos casos eu tenho?") == proto.FILA
+          and "4 casos" in falar("quantos casos eu tenho?"),
+          f"não contou a fila: {falar('quantos casos eu tenho?')}")
+    r = falar("o que eu abro primeiro?")
+    checa(proto.entender("o que eu abro primeiro?") == proto.PRIMEIRO
+          and r.index("ANA") < r.index("JOSE"),
+          f"o mais antigo ainda não aberto devia vir na frente: {r}")
+    r = falar("de quem falta documento?")
+    checa("MARIA" in r and "procuração" in r and "JOSE" not in r,
+          f"não disse de quem falta, e o quê: {r}")
+    checa("HELENA" in falar("quem está com a documentação completa?"),
+          "não listou os completos")
+    r = falar("como está a helena?")
+    checa(proto.entender("como está a helena?") == proto.PESSOA
+          and "HELENA" in r and "ocumentação completa" in r,
+          f"não achou a pessoa pelo nome: {r}")
+    checa("não" in falar("como está o fulano de tal?").lower(),
+          "inventou resposta sobre quem não é caso dele")
+    checa(proto.entender("qual o valor da causa?") == proto.NAO_ENTENDI
+          and proto.entender("") == proto.AJUDA,
+          "assunto fora da lista devia cair em 'não entendi'")
+    checa(falar("quantos casos?").count("0 casos") == 0
+          and "nenhum caso" in " ".join(proto.responder(proto.FILA, [])).lower(),
+          "fila vazia devia ser dita, não contada em zeros")
+    checa(len(proto.SUGESTOES) >= 4, "sem sugestões não se sabe o que perguntar")
+    print("  ok     fila, por onde começar, quem falta o quê, e busca por nome")
+
+
+TESTES.extend([teste_o_proto_do_escritorio_responde_com_a_fila_dele])
+
+
 def main() -> int:
     print("=" * 70)
     print("ESCRITÓRIOS — o encaminhamento do filiado, e o retorno")

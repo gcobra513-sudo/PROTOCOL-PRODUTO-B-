@@ -639,11 +639,14 @@ async function faseConferencia(navegador, gritos, resultado) {
     // O PROTO DO GESTOR, na aba dele: a pergunta pronta é respondida com
     // o que o painel diz — e a resposta é conferida do lado de fora.
     await abaDoPainel(g, /Pergunte ao Proto/);
-    await g.getByRole("button", { name: "Quantos filiados estão na base?" }).click();
+    // NA ABA, e não na faixa do topo: o Proto ganhou um lugar no alto do
+    // painel, com as mesmas perguntas. A aba é a conversa longa.
+    const aba = g.locator("#painel-proto");
+    await aba.getByRole("button", { name: "Quantos filiados estão na base?" }).click();
     await g.waitForFunction(
       () => document.querySelectorAll('[role="log"] > div').length >= 4,
       null, { timeout: 15000 });
-    resultado.protoDoGestor = await g.getByRole("log").innerText();
+    resultado.protoDoGestor = await aba.getByRole("log").innerText();
     marco("o gestor perguntou ao Proto quantos filiados há na base, e ele respondeu");
   } finally {
     await contexto.close();

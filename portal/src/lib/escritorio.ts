@@ -6,7 +6,7 @@
  * (quase sempre, nada); o escritório, o que abrir primeiro; o sindicato,
  * onde está parado.
  */
-import type { Encaminhamento, EscritorioDoSindicato } from "./envio";
+import type { CasoDoEscritorio, Encaminhamento, EscritorioDoSindicato } from "./envio";
 
 const ROTULOS: Record<string, string> = {
   ENCAMINHADO: "Aguardando o escritório",
@@ -99,4 +99,66 @@ export function resumoDoEscritorio(e: EscritorioDoSindicato): string[] {
       `${e.completos} com a documentação completa.`,
   );
   return linhas;
+}
+
+
+// ------------------------------------------------- o painel do escritório
+
+function plano(texto: string): string {
+  return (texto ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/** A fila, pelo que o escritório digitou e pela situação escolhida. O texto
+ *  procura no nome e no CPF — é pelo CPF que o escritório casa o caso com
+ *  os registros dele. */
+export function filtrarCasos(
+  casos: CasoDoEscritorio[],
+  filtro: { texto: string; situacao: string },
+): CasoDoEscritorio[] {
+  const texto = plano(filtro.texto).trim();
+  const digitos = texto.replace(/\D/g, "");
+  return casos.filter((c) => {
+    if (filtro.situacao && c.situacao !== filtro.situacao) return false;
+    if (!texto) return true;
+    if (plano(c.nome).includes(texto)) return true;
+    return digitos.length >= 3 && c.cpf.includes(digitos);
+  });
+}
+
+/** Há quantos dias o caso foi encaminhado. Nulo se a data não se lê. */
+export function diasNaFila(encaminhadoEm: string, agora: Date): number | null {
+  const quando = Date.parse(encaminhadoEm);
+  if (!encaminhadoEm || Number.isNaN(quando)) return null;
+  return Math.max(0, Math.floor((agora.getTime() - quando) / 86_400_000));
+}
+
+function cpfPontuado(c: string): string {
+  return c.length === 11 ? `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}` : c;
+}
+
+/** Uma célula de CSV. O que começa com `= + - @` ganha um apóstrofo: num
+ *  Excel, um nome como `=CMD()` seria executado como fórmula por quem abre
+ *  a planilha — e o nome vem de um cadastro que o escritório não digitou. */
+function celula(valor: string): string {
+  let v = (valor ?? "").replace(/[\r\n]+/g, " ");
+  if (/^[=+\-@]/.test(v)) v = `'${v}`;
+  return /[;"]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+/** Os casos do escritório, em planilha: para ele levar ao sistema dele. Com
+ *  BOM e ponto e vírgula, que é como o Excel em português abre sem pedir. */
+export function csvDosCasos(
+  casos: CasoDoEscritorio[],
+  possiveis: { tipo: string; rotulo: string }[],
+): string {
+  const rotulo = (t: string) => possiveis.find((p) => p.tipo === t)?.rotulo ?? t;
+  const linhas = [
+    ["Nome", "CPF", "E-mail", "Telefone", "Ação", "Situação", "Falta", "Documentos enviados", "Encaminhado em"],
+    ...casos.map((c) => [
+      c.nome, cpfPontuado(c.cpf), c.email, c.telefone, c.rotulo,
+      rotuloDaSituacao(c.situacao), c.faltam.map(rotulo).join(", "),
+      c.documentos.map((d) => d.rotulo).join(", "), dia(c.encaminhado_em),
+    ]),
+  ];
+  return "\uFEFF" + linhas.map((l) => l.map(celula).join(";")).join("\r\n") + "\r\n";
 }

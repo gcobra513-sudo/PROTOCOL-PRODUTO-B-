@@ -8,6 +8,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  csvDosCasos,
+  diasNaFila,
+  filtrarCasos,
   fraseParaOFiliado,
   ordemDeTrabalho,
   resumoDoEscritorio,
@@ -82,5 +85,51 @@ describe("o que o sindicato lê de cada escritório", () => {
   it("sem caso nenhum, diz isso em vez de uma fila de zeros", () => {
     expect(resumoDoEscritorio({ ...e, casos: 0, encaminhados: 0, recebidos: 0, pendentes: 0, completos: 0, parados: 0 }))
       .toEqual(["Nenhum caso encaminhado ainda."]);
+  });
+});
+
+describe("o painel do escritório", () => {
+  const caso = (nome: string, situacao: string, extra = {}) => ({
+    cpf: "00000910066", nome, email: "a@exemplo.invalid", telefone: "",
+    documentos: [{ arquivo: "sentenca.pdf", rotulo: "sentença" }],
+    acao: "X", rotulo: "Ação de Exemplo", situacao, faltam: [] as string[],
+    encaminhado_em: "2026-11-20T10:00:00+00:00", atualizado_em: "2026-11-20T10:00:00+00:00",
+    ...extra,
+  });
+  const casos = [
+    caso("MARIA DE EXEMPLO (FICTÍCIA)", "PENDENTE", { faltam: ["procuracao"] }),
+    caso("JOSÉ DE EXEMPLO (FICTÍCIO)", "ENCAMINHADO"),
+    caso("HELENA DE EXEMPLO (FICTÍCIA)", "COMPLETO"),
+  ];
+
+  it("filtra pela situação e pelo nome, sem ligar para acento nem maiúscula", () => {
+    expect(filtrarCasos(casos, { texto: "", situacao: "PENDENTE" }).map((c) => c.nome)).toEqual(["MARIA DE EXEMPLO (FICTÍCIA)"]);
+    expect(filtrarCasos(casos, { texto: "jose", situacao: "" }).map((c) => c.nome)).toEqual(["JOSÉ DE EXEMPLO (FICTÍCIO)"]);
+    expect(filtrarCasos(casos, { texto: "helena", situacao: "PENDENTE" })).toEqual([]);
+    expect(filtrarCasos(casos, { texto: "  ", situacao: "" })).toHaveLength(3);
+  });
+
+  it("acha também pelo CPF, com ou sem pontuação", () => {
+    expect(filtrarCasos(casos, { texto: "000.009.100-66", situacao: "" })).toHaveLength(3);
+    expect(filtrarCasos(casos, { texto: "99999", situacao: "" })).toEqual([]);
+  });
+
+  it("diz há quantos dias o caso está na fila", () => {
+    expect(diasNaFila("2026-11-20T10:00:00+00:00", new Date("2026-11-26T12:00:00Z"))).toBe(6);
+    expect(diasNaFila("2026-11-26T10:00:00+00:00", new Date("2026-11-26T12:00:00Z"))).toBe(0);
+    // Data que não se lê não vira número: "há NaN dias" na tela é pior que nada.
+    expect(diasNaFila("", new Date())).toBe(null);
+  });
+
+  it("a planilha dos casos abre no Excel e não executa fórmula", () => {
+    const csv = csvDosCasos([
+      ...casos,
+      caso("=CMD() DE EXEMPLO", "RECEBIDO"),
+    ], [{ tipo: "procuracao", rotulo: "procuração" }]);
+    const linhas = csv.split("\r\n");
+    expect(linhas[0]).toBe("\uFEFFNome;CPF;E-mail;Telefone;Ação;Situação;Falta;Documentos enviados;Encaminhado em");
+    expect(linhas[1]).toBe("MARIA DE EXEMPLO (FICTÍCIA);000.009.100-66;a@exemplo.invalid;;Ação de Exemplo;Falta documento;procuração;sentença;20/11/2026");
+    // Célula que começa com = + - @ viraria fórmula no Excel de quem abre.
+    expect(linhas[4]?.startsWith("'=CMD()")).toBe(true);
   });
 });

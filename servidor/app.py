@@ -54,6 +54,7 @@ from . import documentos_do_sindicato as lote
 from . import (
     acervo,
     agenda,
+    atendimento_do_escritorio,
     apagamento,
     conferencia,
     documentos,
@@ -2491,6 +2492,26 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             raise _problema(404 if nao_e_dele else 422, str(e)) from None
         return _caso_para_a_tela(caso, _rotulos_das_acoes(ent))
 
+    @app.post("/api/entidade/{apelido}/escritorio/atendimento")
+    def atender_o_escritorio(apelido: str, pedido: Request,
+                             corpo: dict = Body(default_factory=dict)) -> dict:
+        """O Proto do escritório. CHAMA `casos_do_escritorio`, que recusa
+        quem não é de um escritório deste sindicato e devolve só os casos
+        dele: não há um segundo portão, nem uma segunda fila.
+
+        A pergunta não é guardada nem logada — só o assunto reconhecido.
+        """
+        casos = casos_do_escritorio(apelido, pedido)["casos"]
+        pergunta = str(corpo.get("pergunta") or "")[:500]
+        assunto = atendimento_do_escritorio.entender(pergunta)
+        log.info("proto do escritório ent=%s assunto=%s", apelido, assunto)
+        return {
+            "assunto": assunto,
+            "resposta": atendimento_do_escritorio.responder(
+                assunto, casos, pergunta),
+            "sugestoes": list(atendimento_do_escritorio.SUGESTOES),
+        }
+
     @app.post("/api/entidade/{apelido}/escritorio/documento")
     def abrir_documento_do_caso(apelido: str, corpo: dict,
                                 pedido: Request) -> Response:
@@ -3184,7 +3205,20 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         filiado não vai para modelo de linguagem.
         """
         sessao = _sessao_de(pedido)
-        assunto = atendimento.entender(str(corpo.get("pergunta") or "")[:500])
+        pergunta = str(corpo.get("pergunta") or "")[:500]
+        # "COM QUEM ESTÁ O MEU CASO?" é respondida ANTES do Proto do núcleo,
+        # que não sabe de escritório (`atendimento_do_escritorio`).
+        if atendimento_do_escritorio.e_sobre_o_encaminhamento(pergunta):
+            dele = minhas_acoes(pedido).get("encaminhamentos") or []
+            log.info("atendimento ent=%s assunto=encaminhamento",
+                     sessao.entidade)
+            return {
+                "assunto": "encaminhamento",
+                "resposta": atendimento_do_escritorio.responder_ao_filiado(dele),
+                "sugestoes": [atendimento_do_escritorio.PERGUNTA_DO_FILIADO,
+                              *atendimento.SUGESTOES],
+            }
+        assunto = atendimento.entender(pergunta)
         dados: dict = {}
         if assunto in (atendimento.PROCESSOS, atendimento.NOVIDADES):
             dados["processos"] = meus_processos(pedido)

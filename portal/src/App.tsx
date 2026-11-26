@@ -413,7 +413,14 @@ export function App() {
             </a>
             {/* Quem já entrou não precisa mais da lista. */}
             {!token ? (
-              <AcessosDaDemo acessos={acessosDemo} apelido={apelido} />
+              <AcessosDaDemo
+                acessos={acessosDemo}
+                apelido={apelido}
+                onEntrar={(novo, cpf, destino) => {
+                  entrou(novo, cpf);
+                  irPara(destino);
+                }}
+              />
             ) : null}
           </Aviso>
         ) : null}

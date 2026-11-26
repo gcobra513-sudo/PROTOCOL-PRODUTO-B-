@@ -126,9 +126,10 @@ export function GuiaDaDemo({ onPrivacidade }: { onPrivacidade: () => void }) {
             exemplo. Não envie documento de verdade nesta página.
           </li>
           <li className="rounded-xl bg-carta p-6 text-[15px] leading-relaxed text-tinta/80 shadow-cartao">
-            <strong className="block text-tinta">O código aparece na tela.</strong>
-            No portal de verdade ele chega no e-mail que o sindicato tem em
-            cadastro. Aqui, depois de pedir, ele aparece na própria tela.
+            <strong className="block text-tinta">Entre com um toque.</strong>
+            Na demonstração cada perfil tem um botão “Entrar como”, e cada um
+            cai na própria área. No portal de verdade a pessoa entra com o
+            CPF e um código que chega no e-mail cadastrado pelo sindicato.
           </li>
           <li className="rounded-xl bg-carta p-6 text-[15px] leading-relaxed text-tinta/80 shadow-cartao">
             <strong className="block text-tinta">Abra o link um minuto antes.</strong>

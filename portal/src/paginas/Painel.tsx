@@ -78,6 +78,7 @@ import { conferirCpf, formatarCpf } from "../lib/validacao";
 import { resumoDoEscritorio } from "../lib/escritorio";
 import { sessaoMorreu } from "../lib/sessao";
 import { Conversa } from "../componentes/Conversa";
+import { ProtoNoTopo } from "../componentes/ProtoNoTopo";
 import { Portao } from "./Portao";
 
 function Numero({
@@ -727,7 +728,12 @@ function FilaDeConferencia({
   }, [entidade, token, versao]);
 
   const quantos = fila ? fila.pendentes.length + fila.ilegiveis.length : 0;
-  useEffect(() => onQuantos(quantos), [quantos, onQuantos]);
+  // SÓ DEPOIS DE SABER. Avisar "zero" enquanto a fila ainda carrega fazia o
+  // painel escrever "nenhum documento esperando leitura" por um instante,
+  // ao lado da fila que acabava de chegar — o ensaio pegou os dois juntos.
+  useEffect(() => {
+    if (fila) onQuantos(quantos);
+  }, [fila, quantos, onQuantos]);
 
   if (erro) return null; // sem banco o painel já diz que não sabe da fila
   if (!fila || (!fila.pendentes.length && !fila.ilegiveis.length)) return null;
@@ -1636,7 +1642,7 @@ export function Painel({
   const [portal, setPortal] = useState<FiltroDoPortal>("");
   const [dono, setDono] = useState("");
   // Quantos documentos a fila tem NA TELA: é o número do selo da aba.
-  const [filaNaTela, setFilaNaTela] = useState(0);
+  const [filaNaTela, setFilaNaTela] = useState<number | null>(null);
   const [todosForaDeAlcance, setTodosForaDeAlcance] = useState(false);
 
   useEffect(() => {
@@ -1730,6 +1736,17 @@ export function Painel({
 
   return (
     <div className="space-y-6">
+      {/* O PROTO, NO TOPO: era a quinta aba, e a diretoria não chegava
+          até ela. A aba continua, para a conversa longa. */}
+      <ProtoNoTopo
+        para="Estou aqui para ajudar a diretoria: digo quantos filiados há na base, com quantos você não consegue falar e o que resolver primeiro. Respondo na hora, com o que está neste painel."
+        abertura={ABERTURA_DO_PROTO_DO_GESTOR}
+        sugestoes={PERGUNTAS_DO_GESTOR_AO_PROTO}
+        perguntar={(p) => api.perguntarComoGestor(entidade, token, p)}
+        consultando="Consultando o painel…"
+        onSessaoMorta={onSessaoMorta}
+      />
+
       {/* OS NÚMEROS DA BASE, antes de tudo — e cada um ABRE a lista do que
           conta. Número que não vira nomes obriga o gestor a procurar por
           conta própria quem são aquelas pessoas. */}
@@ -1825,7 +1842,7 @@ export function Painel({
           >
             <span className="md:hidden">{a.curto}</span>
             <span className="hidden md:inline">{a.rotulo}</span>
-            {a.id === "documentos" && filaNaTela > 0 ? (
+            {a.id === "documentos" && (filaNaTela ?? 0) > 0 ? (
               <span className="ml-1 rounded-full bg-alerta px-2 py-0.5 text-sm text-carta md:ml-2">
                 {filaNaTela}
               </span>
