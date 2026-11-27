@@ -5200,6 +5200,28 @@ def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
     checa(cliente.post(proto, json={"pergunta": "oi"},
                        headers=gestor()).status_code == 403,
           "quem não é de escritório falou com o Proto do escritório")
+    # AS TESES ACOMPANHADAS, para as duas pontas que decidem: o escritório
+    # e a diretoria. Com quantas pessoas cada uma alcançaria, se conferida.
+    for cab, quem in ((adv_a(), "o escritório"), (gestor(), "o gestor")):
+        r = cliente.get(f"/api/entidade/{entidade}/teses", headers=cab)
+        checa(r.status_code == 200, f"{quem}: {r.status_code} {r.text[:200]}")
+        por_id = {t["id"]: t for t in r.json()["teses"]}
+        checa({"STJ-T1169", "GIFA-2006"} <= set(por_id)
+              and por_id["STJ-T1169"]["rotulo"] == "STJ, Tema 1.169"
+              and por_id["STJ-T1169"]["conferida"] is False
+              and por_id["GIFA-2006"]["tipo"] == "acao"
+              and por_id["GIFA-2006"]["poderiam"]
+              + por_id["GIFA-2006"]["dependem"]
+              + por_id["GIFA-2006"]["fora"] == 1,
+              f"{quem} não vê as teses com o alcance de cada uma: "
+              f"{ {k: (v['poderiam'], v['dependem'], v['fora']) for k, v in por_id.items()} }")
+        checa(A not in r.text, f"as teses devolveram CPF para {quem}")
+    checa(cliente.get(f"/api/entidade/{entidade}/teses",
+                      headers=_de(cliente, A, entidade)).status_code == 403,
+          "o filiado abriu a lista de teses com a contagem da base")
+    # E O VEREDICTO DO FILIADO NÃO MUDOU por causa da simulação.
+    checa(_executar_gifa(cliente, A, entidade)[0] == "FALTA",
+          "A SIMULAÇÃO DE IMPACTO MUDOU O VEREDICTO QUE O FILIADO VÊ")
     print("  ok     encaminha, recebe, abre, marca; o filiado e o sindicato veem")
 
 

@@ -187,6 +187,22 @@ def teste_a_demo_sobe_fictícia_e_desce_limpa():
         checa(all("FICTÍCI" in c["nome"] for c in casos),
               "caso com nome que não se declara fictício")
 
+        # A NOVIDADE NOS TRIBUNAIS: um tema fictício "julgado ontem", com
+        # quantas pessoas alcança — para o escritório e para a diretoria.
+        s, corpo = _pedir(base + f"/api/entidade/{apelido}/teses",
+                          token=tokens[4])
+        t = json.loads(corpo) if s == 200 else {}
+        frases = [n["frase"] for n in t.get("novidades", [])]
+        checa(len(frases) == 2 and "julgou o Tema 9.001" in frases[0]
+              and "FICTÍCIO" in frases[0] and "vai julgar" in frases[1],
+              f"a demonstração devia ter um tema julgado e um afetado, "
+              f"recentes: {s} {frases}")
+        julgado = {x["id"]: x for x in t.get("teses", [])}.get(
+            "EXEMPLO-TEMA-JULGADO", {})
+        checa(julgado.get("poderiam", 0) > 0 and julgado.get("conferida") is False,
+              f"o tema julgado devia alcançar alguém, e não estar conferido: "
+              f"{julgado}")
+
         # A VISÃO ÚNICA: com o MESMO login, os casos dos dois sindicatos de
         # demonstração que cadastraram este escritório.
         s, corpo = _pedir(base + "/api/escritorio/casos", token=tokens[4])

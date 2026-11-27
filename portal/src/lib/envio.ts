@@ -602,6 +602,36 @@ export interface CasoDoSindicato {
   historico: PassoDoCaso[];
 }
 
+/** Uma tese acompanhada (tema de tribunal ou ação coletiva), com o alcance
+ *  na base de UM sindicato. O alcance é simulação: ver `lib/teses.ts`. */
+export interface Tese {
+  id: string;
+  /** "tema" | "acao" */
+  tipo: string;
+  rotulo: string;
+  tribunal: string;
+  situacao: string;
+  data: string;
+  questao: string;
+  tese: string;
+  fonte: string;
+  conferida: boolean;
+  poderiam: number;
+  dependem: number;
+  fora: number;
+}
+
+/** O que um tribunal julgou ou afetou nos últimos trinta dias, em frase. */
+export interface NovidadeNosTribunais {
+  id: string;
+  evento: string;
+  data: string;
+  rotulo: string;
+  frase: string;
+  entidade?: string;
+  sindicato?: string;
+}
+
 /** Um sindicato que contratou o escritório, como ele o vê na visão única. */
 export interface SindicatoDoEscritorio {
   entidade: string;
@@ -611,10 +641,12 @@ export interface SindicatoDoEscritorio {
   casos: number;
   aguardando: number;
   pendentes: number;
+  teses?: Tese[];
 }
 
 export interface VisaoUnicaDoEscritorio {
   sindicatos: SindicatoDoEscritorio[];
+  novidades?: NovidadeNosTribunais[];
   casos: CasoDoEscritorio[];
   documentos_possiveis: { tipo: string; rotulo: string }[];
 }
@@ -649,6 +681,12 @@ const ent = (apelido: string) => `/api/entidade/${encodeURIComponent(apelido)}`;
 export const verEscritorios = (apelido: string, token: string) =>
   comSessao<VisaoDosEscritorios>(
     `${ent(apelido)}/escritorios`, token, "não foi possível abrir os escritórios",
+  );
+
+/** As teses acompanhadas para um sindicato — para a diretoria dele. */
+export const verTeses = (apelido: string, token: string) =>
+  comSessao<{ teses: Tese[]; novidades: NovidadeNosTribunais[] }>(
+    `${ent(apelido)}/teses`, token, "não foi possível abrir as teses",
   );
 
 export const verCasosDosEscritorios = (apelido: string, token: string) =>

@@ -548,6 +548,30 @@ def _cpf(c: str) -> str:
     return f"{c[:3]}.{c[3:6]}.{c[6:9]}-{c[9:]}"
 
 
+def catalogo_com_datas_de_hoje(destino: pathlib.Path) -> pathlib.Path:
+    """Uma cópia do catálogo fictício com os temas "julgados ontem".
+
+    A novidade dos tribunais é o que foi julgado nos últimos trinta dias. Um
+    catálogo de demonstração com data fixa deixaria de ter novidade um mês
+    depois de escrito — e a tela mais forte da demonstração ficaria vazia.
+    Só as DATAS mudam; o resto do arquivo é o do repositório.
+    """
+    import datetime as dt
+    import re
+
+    hoje = dt.datetime.now(dt.UTC).date()
+    shutil.rmtree(destino, ignore_errors=True)
+    destino.mkdir(parents=True)
+    for arquivo in sorted(CATALOGO.glob("*.toml")):
+        texto = arquivo.read_text(encoding="utf-8")
+        texto = re.sub(r'(?m)^(julgado_em\s*=\s*)"[^"]*"',
+                       rf'\g<1>"{hoje - dt.timedelta(days=1)}"', texto)
+        texto = re.sub(r'(?m)^(afetado_em\s*=\s*)"[^"]*"',
+                       rf'\g<1>"{hoje - dt.timedelta(days=12)}"', texto)
+        (destino / arquivo.name).write_text(texto, encoding="utf-8")
+    return destino
+
+
 # ------------------------------------------------------------------ principal
 
 
@@ -651,7 +675,8 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
         "PROTOCOL_MODO_ENSAIO": "1",
         # O CATÁLOGO FICTÍCIO: uma carreira e uma ação inventadas, para a
         # demonstração ter quem pode. O servidor só o aceita em modo ensaio.
-        "PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO": str(CATALOGO),
+        "PROTOCOL_CATEGORIAS_DA_DEMONSTRACAO": str(
+            catalogo_com_datas_de_hoje(pasta / "categorias")),
         "PROTOCOL_RAIZ": str(raiz),
         "PROTOCOL_AGENDAR": "0",
         "PROTOCOL_DATABASE_URL": url,

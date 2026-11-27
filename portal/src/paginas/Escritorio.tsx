@@ -30,6 +30,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { Historico } from "../componentes/Historico";
+import { Novidades, Teses } from "../componentes/Teses";
 import { ProtoNoTopo } from "../componentes/ProtoNoTopo";
 import { Aviso, Botao, Campo, Cartao, Destaque, Mini } from "../componentes/ui";
 import * as api from "../lib/envio";
@@ -51,6 +52,7 @@ const CORES = {
 } as const;
 
 const PERGUNTAS = [
+  "Teve novidade nos tribunais?",
   "Quantos casos eu tenho?",
   "O que eu abro primeiro?",
   "De quem falta documento?",
@@ -374,6 +376,13 @@ export function Escritorio({
         </p>
       </div>
 
+      {/* O "BOM DIA": o que os tribunais decidiram, e quantas pessoas de
+          cada sindicato isso alcança. Antes do Proto e dos números — é a
+          notícia do dia. */}
+      <Novidades
+        novidades={(dados.novidades ?? []).filter((n) => !sindicato || n.entidade === sindicato)}
+      />
+
       <ProtoNoTopo
         para="Estou aqui para ajudar o escritório: digo quantos casos chegaram, por onde começar e de quem falta documento. Respondo na hora."
         abertura={ABERTURA}
@@ -554,6 +563,13 @@ export function Escritorio({
           )}
         </Cartao>
       </div>
+      {/* AS TESES de cada sindicato. Cada um tem a carreira dele, e por
+          isso a lista é por sindicato. */}
+      {dados.sindicatos
+        .filter((x) => !sindicato || x.entidade === sindicato)
+        .map((x) => (
+          <Teses key={x.entidade} teses={x.teses ?? []} de={varios ? x.nome : undefined} />
+        ))}
     </div>
   );
 }

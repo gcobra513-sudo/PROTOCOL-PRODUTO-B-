@@ -348,6 +348,18 @@ def teste_o_proto_do_escritorio_responde_com_a_fila_dele():
     checa(falar("quantos casos?").count("0 casos") == 0
           and "nenhum caso" in " ".join(proto.responder(proto.FILA, [])).lower(),
           "fila vazia devia ser dita, não contada em zeros")
+    # AS NOVIDADES NOS TRIBUNAIS: repete a frase que o painel já diz.
+    nova = [{"frase": "O STJ julgou o Tema 9.001 em 20/11/2026. No "
+                      "Sindicato Z, 12 pessoas poderiam entrar com a ação."}]
+    checa(proto.entender("teve novidade nos tribunais?") == proto.NOVIDADES
+          and proto.entender("o STJ julgou algum tema?") == proto.NOVIDADES,
+          "não reconheceu a pergunta sobre os tribunais")
+    r = " ".join(proto.responder(proto.NOVIDADES, casos, novidades=nova))
+    checa("julgou o Tema 9.001" in r and "simulação" in r,
+          f"não repetiu a novidade, ou não disse que é simulação: {r}")
+    checa("Não há novidade" in " ".join(
+              proto.responder(proto.NOVIDADES, casos, novidades=[])),
+          "sem novidade devia dizer que não há")
     checa(len(proto.SUGESTOES) >= 4, "sem sugestões não se sabe o que perguntar")
     print("  ok     fila, por onde começar, quem falta o quê, e busca por nome")
 

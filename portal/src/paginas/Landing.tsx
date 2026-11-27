@@ -19,9 +19,11 @@ import {
   ChevronDown,
   CircleHelp,
   FileSpreadsheet,
+  Landmark,
   LayoutDashboard,
   ListChecks,
   MailX,
+  Megaphone,
   MessagesSquare,
   PhoneCall,
   Send,
@@ -395,6 +397,59 @@ export function Landing({ onPrivacidade }: { onPrivacidade: () => void }) {
                 </li>
               ))}
             </ul>
+          </div>
+        </section>
+
+        {/* AS TESES. É o argumento para o escritório: ele não precisa
+            garimpar a base quando um tribunal decide — o portal já cruzou. */}
+        <section id="teses" className="bg-gradient-to-br from-ceu/70 via-lilas/60 to-ceu/70 py-16">
+          <div className="mx-auto grid max-w-6xl items-center gap-10 px-4 sm:px-6 md:grid-cols-2">
+            <div aria-hidden="true" className="rounded-2xl border-2 border-bom/30 bg-carta p-6 shadow-cartao">
+              <div className="flex items-start gap-4">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-bom text-white">
+                  <Megaphone className="h-6 w-6" />
+                </span>
+                <div>
+                  <p className="text-lg font-bold text-tinta">Bom dia. Há uma novidade nos tribunais.</p>
+                  <p className="mt-2 rounded-lg bg-papel p-3 text-[15px] leading-relaxed text-tinta">
+                    O tribunal julgou o Tema 9.001 ontem. No Sindicato de
+                    Demonstração, 5 pessoas poderiam entrar com a ação e
+                    outras 37 dependem de alguma conferência.
+                  </p>
+                  <p className="mt-2 text-sm text-tinta/65">
+                    Exemplo com tema e sindicato fictícios, como aparece no painel do escritório.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div>
+              <span className="inline-flex items-center gap-2 rounded-full bg-carta px-4 py-1.5 text-sm font-semibold text-acento">
+                <Landmark className="h-4 w-4" aria-hidden="true" /> Teses e tribunais
+              </span>
+              <h2 className="mt-4 text-3xl font-bold text-tinta sm:text-4xl">
+                O tribunal decidiu. O portal já sabe quem é alcançado.
+              </h2>
+              <p className="mt-3 text-[17px] leading-relaxed text-tinta/75">
+                Acompanhamos os temas dos tribunais e as ações coletivas da
+                carreira de cada sindicato. Quando um tema é julgado, o
+                portal cruza com a base inteira e avisa o escritório e a
+                diretoria, no painel e por e-mail.
+              </p>
+              <ul className="mt-5 space-y-3 text-[16px] text-tinta/85">
+                {[
+                  "Quantas pessoas teriam o caminho aberto, e quantas ainda dependem de alguma conferência.",
+                  "Os dados e os documentos de cada uma já organizados, prontos para o escritório redigir.",
+                  "Nada muda para o filiado antes de um advogado conferir a tese.",
+                ].map((t) => (
+                  <li key={t} className="flex items-start gap-3">
+                    <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-bom text-white">
+                      <Check className="h-4 w-4" aria-hidden="true" />
+                    </span>
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </section>
 

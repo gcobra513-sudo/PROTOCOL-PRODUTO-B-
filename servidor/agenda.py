@@ -52,7 +52,11 @@ log = logging.getLogger("protocol.agenda")
 #: `parados` é o lembrete aos ESCRITÓRIOS dos casos que o sindicato
 #: encaminhou e eles ainda não confirmaram (`ferramentas/lembrar_parados`).
 #: Também não depende das outras; fica no fim pela mesma razão de `pedidos`.
-TAREFAS = ("coletar", "avisar", "reavaliar", "pedidos", "parados")
+#:
+#: `teses` é o aviso da manhã: o que os tribunais julgaram, e quantas pessoas
+#: da base alcança (`ferramentas/avisar_teses.py`). Depois de `reavaliar`,
+#: porque fala do mesmo catálogo; no fim, porque é e-mail.
+TAREFAS = ("coletar", "avisar", "reavaliar", "pedidos", "parados", "teses")
 
 #: A partir de quanto tempo sem uma execução BOA o trabalho conta como
 #: atrasado. Os trabalhos são diários: menos que 24h daria alarme falso a
@@ -317,6 +321,8 @@ def tarefas_padrao(cfg):
         # repete, uma vez por semana por caso, enquanto o escritório não
         # confirmar. Sai com 1 se o lembrete de algum escritório não saiu.
         "parados": _rodar("lembrar_parados.py", []),
+        # O AVISO DA MANHÃ: novidade nos tribunais, uma vez por novidade.
+        "teses": _rodar("avisar_teses.py", []),
     }
 
 
