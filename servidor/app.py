@@ -51,6 +51,7 @@ from nucleo import cadastro as conta
 from nucleo import entendimentos, leitura, motor, panorama
 from nucleo import dito, participacao, pendencia, teses
 
+from . import cofre as cofres
 from . import documentos_do_sindicato as lote
 from . import (
     acervo,
@@ -1068,12 +1069,12 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 )
             except Exception:  # noqa: BLE001
                 log.exception("ACHADOS do banco falharam; relendo os arquivos")
-        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
-        for arquivo in sorted(pasta.glob("*.pdf")) if pasta.is_dir() else []:
+        guarda, digitos = cofres.padrao(cfg.raiz), conta.so_digitos(cpf)
+        for nome in guarda.nomes(ent, digitos):
             try:
-                achados += documentos.ler_pdf(arquivo.read_bytes())
+                achados += documentos.ler_pdf(guarda.ler(ent, digitos, nome))
             except Exception:  # noqa: BLE001
-                log.warning("documento ilegível em %s", arquivo.name)
+                log.warning("documento ilegível em %s", nome)
         return leitura.fatos_confiaveis(achados)
 
     def _entregues_do_cpf(ent: entidades.Entidade, cpf: str) -> tuple[str, ...]:
@@ -1092,10 +1093,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
                 return banco.documentos_do_cpf(cfg.banco_url, ent.apelido, cpf)
             except Exception:  # noqa: BLE001
                 log.exception("DOCUMENTOS do banco falharam; olhando o disco")
-        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
-        nomes = (
-            [a.name for a in pasta.glob("*.pdf")] if pasta.is_dir() else []
-        )
+        nomes = cofres.padrao(cfg.raiz).nomes(ent, conta.so_digitos(cpf))
         return panorama.tipos_entregues(nomes)
 
     @app.get("/api/meu-cadastro")
@@ -2364,9 +2362,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         raise recusa
 
     def _arquivos_entregues(ent: entidades.Entidade, cpf: str) -> list[str]:
-        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(cpf)
-        return sorted(a.name for a in pasta.glob("*.pdf")) \
-            if pasta.is_dir() else []
+        return cofres.padrao(cfg.raiz).nomes(ent, conta.so_digitos(cpf))
 
     def _caso_para_a_tela(caso: escritorios.Caso, rotulos: dict) -> dict:
         return {
@@ -2798,7 +2794,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         # E NO HISTÓRICO DO CASO, que é onde o sindicato lê quem abriu o quê.
         escritorios.registrar(ent.pasta(cfg.raiz), "documento", cpf=cpf,
                               escritorio=dele.id, arquivo=pedido_de)
-        corpo_pdf = (ent.entrega(cfg.raiz) / cpf / pedido_de).read_bytes()
+        corpo_pdf = cofres.padrao(cfg.raiz).ler(ent, cpf, pedido_de)
         return Response(
             content=corpo_pdf, media_type="application/pdf",
             headers={
@@ -3091,9 +3087,10 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         _auditar(ent, "ver_documento",
                  quem_hash=_sessao_de(pedido).cpf_hash,
                  alvo_hash=portao.marcar_cpf(linha["cpf"]))
-        pasta = ent.entrega(cfg.raiz) / conta.so_digitos(linha["cpf"])
-        for arquivo in sorted(pasta.glob("*.pdf")) if pasta.is_dir() else []:
-            corpo = arquivo.read_bytes()
+        guarda = cofres.padrao(cfg.raiz)
+        digitos = conta.so_digitos(linha["cpf"])
+        for nome in guarda.nomes(ent, digitos):
+            corpo = guarda.ler(ent, digitos, nome)
             if hashlib.sha256(corpo).hexdigest() == linha["sha256"]:
                 return Response(
                     content=corpo,

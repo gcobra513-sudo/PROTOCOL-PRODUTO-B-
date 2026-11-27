@@ -36,11 +36,11 @@ from __future__ import annotations
 
 import contextlib
 import pathlib
-import shutil
 
 from . import (acervo, banco, conferencia, deposito, escritorios, fichas, rol,
                substituidos,
                trocas, validacao)
+from . import cofre as cofres
 from .entidades import Entidade
 
 #: Extensões que a varredura de bytes abre. PDF fica de fora de propósito: o
@@ -66,7 +66,7 @@ TETO_DO_TEXTO = 500
 
 
 def vestigios(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
-              portao, email: str = "") -> list[str]:
+              portao, email: str = "", guarda=None) -> list[str]:
     """O que AINDA existe desta pessoa, em qualquer lugar.
 
     Vazio é a única prova aceitável de que o apagamento terminou, e é o que
@@ -181,14 +181,12 @@ def vestigios(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     if manifesto.is_file() and _procurar(manifesto, digitos, ""):
         achados.append(f"manifesto: linha em {deposito.MANIFESTO} ({marca})")
 
-    # AS PASTAS POR CAMINHO, que é o que pega os PDFs.
-    for rotulo, alvo in (
-        ("entrega", ent.entrega(raiz) / digitos),
-        ("historico", pasta / deposito.HISTORICO / digitos),
-    ):
-        if alvo.is_dir():
-            quantos = sum(1 for f in alvo.rglob("*") if f.is_file())
-            achados.append(f"{rotulo}: {quantos} arquivo(s) ({marca})")
+    # OS PDFs, perguntados ao COFRE — que pode ser o disco ou o depósito
+    # na nuvem. Olhar só o disco diria "não sobrou nada" com os documentos
+    # inteiros do outro lado.
+    for rotulo, quantos in sorted(
+            (guarda or cofres.padrao(raiz)).contar(ent, digitos).items()):
+        achados.append(f"{rotulo}: {quantos} arquivo(s) ({marca})")
 
     # A ÁREA DE MONTAGEM, indexada por PROTOCOLO e não por CPF. Um envio que
     # caiu entre montar e trocar deixa a sentença ali. `depositar` escreve o
@@ -282,7 +280,7 @@ def se_ainda_esta(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str):
 
 
 def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
-           motivo: str, pedido_por: str, portao) -> dict:
+           motivo: str, pedido_por: str, portao, guarda=None) -> dict:
     """Apaga esta pessoa de tudo, e CONFERE no fim — com a planilha parada.
 
     A trava é a mesma que `ingestao.gravar_planilha` segura: uma planilha
@@ -291,11 +289,11 @@ def apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     """
     with deposito.travada(ent.pasta(raiz), deposito.TRAVA_DO_APAGAMENTO):
         return _apagar(url, ent, raiz, cpf, motivo=motivo,
-                       pedido_por=pedido_por, portao=portao)
+                       pedido_por=pedido_por, portao=portao, guarda=guarda)
 
 
 def _apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
-            motivo: str, pedido_por: str, portao) -> dict:
+            motivo: str, pedido_por: str, portao, guarda=None) -> dict:
     """O apagamento em si. Quem chama é `apagar`, com a trava tomada.
 
     A ORDEM É O DESENHO, e cada passo está onde está por um motivo:
@@ -360,14 +358,8 @@ def _apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
     redigidos = deposito.redigir_no_diario(ent, raiz, digitos)
 
     # 4. Arquivos, róis, acervo e logs.
-    arquivos = 0
-    alvos = [ent.entrega(raiz) / digitos,
-             pasta / deposito.HISTORICO / digitos]
-    alvos += [pasta / deposito.PARCIAL / p for p in protocolos]
-    for alvo in alvos:
-        if alvo.is_dir():
-            arquivos += sum(1 for f in alvo.rglob("*") if f.is_file())
-            shutil.rmtree(alvo)
+    guarda = guarda or cofres.padrao(raiz)
+    arquivos = guarda.apagar(ent, digitos, protocolos)
 
     saiu_do_rol = rol.remover(pasta, digitos)
     saiu_do_acervo = _remover_do_acervo(pasta, digitos)
@@ -401,7 +393,7 @@ def _apagar(url: str, ent: Entidade, raiz: pathlib.Path, cpf: str, *,
         "logs": das_mensagens,
         "email_conhecido": bool(email),
         "vestigios": vestigios(url, ent, raiz, digitos, portao=portao,
-                               email=email),
+                               email=email, guarda=guarda),
     }
 
 

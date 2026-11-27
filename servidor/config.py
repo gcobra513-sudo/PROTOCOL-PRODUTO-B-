@@ -258,6 +258,18 @@ def carregar(ambiente: dict[str, str] | None = None) -> Config:
             "é o que foi medido. Esta variável só serve para BAIXAR o teto.")
     teto_do_pacote = teto_mb * 1024 * 1024
 
+    # O DEPÓSITO DE DOCUMENTOS NA NUVEM, se houver. Conferido AQUI, na
+    # subida: região fora do Brasil, endereço sem cifra ou configuração pela
+    # metade não podem ser descobertos no primeiro envio de um filiado.
+    # São cinco, lidas em `cofre.py`: PROTOCOL_COFRE_ENDERECO,
+    # PROTOCOL_COFRE_REGIAO, PROTOCOL_COFRE_BALDE, PROTOCOL_COFRE_CHAVE_ID e
+    # PROTOCOL_COFRE_SEGREDO.
+    from . import cofre as cofres
+    try:
+        cofres.ajuste_do_ambiente(amb)
+    except cofres.AjusteRecusado as e:
+        raise ConfiguracaoInvalida(str(e)) from None
+
     banco_url = amb.get("PROTOCOL_DATABASE_URL", "").strip()
     if not banco_url:
         avisos.append(
