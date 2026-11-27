@@ -194,6 +194,24 @@ def apagar_leva_tudo_e_so_o_dela(c, onde):
     checa(c.apagar(SIND, A, []) == 0, f"[{onde}] apagar de novo é zero")
 
 
+@nos_dois
+def esvaziar_um_sindicato_nao_toca_o_vizinho(c, onde):
+    """A demonstração recomeça do zero a cada reinício, e o depósito na nuvem
+    não recomeça sozinho: sem isto, o documento fictício de ontem reaparece
+    na pasta de quem se cadastrar hoje com o mesmo CPF de teste."""
+    c.trocar(ent("sind"), A, "p1", {"rg.pdf": b"1"})
+    c.trocar(ent("sind"), A, "p2", {"rg.pdf": b"2"})
+    c.trocar(ent("sind"), B, "p3", {"rg.pdf": b"3"})
+    c.trocar(ent("sind-a"), A, "p4", {"rg.pdf": b"vizinho"})
+    foram = c.esvaziar(ent("sind"))
+    checa(foram == 3, f"[{onde}] esvaziou {foram}, eram 3")
+    checa(c.nomes(ent("sind"), A) == [] and c.contar(ent("sind"), B) == {},
+          f"[{onde}] não sobra nada do sindicato esvaziado")
+    checa(c.ler(ent("sind-a"), A, "rg.pdf") == b"vizinho",
+          f"[{onde}] `sind` esvaziado alcançou `sind-a`")
+    checa(c.esvaziar(ent("sind")) == 0, f"[{onde}] esvaziar de novo é zero")
+
+
 def t_prefixo_de_cpf_nao_alcanca_o_vizinho():
     """No S3 o "diretório" é só um prefixo de texto. Sem a barra no fim,
     apagar `sind-a/0000091006` levaria junto `sind-a/00000910066`…"""

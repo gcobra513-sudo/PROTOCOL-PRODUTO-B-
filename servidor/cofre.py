@@ -201,6 +201,22 @@ class NoDisco:
         return foram
 
 
+    def esvaziar(self, ent: Entidade) -> int:
+        """Tira TODOS os documentos de um sindicato. Só a demonstração
+        chama, ao recomeçar do zero."""
+        _conferir(ent, "00000000000")
+        pasta = ent.pasta(self._raiz)
+        foram = 0
+        for alvo in (pasta / ENTREGA, pasta / HISTORICO, pasta / PARCIAL):
+            if alvo.is_dir():
+                # O manifesto mora em `entrega/` e não é documento de ninguém.
+                foram += sum(1 for f in alvo.rglob("*.pdf") if f.is_file())
+                for filho in alvo.iterdir():
+                    if filho.is_dir():
+                        shutil.rmtree(filho)
+        return foram
+
+
 # -------------------------------------------------------------------- S3
 
 
@@ -308,6 +324,17 @@ class NoS3:
         # jeito, para os dois cofres recusarem as mesmas coisas.
         _conferir(ent, cpf, protocolos=list(protocolos))
         chaves = self._chaves(self._da_pessoa(ent, cpf))
+        for chave in chaves:
+            self._s3.delete_object(Bucket=self._balde, Key=chave)
+        return len(chaves)
+
+
+    def esvaziar(self, ent: Entidade) -> int:
+        """Tira TODOS os documentos de um sindicato. Só a demonstração
+        chama, ao recomeçar do zero."""
+        _conferir(ent, "00000000000")
+        # COM A BARRA: `sind/` não é prefixo de `sind-a/`.
+        chaves = self._chaves(f"{ent.apelido}/")
         for chave in chaves:
             self._s3.delete_object(Bucket=self._balde, Key=chave)
         return len(chaves)

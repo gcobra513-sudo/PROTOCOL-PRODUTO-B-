@@ -653,6 +653,15 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
     (pasta_b / trocas.ARQUIVO_DE_DOMINIOS).write_text(
         DOMINIO + "\n", encoding="utf-8")
 
+    # O DEPÓSITO NA NUVEM NÃO RECOMEÇA SOZINHO. O disco acabou de ser
+    # apagado; se os PDFs moram num depósito, os de antes do reinício ainda
+    # estão lá, e apareceriam na pasta de quem se cadastrasse agora. Só os
+    # dois sindicatos da demonstração são esvaziados — nenhum outro.
+    from servidor import cofre as cofres
+    guarda = cofres.padrao(raiz)
+    for apelido in (APELIDO, APELIDO_B):
+        guarda.esvaziar(entidades.Cadastro(raiz).resolver(apelido))
+
     if a.portal_pronto:
         portal = pathlib.Path(a.portal_pronto).resolve()
         if not (portal / "index.html").is_file():
