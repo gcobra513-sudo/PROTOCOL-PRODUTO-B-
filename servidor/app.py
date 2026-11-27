@@ -32,6 +32,7 @@ import hmac
 import io
 import json
 import logging
+import datetime as dt
 import pathlib
 import re
 from typing import Annotated
@@ -48,7 +49,7 @@ from fastapi.responses import JSONResponse, Response
 from nucleo import atendimento, atendimento_do_gestor
 from nucleo import cadastro as conta
 from nucleo import entendimentos, leitura, motor, panorama
-from nucleo import dito, participacao, pendencia
+from nucleo import dito, participacao, pendencia, teses
 
 from . import documentos_do_sindicato as lote
 from . import (
@@ -72,6 +73,7 @@ from . import (
     substituidos,
     trocas,
     validacao,
+    vigia,
 )
 from .config import (
     LIMITE_ARQUIVO_BYTES,
@@ -2644,6 +2646,27 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             "sugestoes": list(atendimento_do_escritorio.SUGESTOES),
         }
 
+    def _teses_da_entidade(ent: entidades.Entidade) -> dict:
+        """As teses deste sindicato, com o alcance na base dele. A conta é
+        de `servidor/vigia.py`, a mesma do e-mail da manhã."""
+        return vigia.da_entidade(
+            ent, cfg.raiz, banco_url=cfg.banco_url if cfg.tem_banco else "",
+            ambiente=cfg.ambiente_do_catalogo)
+
+    @app.get("/api/entidade/{apelido}/teses")
+    def ver_teses(apelido: str, pedido: Request) -> dict:
+        """As teses acompanhadas para este sindicato — para a DIRETORIA e
+        para o ESCRITÓRIO que ele contratou. O filiado não vê: a contagem
+        da base não é dele, e "N poderiam" lido por um leigo vira promessa.
+        """
+        try:
+            ent = _gestor_de(apelido, pedido)
+        except HTTPException:
+            ent, _ = _do_escritorio(apelido, pedido)
+        _auditar(ent, "ver_teses", quem_hash=_sessao_de(pedido).cpf_hash)
+        return {"entidade": ent.apelido, "sindicato": ent.nome,
+                **_teses_da_entidade(ent)}
+
     def _visao_unica(pedido: Request) -> dict:
         """Os casos do escritório em TODOS os sindicatos que o cadastraram.
 
@@ -2655,7 +2678,7 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         if _pessoa_do_escritorio(_sessao_de(pedido)) is None:
             raise _problema(
                 403, "esta sessão não é de um escritório")
-        sindicatos, casos, possiveis = [], [], []
+        sindicatos, casos, possiveis, novas = [], [], [], []
         for ent in sorted(cadastro.todas(), key=lambda e: e.apelido):
             try:
                 dele = casos_do_escritorio(ent.apelido, pedido)
@@ -2673,8 +2696,17 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             })
             casos += [{**c, "entidade": ent.apelido, "sindicato": ent.nome}
                       for c in dele["casos"]]
+            # AS TESES DE CADA SINDICATO, e as novidades de todos juntas: é
+            # o "bom dia" do escritório — o que os tribunais decidiram, e
+            # quantas pessoas de cada cliente isso alcança.
+            do_sindicato = _teses_da_entidade(ent)
+            sindicatos[-1]["teses"] = do_sindicato["teses"]
+            novas += [{**n, "entidade": ent.apelido, "sindicato": ent.nome}
+                      for n in do_sindicato["novidades"]]
         return {"sindicatos": sindicatos, "casos": casos,
-                "documentos_possiveis": possiveis}
+                "documentos_possiveis": possiveis,
+                "novidades": sorted(novas, key=lambda n: n["data"],
+                                    reverse=True)}
 
     @app.get("/api/escritorio/casos")
     def visao_unica_do_escritorio(pedido: Request) -> dict:
@@ -2687,14 +2719,15 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
             pedido: Request,
             corpo: dict = Body(default_factory=dict)) -> dict:
         """O Proto do escritório, sobre a fila inteira dele."""
-        casos = _visao_unica(pedido)["casos"]
+        visao = _visao_unica(pedido)
+        casos = visao["casos"]
         pergunta = str(corpo.get("pergunta") or "")[:500]
         assunto = atendimento_do_escritorio.entender(pergunta)
         log.info("proto do escritório (todos) assunto=%s", assunto)
         return {
             "assunto": assunto,
             "resposta": atendimento_do_escritorio.responder(
-                assunto, casos, pergunta),
+                assunto, casos, pergunta, novidades=visao["novidades"]),
             "sugestoes": list(atendimento_do_escritorio.SUGESTOES),
         }
 

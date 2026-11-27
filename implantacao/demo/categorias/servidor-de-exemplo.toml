@@ -52,3 +52,38 @@ percentual    = "0.10"
 incide_sobre  = "o vencimento básico de cada mês"
 fonte         = "FICTÍCIA — dispositivo inventado para a demonstração"
 homologado    = "S"
+
+# OS TEMAS, também inventados — de um tribunal que não existe. Servem para a
+# demonstração mostrar o acompanhamento das teses: um tema que "acabou de
+# ser julgado" e um que "vai ser julgado". As datas abaixo são trocadas pela
+# demonstração na hora em que ela sobe (ontem, e doze dias atrás), para a
+# novidade ser sempre recente. NENHUM está homologado: a novidade aparece
+# como "ainda não conferida por advogado", que é o estado de verdade de um
+# julgamento que acabou de sair.
+[[entendimentos]]
+id              = "EXEMPLO-TEMA-JULGADO"
+tribunal        = "Tribunal de Exemplo (FICTÍCIO)"
+tema            = "9001"
+situacao        = "julgado"
+julgado_em      = "2026-11-20"
+suspensao_nacional = false
+questao = "Questão inventada: os servidores de exemplo têm direito à diferença da gratificação de exemplo?"
+tese = "Tese inventada para a demonstração: os servidores de exemplo têm direito à diferença da gratificação de exemplo."
+trilha          = "ajuizar"
+criterios       = ["ser servidor de exemplo no período da gratificação de exemplo"]
+fonte           = "FICTÍCIA — tema inventado para a demonstração; não existe em tribunal nenhum"
+homologado      = "N"
+
+[[entendimentos]]
+id              = "EXEMPLO-TEMA-AFETADO"
+tribunal        = "Tribunal de Exemplo (FICTÍCIO)"
+tema            = "9002"
+situacao        = "afetado"
+afetado_em      = "2026-11-14"
+suspensao_nacional = false
+questao = "Questão inventada: o adicional de exemplo entra na base de cálculo da gratificação de exemplo?"
+tese = ""
+trilha          = "ajuizar"
+criterios       = []
+fonte           = "FICTÍCIA — tema inventado para a demonstração; não existe em tribunal nenhum"
+homologado      = "N"

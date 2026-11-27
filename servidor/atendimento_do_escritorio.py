@@ -21,11 +21,12 @@ import unicodedata
 
 from . import escritorios
 
-(FILA, PRIMEIRO, FALTA, COMPLETOS, PESSOA, AJUDA) = (
-    "fila", "primeiro", "falta", "completos", "pessoa", "ajuda")
+(FILA, PRIMEIRO, FALTA, COMPLETOS, PESSOA, NOVIDADES, AJUDA) = (
+    "fila", "primeiro", "falta", "completos", "pessoa", "novidades", "ajuda")
 NAO_ENTENDI = "nao_entendi"
 
 SUGESTOES = (
+    "Teve novidade nos tribunais?",
     "Quantos casos eu tenho?",
     "O que eu abro primeiro?",
     "De quem falta documento?",
@@ -35,6 +36,8 @@ SUGESTOES = (
 
 #: A ORDEM É A PRIORIDADE, do mais específico para o mais geral.
 _PISTAS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (NOVIDADES, ("novidade", "tribunal", "tribunais", "tese", "tema",
+                 "julg", "entendimento", "stj", "stf")),
     (PESSOA, ("como esta", "caso de ", "caso da ", "caso do ", "situacao de",
               "situacao da", "situacao do")),
     (PRIMEIRO, ("primeiro", "comeco", "comecar", "prioridade", "urgente",
@@ -88,10 +91,22 @@ def _faltas(caso: dict) -> str:
 
 
 def responder(assunto: str, casos: list[dict],
-              pergunta: str = "") -> list[str]:
+              pergunta: str = "", novidades: list[dict] | None = None
+              ) -> list[str]:
     """As frases da resposta. `casos` é o que a rota do escritório entrega:
     só os dele, e por isso aqui os nomes podem aparecer."""
     por = lambda s: [c for c in casos if c.get("situacao") == s]  # noqa: E731
+
+    if assunto == NOVIDADES:
+        # AS FRASES VÊM PRONTAS de `servidor/vigia.py` — as mesmas do painel
+        # e do e-mail da manhã. Aqui só se repete o que a tela já diz.
+        if not novidades:
+            return ["Não há novidade nos tribunais nos últimos trinta dias "
+                    "para as carreiras dos seus sindicatos. A lista das "
+                    "teses acompanhadas está no fim do painel."]
+        return [n["frase"] for n in novidades[:5]] + [
+            "Os números são uma simulação: quantas pessoas teriam o caminho "
+            "aberto se a tese for conferida por advogado."]
 
     if assunto == FILA:
         if not casos:
@@ -160,9 +175,10 @@ def responder(assunto: str, casos: list[dict],
                     "respondo sobre os casos que o sindicato encaminhou a "
                     "este escritório.")
     if assunto == AJUDA:
-        return [apresentacao, "Posso dizer quantos casos há, por onde "
-                "começar, de quem falta documento e como está o caso de "
-                "uma pessoa — é só dizer o nome."]
+        return [apresentacao, "Posso dizer se teve novidade nos tribunais, "
+                "quantos casos há, por onde começar, de quem falta "
+                "documento e como está o caso de uma pessoa — é só dizer "
+                "o nome."]
     return ["Essa eu não sei responder. " + apresentacao,
             "Escolha uma das perguntas abaixo, ou escreva o nome de uma "
             "pessoa."]

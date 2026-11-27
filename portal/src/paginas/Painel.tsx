@@ -79,6 +79,7 @@ import { resumoDoEscritorio, rotuloDaSituacao } from "../lib/escritorio";
 import { sessaoMorreu } from "../lib/sessao";
 import { Conversa } from "../componentes/Conversa";
 import { Historico } from "../componentes/Historico";
+import { Novidades, Teses } from "../componentes/Teses";
 import { ProtoNoTopo } from "../componentes/ProtoNoTopo";
 import { Portao } from "./Portao";
 
@@ -1702,6 +1703,15 @@ export function Painel({
   const [dono, setDono] = useState("");
   // Quantos documentos a fila tem NA TELA: é o número do selo da aba.
   const [filaNaTela, setFilaNaTela] = useState<number | null>(null);
+  const [teses, setTeses] = useState<{
+    teses: api.Tese[];
+    novidades: api.NovidadeNosTribunais[];
+  } | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    // Carrega à parte, como o panorama: se falhar, o painel continua.
+    void api.verTeses(entidade, token).then(setTeses).catch(() => setTeses(null));
+  }, [entidade, token]);
   const [todosForaDeAlcance, setTodosForaDeAlcance] = useState(false);
 
   useEffect(() => {
@@ -1843,6 +1853,10 @@ export function Painel({
           />
         </div>
       </div>
+
+      {/* AS NOVIDADES NOS TRIBUNAIS, para a diretoria também: o que foi
+          julgado e quantos filiados alcança. */}
+      <Novidades novidades={teses?.novidades ?? []} />
 
       {/* QUEM JÁ PODE, À VISTA. Os quatro quadros acima são sobre o
           cadastro; este é o resultado, e ficava dentro da aba Filiados,
@@ -2017,6 +2031,9 @@ export function Painel({
         <strong>Não é intimação e não serve para contar prazo.</strong>
       </Aviso>
     </Cartao>
+      {/* AS TESES ACOMPANHADAS, no fim do resumo: é o que explica de onde
+          vêm as pendências de "conferência por advogado" acima. */}
+      <Teses teses={teses?.teses ?? []} />
       </div>
 
       {/* ----------------------------------------------------- FILIADOS */}

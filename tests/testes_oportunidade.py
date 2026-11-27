@@ -614,7 +614,8 @@ def teste_reavaliar_e_tarefa_do_agendador():
     # a quem opera, e uma falha de correio nossa não pode atrasar o que é
     # do filiado. `reavaliar` continua depois de `coletar` e `avisar`.
     checa(list(agenda.TAREFAS)
-          == ["coletar", "avisar", "reavaliar", "pedidos", "parados"],
+          == ["coletar", "avisar", "reavaliar", "pedidos", "parados",
+              "teses"],
           f"a ordem ou o conjunto está diferente: {agenda.TAREFAS}")
 
     cfg = config.carregar({
