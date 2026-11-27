@@ -66,6 +66,12 @@ describe("quem é de um escritório contratado pelo sindicato", () => {
       expect(telaDeChegada(escritorio, tela)).toBe("escritorio");
     }
   });
+  it("as quatro telas do escritório são dele, e ele fica na que pediu", () => {
+    for (const tela of ["escritorio", "tribunais", "casos", "sindicatos"] as const) {
+      expect(telaDeChegada(escritorio, tela)).toBe(tela);
+      expect(telaDeChegada({ filiado: true, gestor: false }, tela)).toBe("area");
+    }
+  });
   it("quem não é de escritório e cai na porta dele volta para a sua", () => {
     expect(telaDeChegada({ filiado: true, gestor: false }, "escritorio")).toBe("area");
     expect(telaDeChegada({ filiado: false, gestor: true }, "escritorio")).toBe("painel");

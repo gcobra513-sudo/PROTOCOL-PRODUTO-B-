@@ -65,6 +65,27 @@ def da_entidade(ent, raiz: pathlib.Path, *, banco_url: str = "",
     }
 
 
+def pessoas_da_tese(ent, raiz: pathlib.Path, tese_id: str, *,
+                    banco_url: str = "",
+                    ambiente: dict | None = None) -> list[dict] | None:
+    """Quem esta tese alcança na base deste sindicato: `[{cpf, nome, como}]`.
+    `None` se a tese não é do catálogo dele. Quem chama decide QUEM pode ver
+    QUAIS nomes — aqui sai a lista inteira."""
+    catalogo = entendimentos.do_ambiente(tuple(ent.categorias), ambiente)
+    if tese_id not in {t.id for t in teses.do_catalogo(catalogo)}:
+        return None
+    pasta = ent.pasta(raiz)
+    if banco_url:
+        registros = banco.base(banco_url, ent.apelido)
+        lidos = banco.fatos_lidos_da_entidade(banco_url, ent.apelido)
+    else:
+        registros, lidos = deposito.ler_diario(pasta), None
+    return teses.alcancadas(
+        catalogo, registros, tese_id, lidos_por_cpf=lidos,
+        rol_por_cpf=substituidos.por_cpf(pasta),
+        fichas_por_cpf=fichas.por_cpf(pasta))
+
+
 def _ja_avisadas(pasta: pathlib.Path) -> set[str]:
     try:
         return set(json.loads((pasta / AVISADAS).read_text(encoding="utf-8")))

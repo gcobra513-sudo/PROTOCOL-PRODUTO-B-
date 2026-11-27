@@ -10,7 +10,9 @@ import { BotaoDeTema } from "./BotaoDeTema";
 import {
   Gavel,
   Briefcase,
+  Building2,
   Home,
+  Landmark,
   CircleUserRound,
   LayoutDashboard,
   ListChecks,
@@ -171,8 +173,17 @@ export function Casca({
       ) : null}
       {comServidor && grupos.escritorio ? (
         <Grupo titulo="Escritório">
-          <Item href={link("escritorio")} atual={tela === "escritorio"} onIr={ir("escritorio")} icone={<Briefcase className={classeDoIcone} aria-hidden="true" />}>
-            Casos encaminhados
+          <Item href={link("escritorio")} atual={tela === "escritorio"} onIr={ir("escritorio")} icone={<Home className={classeDoIcone} aria-hidden="true" />}>
+            Início
+          </Item>
+          <Item href={link("tribunais")} atual={tela === "tribunais"} onIr={ir("tribunais")} icone={<Landmark className={classeDoIcone} aria-hidden="true" />}>
+            Tribunais
+          </Item>
+          <Item href={link("casos")} atual={tela === "casos"} onIr={ir("casos")} icone={<Briefcase className={classeDoIcone} aria-hidden="true" />}>
+            Casos
+          </Item>
+          <Item href={link("sindicatos")} atual={tela === "sindicatos"} onIr={ir("sindicatos")} icone={<Building2 className={classeDoIcone} aria-hidden="true" />}>
+            Meus sindicatos
           </Item>
         </Grupo>
       ) : null}

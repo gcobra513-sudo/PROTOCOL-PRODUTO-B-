@@ -104,6 +104,31 @@ def impacto(catalogo: ent.Catalogo, registros, *, lidos_por_cpf=None,
     return conta
 
 
+def alcancadas(catalogo: ent.Catalogo, registros, tese_id: str, *,
+               lidos_por_cpf=None, rol_por_cpf=None,
+               fichas_por_cpf=None) -> list[dict]:
+    """Quem esta tese alcança, pessoa por pessoa: `[{cpf, nome, como}]`, com
+    `como` em "poderiam" ou "dependem". Quem fica de fora não entra.
+
+    O MESMO LAÇO de `impacto`, sobre a mesma cópia simulada: a lista e a
+    contagem não podem discordar.
+    """
+    ids = [t.id for t in do_catalogo(catalogo)]
+    if tese_id not in ids:
+        return []
+    simulado = catalogo.homologando(tuple(ids))
+    chave = {motor.PODE: "poderiam", motor.FALTA: "dependem"}
+    saida = []
+    for pessoa in panorama.por_pessoa(registros, simulado, lidos_por_cpf,
+                                      rol_por_cpf, fichas_por_cpf):
+        for o in pessoa.oportunidades:
+            if o.referencia == tese_id and o.veredicto in chave:
+                saida.append({"cpf": pessoa.cpf, "nome": pessoa.nome,
+                              "como": chave[o.veredicto]})
+                break
+    return saida
+
+
 def novidades(lista: list[Tese], *, hoje: str,
               dias: int = DIAS_DE_NOVIDADE) -> list[Novidade]:
     """O que os tribunais julgaram ou afetaram nos últimos `dias`, da mais

@@ -5219,6 +5219,36 @@ def teste_o_sindicato_encaminha_o_escritorio_recebe_e_o_filiado_ve():
     checa(cliente.get(f"/api/entidade/{entidade}/teses",
                       headers=_de(cliente, A, entidade)).status_code == 403,
           "o filiado abriu a lista de teses com a contagem da base")
+    # DA CONTAGEM AOS NOMES. O escritório vê pelo nome QUEM JÁ É CASO DELE;
+    # dos outros filiados alcançados ele recebe só a contagem — encaminhar
+    # é decisão do sindicato. A diretoria vê todos, com o CPF mascarado.
+    _por_no_rol(raiz, entidade, [C_PLAN])
+    cliente.post("/api/cadastro", data={
+        "token": _token(cliente, C_PLAN, entidade),
+        "linha": __import__("json").dumps(linha(C_PLAN))},
+        files=[("arquivos", ("contribuicao-1.pdf", _pdf(CONTRIB),
+                             "application/pdf"))])
+    pessoas = f"/api/entidade/{entidade}/teses/GIFA-2006/pessoas"
+    r = cliente.get(pessoas, headers=adv_a())
+    checa(r.status_code == 200, f"{r.status_code} {r.text[:200]}")
+    d = r.json()
+    checa([p["cpf"] for p in d["pessoas"]] == [A]
+          and d["nao_encaminhadas"] == 1 and C_PLAN not in r.text,
+          f"O ESCRITÓRIO VIU PELO NOME QUEM NÃO LHE FOI ENCAMINHADO: {d}")
+    checa(cliente.get(pessoas, headers=adv_b()).json()["pessoas"] == []
+          and cliente.get(pessoas, headers=adv_b()).json()["nao_encaminhadas"] == 2,
+          "o escritório B devia ver só a contagem")
+    r = cliente.get(pessoas, headers=gestor())
+    checa(r.status_code == 200 and len(r.json()["pessoas"]) == 2
+          and A not in r.text and C_PLAN not in r.text
+          and r.json()["nao_encaminhadas"] == 0,
+          f"a diretoria devia ver os dois, com CPF mascarado: {r.text[:300]}")
+    checa(cliente.get(pessoas, headers=_de(cliente, A, entidade)).status_code == 403,
+          "o filiado abriu a lista de quem a tese alcança")
+    checa(cliente.get(f"/api/entidade/{entidade}/teses/NAO-EXISTE/pessoas",
+                      headers=gestor()).status_code == 404,
+          "tese que não existe devia dar 404")
+
     # E O VEREDICTO DO FILIADO NÃO MUDOU por causa da simulação.
     checa(_executar_gifa(cliente, A, entidade)[0] == "FALTA",
           "A SIMULAÇÃO DE IMPACTO MUDOU O VEREDICTO QUE O FILIADO VÊ")

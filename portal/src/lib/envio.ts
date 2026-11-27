@@ -420,7 +420,11 @@ export async function verCompletude(
  *  nunca era chamada por ninguém. Tela que não se consegue abrir é tela que
  *  não existe — e o pior é que ela passa por pronta na contagem.
  */
-export const TELAS = ["cadastro", "area", "acoes", "processos", "atendimento", "painel", "escritorio"] as const;
+export const TELAS = [
+  "cadastro", "area", "acoes", "processos", "atendimento", "painel",
+  // As quatro do escritório contratado: início, tribunais, casos, sindicatos.
+  "escritorio", "tribunais", "casos", "sindicatos",
+] as const;
 export type Tela = (typeof TELAS)[number];
 
 /** A área que o link pede, ou `cadastro`.
@@ -687,6 +691,20 @@ export const verEscritorios = (apelido: string, token: string) =>
 export const verTeses = (apelido: string, token: string) =>
   comSessao<{ teses: Tese[]; novidades: NovidadeNosTribunais[] }>(
     `${ent(apelido)}/teses`, token, "não foi possível abrir as teses",
+  );
+
+export interface PessoasDaTese {
+  pessoas: { nome: string; cpf: string; como: string }[];
+  /** Alcançadas pela tese e ainda não encaminhadas a este escritório. */
+  nao_encaminhadas: number;
+}
+
+/** Quem uma tese alcança num sindicato, pelo nome. O servidor decide quais
+ *  nomes cada um pode ver. */
+export const verPessoasDaTese = (apelido: string, token: string, tese: string) =>
+  comSessao<PessoasDaTese>(
+    `${ent(apelido)}/teses/${encodeURIComponent(tese)}/pessoas`, token,
+    "não foi possível abrir as pessoas",
   );
 
 export const verCasosDosEscritorios = (apelido: string, token: string) =>

@@ -2667,6 +2667,43 @@ def criar_app(cfg: Config | None = None) -> FastAPI:
         return {"entidade": ent.apelido, "sindicato": ent.nome,
                 **_teses_da_entidade(ent)}
 
+    @app.get("/api/entidade/{apelido}/teses/{tese_id}/pessoas")
+    def ver_pessoas_da_tese(apelido: str, tese_id: str,
+                            pedido: Request) -> dict:
+        """Da contagem aos nomes: quem esta tese alcança neste sindicato.
+
+        A DIRETORIA vê todos, com o CPF mascarado, como na lista "nome por
+        nome". O ESCRITÓRIO vê pelo nome SÓ QUEM JÁ É CASO DELE; dos outros
+        alcançados recebe a contagem. A regra não muda por causa da tese:
+        quem decide encaminhar um filiado a um escritório é o sindicato.
+        """
+        escritorio = None
+        try:
+            ent = _gestor_de(apelido, pedido)
+        except HTTPException:
+            ent, escritorio = _do_escritorio(apelido, pedido)
+        todas = vigia.pessoas_da_tese(
+            ent, cfg.raiz, tese_id[:80],
+            banco_url=cfg.banco_url if cfg.tem_banco else "",
+            ambiente=cfg.ambiente_do_catalogo)
+        if todas is None:
+            raise _problema(404, "esta tese não é acompanhada para este "
+                                 "sindicato")
+        _auditar(ent, "ver_pessoas_da_tese",
+                 quem_hash=_sessao_de(pedido).cpf_hash)
+        if escritorio is None:
+            return {"pessoas": [{"nome": p["nome"] or "(sem nome)",
+                                 "cpf": _cpf_mascarado(p["cpf"]),
+                                 "como": p["como"]} for p in todas],
+                    "nao_encaminhadas": 0}
+        dele = {c.cpf for c in escritorios.casos_de(ent.pasta(cfg.raiz),
+                                                    escritorio.id)}
+        return {"pessoas": [{"nome": p["nome"] or "(sem nome)",
+                             "cpf": p["cpf"], "como": p["como"]}
+                            for p in todas if p["cpf"] in dele],
+                "nao_encaminhadas": sum(1 for p in todas
+                                        if p["cpf"] not in dele)}
+
     def _visao_unica(pedido: Request) -> dict:
         """Os casos do escritório em TODOS os sindicatos que o cadastraram.
 
