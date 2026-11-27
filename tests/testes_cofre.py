@@ -334,6 +334,29 @@ def t_o_padrao_segue_o_ambiente():
 TESTES.append(t_o_padrao_segue_o_ambiente)
 
 
+def t_a_demonstracao_repassa_so_o_cofre():
+    """A demonstração liga o servidor SEM as `PROTOCOL_*` de quem a chamou
+    (para não mandar e-mail de verdade, por exemplo). As do cofre são a
+    exceção, e só elas: sem repassá-las, a demonstração esvaziaria o depósito
+    na nuvem e o servidor gravaria no disco — cada um num lugar."""
+    from ferramentas import demo
+
+    amb = {
+        "PROTOCOL_COFRE_ENDERECO": "https://x.invalid/s3",
+        "PROTOCOL_COFRE_SEGREDO": "s",
+        "PROTOCOL_SMTP_HOST": "smtp.de.verdade",
+        "PROTOCOL_DATABASE_URL": "postgresql://producao",
+        "PATH": "/bin",
+    }
+    checa(demo.do_cofre(amb) == {
+        "PROTOCOL_COFRE_ENDERECO": "https://x.invalid/s3",
+        "PROTOCOL_COFRE_SEGREDO": "s",
+    }, f"repassou errado: {sorted(demo.do_cofre(amb))}")
+
+
+TESTES.append(t_a_demonstracao_repassa_so_o_cofre)
+
+
 def main() -> int:
     print("=" * 70)
     print("COFRE — onde os documentos ficam, no disco e na nuvem")

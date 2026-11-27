@@ -548,6 +548,17 @@ def _cpf(c: str) -> str:
     return f"{c[:3]}.{c[3:6]}.{c[6:9]}-{c[9:]}"
 
 
+def do_cofre(amb) -> dict[str, str]:
+    """As variáveis do depósito de documentos, e SÓ elas.
+
+    O servidor da demonstração nasce sem as `PROTOCOL_*` de quem chamou. O
+    cofre é a exceção porque esta ferramenta também o usa (para esvaziar o
+    que ficou do reinício anterior): se ela enxergasse o depósito na nuvem e
+    o servidor não, um limparia a nuvem e o outro gravaria no disco.
+    """
+    return {k: v for k, v in amb.items() if k.startswith("PROTOCOL_COFRE_")}
+
+
 def catalogo_com_datas_de_hoje(destino: pathlib.Path) -> pathlib.Path:
     """Uma cópia do catálogo fictício com os temas "julgados ontem".
 
@@ -681,6 +692,8 @@ def _rodar(a: argparse.Namespace, pasta: pathlib.Path, estado: dict) -> int:
         # qualquer visitante põe numa planilha (auditoria de 16/11/2026).
         **{k: v for k, v in os.environ.items()
            if not k.startswith("PROTOCOL_")},
+        # A EXCEÇÃO: onde os documentos moram. Ver `do_cofre`.
+        **do_cofre(os.environ),
         "PROTOCOL_MODO_ENSAIO": "1",
         # O CATÁLOGO FICTÍCIO: uma carreira e uma ação inventadas, para a
         # demonstração ter quem pode. O servidor só o aceita em modo ensaio.
