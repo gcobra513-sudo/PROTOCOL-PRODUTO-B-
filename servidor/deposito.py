@@ -46,11 +46,11 @@ import json
 import os
 import pathlib
 import secrets
-import shutil
 from dataclasses import dataclass, field
 
 from nucleo import cadastro as conta
 
+from . import cofre as cofres
 from . import validacao
 from .entidades import Entidade
 
@@ -351,6 +351,7 @@ def depositar(
     linha: dict[str, str],
     arquivos: dict[str, bytes],
     aguardando_leitura: tuple[str, ...] = (),
+    guarda=None,
 ) -> Recibo:
     """Grava um cadastro. A linha e os arquivos já passaram por `validacao`.
 
@@ -370,7 +371,10 @@ def depositar(
         raise ValueError("depositar exige CPF de 11 dígitos")
 
     pasta = entidade.pasta(raiz)
-    entrega = entidade.entrega(raiz)
+    # ONDE OS BYTES VÃO MORAR é do cofre (disco ou depósito na nuvem). O
+    # diário e o manifesto ficam aqui de qualquer jeito: são eles que dizem
+    # quem enviou o quê.
+    guarda = guarda or cofres.padrao(raiz)
     protocolo = novo_protocolo()
     agora = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
 
@@ -396,43 +400,11 @@ def depositar(
             json.dumps(registro, ensure_ascii=False, sort_keys=True) + "\n",
         )
 
-        # 2. os arquivos, montados de lado e trocados de uma vez.
-        montagem = pasta / PARCIAL / protocolo
-        if montagem.exists():
-            shutil.rmtree(montagem)
-        montagem.mkdir(parents=True)
-        os.chmod(montagem, MODO_PASTA)
-        for nome, corpo in arquivos.items():
-            # `nome` só pode ser um dos nomes do contrato: `validacao`
-            # recusa qualquer outro antes de chegar aqui.
-            alvo = montagem / nome
-            alvo.write_bytes(corpo)
-            os.chmod(alvo, MODO_ARQUIVO)
-
-        entrega.mkdir(parents=True, exist_ok=True)
-        os.chmod(entrega, MODO_PASTA)
-        destino = entrega / cpf
-
-        substituiu = ""
-        if destino.exists():
-            # Reenvio. O anterior vai para o histórico — ninguém perde
-            # documento por ter corrigido o próprio cadastro.
-            #
-            # O PROTOCOLO VAI NO NOME. Só com o segundo, dois reenvios da
-            # mesma pessoa no mesmo segundo apontavam para a MESMA pasta, e o
-            # `replace` falhava com "diretório não vazio" — DEPOIS de o
-            # diário já ter gravado o envio: a pessoa via erro, o diário
-            # dizia recebido, e os arquivos ficavam na área de montagem.
-            # Achado por um teste que reenviava três vezes seguidas.
-            marca = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%S")
-            guarda = pasta / HISTORICO / cpf / f"{marca}-{protocolo}"
-            guarda.parent.mkdir(parents=True, exist_ok=True)
-            destino.replace(guarda)
-            substituiu = str(guarda.relative_to(pasta))
-
-        montagem.replace(destino)
-        with contextlib.suppress(OSError):
-            (pasta / PARCIAL).rmdir()
+        # 2. os arquivos. O reenvio manda o anterior para o histórico —
+        # ninguém perde documento por ter corrigido o próprio cadastro.
+        # (`nome` só pode ser um dos nomes do contrato: `validacao` recusa
+        # qualquer outro antes de chegar aqui, e o cofre confere de novo.)
+        substituiu = guarda.trocar(entidade, cpf, protocolo, arquivos)
 
         # 3. o manifesto, refeito do diário.
         reconstruir_manifesto(entidade, raiz)

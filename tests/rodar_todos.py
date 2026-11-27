@@ -44,6 +44,7 @@ SUITES = [
     "tests/testes_documentos_do_sindicato.py",
     "tests/testes_substituidos.py",
     "tests/testes_fichas.py",
+    "tests/testes_cofre.py",
     "tests/testes_escritorios.py",
     "tests/testes_teses.py",
     "tests/testes_sindicatos.py",
@@ -69,6 +70,8 @@ OPCIONAIS = {
     "fastapi": "pip install fastapi uvicorn httpx python-multipart",
     "httpx": "pip install httpx",
     "psycopg": "pip install 'psycopg[binary]'",
+    "moto": "pip install boto3 'moto[s3]'",
+    "boto3": "pip install boto3 'moto[s3]'",
 }
 FERRAMENTAS = {"npx": "instale o Node.js"}
 

@@ -33,6 +33,7 @@ import pathlib
 import types
 
 from . import acervo, completude, deposito, rol, trocas, validacao
+from . import cofre as cofres
 from . import documentos_do_sindicato as lote
 from .entidades import Entidade
 
@@ -442,7 +443,7 @@ def gravar_documentos(ent: Entidade, raiz: pathlib.Path,
             "apagadas": apagadas}
 
 
-def _nome_livre(destino: pathlib.Path, d) -> str:
+def _nome_livre(guarda, ent: Entidade, cpf: str, ja: list[str], d) -> str:
     """O nome com que este documento entra na pasta da pessoa.
 
     NUNCA O DE UM ARQUIVO QUE JÁ ESTÁ LÁ COM OUTRO CONTEÚDO. O sindicato
@@ -455,15 +456,14 @@ def _nome_livre(destino: pathlib.Path, d) -> str:
     while True:
         nome = (f"{d.tipo}.pdf" if indice == 1 and d.tipo != lote.OUTRO
                 else f"{d.tipo}-{indice}.pdf")
-        alvo = destino / nome
-        if not alvo.exists() or alvo.read_bytes() == d.corpo:
+        if nome not in ja or guarda.ler(ent, cpf, nome) == d.corpo:
             return nome
         indice += 1
 
 
 def _gravar_documentos(ent: Entidade, raiz: pathlib.Path, casados: dict,
                        banco_url: str) -> int:
-    entrega = ent.entrega(raiz)
+    guarda = cofres.padrao(raiz)
     gravados = 0
     for cpf, docs in casados.items():
         # COM A TRAVA DO DEPÓSITO, a mesma do envio do filiado. Sem ela esta
@@ -471,10 +471,12 @@ def _gravar_documentos(ent: Entidade, raiz: pathlib.Path, casados: dict,
         # pessoa para o histórico enquanto se escreve nela. (A ordem das
         # travas é a do apagamento: primeiro a dele, depois a do depósito.)
         with deposito._travada(ent.pasta(raiz)):
-            destino = entrega / cpf
-            destino.mkdir(parents=True, exist_ok=True)
+            ja = guarda.nomes(ent, cpf)
             for d in docs:
-                (destino / _nome_livre(destino, d)).write_bytes(d.corpo)
+                nome = _nome_livre(guarda, ent, cpf, ja, d)
+                guarda.acrescentar(ent, cpf, nome, d.corpo)
+                if nome not in ja:
+                    ja.append(nome)
                 gravados += 1
 
         if banco_url:
