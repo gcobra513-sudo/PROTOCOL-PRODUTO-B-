@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { alcanceEmPalavras, rotuloDaSituacaoDaTese, saudacao } from "./teses";
+import { alcanceEmPalavras, haQuanto, rotuloDaSituacaoDaTese, saudacao, tesesJuntas } from "./teses";
 
 const tese = {
   id: "T", tipo: "tema", rotulo: "STJ, Tema 9.001", tribunal: "STJ", situacao: "julgado",
@@ -56,5 +56,44 @@ describe("o alcance de uma tese na base", () => {
     expect(alcanceEmPalavras({ ...tese, poderiam: 0, dependem: 0, fora: 0 })).toBe(
       "Ninguém da base é alcançado por enquanto.",
     );
+  });
+});
+
+describe("as teses de vários sindicatos, juntas numa lista só", () => {
+  const de = (id: string, extra = {}) => ({ ...tese, id, ...extra });
+  const sindicatos = [
+    { entidade: "a", nome: "Sindicato A", teses: [de("T1", { poderiam: 5, dependem: 37, fora: 0 }), de("ACAO", { tipo: "acao", data: "", situacao: "transitado_em_julgado", conferida: true, poderiam: 4, dependem: 1, fora: 2 })] },
+    { entidade: "b", nome: "Sindicato B", teses: [de("T1", { poderiam: 0, dependem: 8, fora: 0 }), de("T2", { situacao: "afetado", data: "2026-11-15", poderiam: 0, dependem: 8, fora: 0 })] },
+  ];
+
+  it("a mesma tese em dois sindicatos vira UMA linha, com a soma e a divisão", () => {
+    const t1 = tesesJuntas(sindicatos).find((t) => t.id === "T1")!;
+    expect([t1.poderiam, t1.dependem]).toEqual([5, 45]);
+    expect(t1.porSindicato).toEqual([
+      { entidade: "a", nome: "Sindicato A", poderiam: 5, dependem: 37, fora: 0 },
+      { entidade: "b", nome: "Sindicato B", poderiam: 0, dependem: 8, fora: 0 },
+    ]);
+  });
+
+  it("o que tem data mais recente vem primeiro; o que não tem data, por último", () => {
+    expect(tesesJuntas(sindicatos).map((t) => t.id)).toEqual(["T1", "T2", "ACAO"]);
+  });
+
+  it("sem sindicato nenhum, lista vazia", () => {
+    expect(tesesJuntas([])).toEqual([]);
+    expect(tesesJuntas([{ entidade: "a", nome: "A" }])).toEqual([]);
+  });
+});
+
+describe("há quanto tempo", () => {
+  const hoje = new Date(2026, 10, 27, 10);
+  it("em palavras curtas", () => {
+    expect(haQuanto("2026-11-27", hoje)).toBe("hoje");
+    expect(haQuanto("2026-11-26", hoje)).toBe("ontem");
+    expect(haQuanto("2026-11-15", hoje)).toBe("há 12 dias");
+  });
+  it("data que não se lê, ou no futuro, não vira palavra", () => {
+    expect(haQuanto("", hoje)).toBe("");
+    expect(haQuanto("2027-01-01", hoje)).toBe("");
   });
 });

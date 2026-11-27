@@ -196,6 +196,31 @@ TESTES.extend([
 ])
 
 
+def teste_quem_e_alcancado_por_uma_tese_nome_por_nome():
+    """Da contagem aos nomes: quem poderia, e quem depende de alguma coisa.
+    Quem fica de fora não entra na lista — não é alcançado."""
+    cat = catalogo()
+    registros = [
+        registro(A, tem_acao_propria="nao"),
+        registro(B),
+        registro(C, cargo="Carreira Exemplo T", tem_acao_propria="sim"),
+    ]
+    quem = teses.alcancadas(cat, registros, "EX-T-JULGADO")
+    checa(sorted((p["cpf"], p["como"]) for p in quem)
+          == [(A, "poderiam"), (B, "dependem")],
+          f"{[(p['cpf'], p['como']) for p in quem]}")
+    checa(all(p["nome"] for p in quem), "pessoa sem nome na lista")
+    checa(teses.alcancadas(cat, registros, "NAO-EXISTE") == [],
+          "inventou pessoas para uma tese que não existe")
+    conta = teses.impacto(cat, registros)["EX-T-JULGADO"]
+    checa((conta["poderiam"], conta["dependem"], conta["fora"]) == (1, 1, 1),
+          f"a lista e a contagem têm de sair do mesmo laço: {conta}")
+    print("  ok     os nomes batem com a contagem, e quem está fora não entra")
+
+
+TESTES.extend([teste_quem_e_alcancado_por_uma_tese_nome_por_nome])
+
+
 # ------------------------------------------------- o aviso da manhã
 
 class _Correio:

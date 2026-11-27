@@ -34,6 +34,10 @@ export function gruposDoMenu(
   return { filiado: papeis.filiado, sindicato: papeis.gestor, escritorio };
 }
 
+export const DO_ESCRITORIO: readonly Tela[] = [
+  "escritorio", "tribunais", "casos", "sindicatos",
+];
+
 const DE_FILIADO: readonly Tela[] = [
   "area", "cadastro", "acoes", "processos", "atendimento",
 ];
@@ -50,9 +54,10 @@ export function telaDeChegada(papeis: Papeis | null, tela: Tela): Tela {
     (["filiado", "gestor", "escritorio"] as const).every(
       (outro) => outro === qual || !papeis[outro],
     );
-  // Quem é só do escritório tem uma tela, e é para ela que vai.
-  if (so("escritorio")) return "escritorio";
-  if (tela === "escritorio" && !papeis.escritorio) {
+  // Quem é só do escritório fica nas telas dele; de qualquer outra, vai
+  // para o início dele.
+  if (so("escritorio")) return DO_ESCRITORIO.includes(tela) ? tela : "escritorio";
+  if (DO_ESCRITORIO.includes(tela) && !papeis.escritorio) {
     if (papeis.gestor) return "painel";
     if (papeis.filiado) return "area";
     return tela;

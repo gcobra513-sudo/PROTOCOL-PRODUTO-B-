@@ -45,7 +45,7 @@ import { acessosDaDemonstracao, type AcessoDaDemo } from "./lib/demonstracao";
 import { enderecoDaArea, paginaDoLink } from "./lib/entrada";
 import * as api from "./lib/envio";
 import { baixar, reciboJson } from "./lib/exportar";
-import { gruposDoMenu, telaDeChegada, type Papeis } from "./lib/perfil";
+import { DO_ESCRITORIO, gruposDoMenu, telaDeChegada, type Papeis } from "./lib/perfil";
 import { cliqueQueNavega, paradoDemais } from "./lib/sessao";
 import {
   DOCUMENTOS,
@@ -397,7 +397,7 @@ export function App() {
     >
       <div
         className={
-          tela === "painel" || tela === "escritorio"
+          tela === "painel" || DO_ESCRITORIO.includes(tela)
             ? "mx-auto max-w-5xl space-y-6"
             : "mx-auto max-w-3xl space-y-6"
         }
@@ -473,8 +473,12 @@ export function App() {
                        onToken={entrou} onSessaoMorta={sessaoMorta}
                        perguntaInicial={perguntaAoProto}
                        onPerguntaFeita={() => setPerguntaAoProto("")} />
-        ) : tela === "escritorio" ? (
+        ) : DO_ESCRITORIO.includes(tela) ? (
+          // AS QUATRO TELAS DO ESCRITÓRIO são o MESMO componente, com a
+          // mesma chave: trocar de tela no menu não busca tudo de novo nem
+          // esquece o filtro que a pessoa escolheu.
           <Escritorio key={token} entidade={apelido} token={token}
+                      secao={tela} onIr={irPara}
                       onToken={entrou} onSessaoMorta={sessaoMorta} />
         ) : tela === "painel" ? (
           <Painel key={token} entidade={apelido} token={token}

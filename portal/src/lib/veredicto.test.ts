@@ -175,7 +175,7 @@ describe("as áreas do portal", () => {
     expect([...TELAS]).toEqual([
       "cadastro", "area", "acoes", "processos", "atendimento", "painel",
       // A do ESCRITÓRIO contratado entrou em 26/11/2026: é dele, de mais ninguém.
-      "escritorio",
+      "escritorio", "tribunais", "casos", "sindicatos",
     ]);
     expect(telaDoLink("?tela=atendimento")).toBe("atendimento");
   });

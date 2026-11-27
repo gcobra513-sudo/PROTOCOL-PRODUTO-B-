@@ -18,6 +18,9 @@
 import {
   Building2,
   CheckCheck,
+  Landmark,
+  Megaphone,
+  Scale,
   ChevronDown,
   Clock,
   Download,
@@ -30,10 +33,10 @@ import {
 import { useEffect, useState } from "react";
 
 import { Historico } from "../componentes/Historico";
-import { Novidades, Teses } from "../componentes/Teses";
 import { ProtoNoTopo } from "../componentes/ProtoNoTopo";
 import { Aviso, Botao, Campo, Cartao, Destaque, Mini } from "../componentes/ui";
 import * as api from "../lib/envio";
+import { haQuanto, rotuloDaSituacaoDaTese, saudacao, tesesJuntas, type TeseJunta } from "../lib/teses";
 import {
   csvDosCasos,
   diasNaFila,
@@ -254,14 +257,202 @@ function Linha({
   );
 }
 
+/** Quem uma tese alcança num sindicato: os nomes de quem já é caso deste
+ *  escritório, e a contagem de quem ainda não lhe foi encaminhado. */
+function PessoasDaTese({
+  entidade,
+  token,
+  tese,
+}: {
+  entidade: string;
+  token: string;
+  tese: string;
+}) {
+  const [dados, setDados] = useState<api.PessoasDaTese | null>(null);
+  const [erro, setErro] = useState("");
+  useEffect(() => {
+    void api
+      .verPessoasDaTese(entidade, token, tese)
+      .then(setDados)
+      .catch((e) => setErro(e instanceof Error ? e.message : "não foi possível abrir"));
+  }, [entidade, token, tese]);
+  if (erro) return <p className="mt-2 text-sm text-alerta">{erro}</p>;
+  if (!dados) return <p className="mt-2 text-sm text-tinta/60">Carregando…</p>;
+  return (
+    <div className="mt-3 space-y-2">
+      {/* QUEM JÁ PODERIA vem primeiro: é por eles que se começa. */}
+      {[...dados.pessoas]
+        .sort((a, b) => Number(b.como === "poderiam") - Number(a.como === "poderiam"))
+        .map((p) => (
+        <div key={p.cpf} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-carta px-3 py-2">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[15px] font-medium text-tinta">{p.nome}</span>
+            <span className="block text-sm text-tinta/60">CPF {formatarCpf(p.cpf)}</span>
+          </span>
+          <span
+            className={
+              "rounded-full border px-3 py-0.5 text-[13px] font-semibold " +
+              (p.como === "poderiam" ? CORES.bom : CORES.neutro)
+            }
+          >
+            {p.como === "poderiam" ? "Poderia" : "Depende de conferência"}
+          </span>
+        </div>
+      ))}
+      {dados.pessoas.length === 0 ? (
+        <p className="text-sm text-tinta/70">Nenhum caso seu é alcançado ainda.</p>
+      ) : null}
+      {dados.nao_encaminhadas > 0 ? (
+        <p className="rounded-lg bg-ambar px-3 py-2 text-sm text-tinta">
+          <strong>+ {dados.nao_encaminhadas}</strong>{" "}
+          {dados.nao_encaminhadas === 1 ? "filiado alcançado" : "filiados alcançados"} ainda não{" "}
+          {dados.nao_encaminhadas === 1 ? "foi encaminhado" : "foram encaminhados"} a você. Peça ao
+          sindicato.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** Uma tese, numa linha: o que é, em que pé está, e o NÚMERO. Aberta, a
+ *  divisão por sindicato — e, de cada um, as pessoas. */
+function LinhaDaTese({
+  tese,
+  token,
+  aberta,
+  onAlternar,
+}: {
+  tese: TeseJunta;
+  token: string;
+  aberta: boolean;
+  onAlternar: () => void;
+}) {
+  const [vendo, setVendo] = useState("");
+  const quando = haQuanto(tese.data, new Date());
+  const pendente = tese.tipo === "tema" && tese.situacao === "afetado";
+  return (
+    <div className="rounded-xl border border-borda bg-carta">
+      <button
+        type="button"
+        aria-expanded={aberta}
+        onClick={onAlternar}
+        className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 text-left hover:bg-lilas/40"
+      >
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-lilas text-acento">
+          {tese.tipo === "acao" ? (
+            <Scale className="h-5 w-5" aria-hidden="true" />
+          ) : (
+            <Landmark className="h-5 w-5" aria-hidden="true" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[17px] font-semibold text-tinta">{tese.rotulo}</span>
+          <span className="mt-1 flex flex-wrap gap-2">
+            {rotuloDaSituacaoDaTese(tese) ? (
+              <span className="rounded-full bg-papel px-2.5 py-0.5 text-[13px] font-medium text-tinta/80">
+                {rotuloDaSituacaoDaTese(tese)}
+                {quando && !pendente ? ` ${quando}` : ""}
+              </span>
+            ) : null}
+            <span
+              className={
+                "rounded-full border px-2.5 py-0.5 text-[13px] font-medium " +
+                (tese.conferida ? CORES.bom : CORES.neutro)
+              }
+            >
+              {tese.conferida ? "Conferida" : "A conferir"}
+            </span>
+          </span>
+        </span>
+        <span className="text-right">
+          <span className="block text-3xl font-bold leading-none text-tinta">
+            {pendente ? tese.dependem : tese.poderiam}
+          </span>
+          <span className="text-sm text-tinta/65">
+            {pendente ? "na carreira" : tese.conferida ? "podem" : "poderiam"}
+          </span>
+        </span>
+        <ChevronDown
+          className={"h-5 w-5 shrink-0 text-acento transition-transform " + (aberta ? "rotate-180" : "")}
+          aria-hidden="true"
+        />
+      </button>
+
+      {aberta ? (
+        <div className="space-y-3 border-t border-borda px-4 py-4">
+          {tese.porSindicato.map((x) => (
+            <div key={x.entidade} className="rounded-lg bg-papel p-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <span className="flex min-w-0 flex-1 items-center gap-2 text-[15px] font-semibold text-tinta">
+                  <Building2 className="h-4 w-4 shrink-0 text-acento" aria-hidden="true" />
+                  {x.nome}
+                </span>
+                <span className="text-[15px] text-tinta/80">
+                  {pendente ? (
+                    <>
+                      <strong className="text-tinta">{x.dependem}</strong> na carreira
+                    </>
+                  ) : (
+                    <>
+                      <strong className="text-tinta">{x.poderiam}</strong>{" "}
+                      {tese.conferida ? "podem" : "poderiam"} ·{" "}
+                      <strong className="text-tinta">{x.dependem}</strong> dependem
+                    </>
+                  )}
+                </span>
+                <Botao
+                  tipo="secundario"
+                  tamanho="pequeno"
+                  aria-expanded={vendo === x.entidade}
+                  onClick={() => setVendo((v) => (v === x.entidade ? "" : x.entidade))}
+                >
+                  {vendo === x.entidade ? "Fechar" : "Ver pessoas"}
+                </Botao>
+              </div>
+              {vendo === x.entidade ? (
+                <PessoasDaTese entidade={x.entidade} token={token} tese={tese.id} />
+              ) : null}
+            </div>
+          ))}
+          <details className="text-[15px] text-tinta/80">
+            <summary className="cursor-pointer font-medium text-acento underline">
+              A questão, a tese e a fonte
+            </summary>
+            <div className="mt-2 space-y-2 leading-relaxed">
+              {tese.questao ? <p><strong className="text-tinta">Questão:</strong> {tese.questao}</p> : null}
+              {tese.tese ? (
+                <p><strong className="text-tinta">Tese:</strong> {tese.tese}</p>
+              ) : tese.tipo === "tema" ? (
+                <p>Ainda não há tese fixada.</p>
+              ) : null}
+              {tese.fonte ? <p className="text-sm text-tinta/60">Fonte: {tese.fonte}</p> : null}
+            </div>
+          </details>
+          {!tese.conferida && !pendente ? (
+            <p className="text-sm text-tinta/60">
+              Simulação: vale depois que um advogado conferir a tese.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function Escritorio({
   entidade,
   token,
+  secao,
+  onIr,
   onToken,
   onSessaoMorta,
 }: {
   entidade: string;
   token: string;
+  /** Qual das quatro telas do escritório: início, tribunais, casos ou
+   *  sindicatos. Moram no menu lateral. */
+  secao: api.Tela;
+  onIr: (tela: api.Tela) => void;
   onToken: (token: string, cpf: string) => void;
   onSessaoMorta: () => void;
 }) {
@@ -273,6 +464,7 @@ export function Escritorio({
   const [texto, setTexto] = useState("");
   const [situacao, setSituacao] = useState("");
   const [aberto, setAberto] = useState("");
+  const [teseAberta, setTeseAberta] = useState("");
   const [mostrando, setMostrando] = useState(10);
 
   useEffect(() => {
@@ -326,20 +518,32 @@ export function Escritorio({
   }
 
   const varios = dados.sindicatos.length > 1;
-  // O NOME é o que o sindicato em que ele entrou lhe deu; cada sindicato
-  // cadastra o escritório por conta própria.
   const nome =
     dados.sindicatos.find((x) => x.entidade === entidade)?.escritorio ??
     dados.sindicatos[0]?.escritorio ??
     "Escritório";
   const todos = ordemDeTrabalho(
-    varios && sindicato ? dados.casos.filter((c) => c.entidade === sindicato) : dados.casos,
+    sindicato ? dados.casos.filter((c) => c.entidade === sindicato) : dados.casos,
   );
-  const quantos = (s: string) => todos.filter((c) => c.situacao === s).length;
+  const quantos = (s: string) => dados.casos.filter((c) => c.situacao === s).length;
   const filtrados = filtrarCasos(todos, { texto, situacao });
-  const filtrar = (s: string) => () => {
+  const teses = tesesJuntas(dados.sindicatos);
+  // UMA NOVIDADE POR TEMA, e não uma por sindicato: o julgamento é um só.
+  const recentes = teses.filter((t) =>
+    (dados.novidades ?? []).some((n) => n.id === t.id),
+  );
+  const parados = dados.casos.filter(
+    (c) => c.situacao === "ENCAMINHADO" && (diasNaFila(c.encaminhado_em, new Date()) ?? 0) > 7,
+  ).length;
+
+  const verCasos = (s: string, deQual = "") => () => {
     setSituacao(s);
-    document.getElementById("fila-do-escritorio")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setSindicato(deQual);
+    onIr("casos");
+  };
+  const verTese = (id: string) => () => {
+    setTeseAberta(id);
+    onIr("tribunais");
   };
 
   function baixar() {
@@ -354,136 +558,107 @@ export function Escritorio({
     URL.revokeObjectURL(endereco);
   }
 
-  const filtros: [string, string][] = [
-    ["", "Todos"],
-    ["ENCAMINHADO", rotuloDaSituacao("ENCAMINHADO")],
-    ["RECEBIDO", rotuloDaSituacao("RECEBIDO")],
-    ["PENDENTE", rotuloDaSituacao("PENDENTE")],
-    ["COMPLETO", rotuloDaSituacao("COMPLETO")],
-  ];
+  const titulo = (grande: string, pequeno: string) => (
+    <div>
+      <p className="text-sm font-semibold uppercase tracking-widest text-acento">{nome}</p>
+      <h1 className="text-2xl font-bold text-tinta sm:text-3xl">{grande}</h1>
+      {pequeno ? <p className="mt-1 text-[16px] text-tinta/65">{pequeno}</p> : null}
+    </div>
+  );
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <p className="text-sm font-semibold uppercase tracking-widest text-acento">
-          Painel do escritório
-        </p>
-        <h1 className="text-2xl font-bold text-tinta sm:text-3xl">{nome}</h1>
-        <p className="mt-1 text-[17px] text-tinta/70">
-          {varios
-            ? `Os filiados que ${dados.sindicatos.length} sindicatos encaminharam a este escritório, num lugar só.`
-            : "Os filiados que o sindicato encaminhou a este escritório, e os documentos de cada um."}
-        </p>
-      </div>
-
-      {/* O "BOM DIA": o que os tribunais decidiram, e quantas pessoas de
-          cada sindicato isso alcança. Antes do Proto e dos números — é a
-          notícia do dia. */}
-      <Novidades
-        novidades={(dados.novidades ?? []).filter((n) => !sindicato || n.entidade === sindicato)}
-      />
-
-      <ProtoNoTopo
-        para="Estou aqui para ajudar o escritório: digo quantos casos chegaram, por onde começar e de quem falta documento. Respondo na hora."
-        abertura={ABERTURA}
-        sugestoes={PERGUNTAS}
-        perguntar={(p) => api.perguntarComoEscritorioEmTodos(token, p)}
-        consultando="Olhando a sua fila…"
-        onSessaoMorta={onSessaoMorta}
-      />
-
-      {/* OS SINDICATOS que contrataram este escritório. Com um login ele vê
-          todos — os que o cadastraram, e nem um a mais (quem decide é o
-          servidor). Tocar em um mostra só os casos dele. */}
-      {varios ? (
-        <section aria-label="Sindicatos" className="rounded-xl bg-carta p-5 shadow-cartao sm:p-6">
-          <h2 className="text-xl font-semibold text-tinta">Seus sindicatos</h2>
-          <p className="mt-1 text-[15px] text-tinta/70">
-            Cada sindicato que cadastrou este escritório aparece aqui. Um não vê o que é do outro.
-          </p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {[{ entidade: "", nome: "Todos os sindicatos", casos: dados.casos.length,
-                aguardando: dados.casos.filter((c) => c.situacao === "ENCAMINHADO").length,
-                pendentes: dados.casos.filter((c) => c.situacao === "PENDENTE").length },
-              ...dados.sindicatos].map((x) => (
-              <button
-                key={x.entidade || "todos"}
-                type="button"
-                aria-pressed={sindicato === x.entidade}
-                onClick={() => setSindicato(x.entidade)}
-                className={
-                  "rounded-xl border-2 p-4 text-left transition " +
-                  (sindicato === x.entidade
-                    ? "border-acento bg-lilas"
-                    : "border-borda bg-papel hover:border-acento/50")
-                }
-              >
-                <span className="flex items-center gap-2 text-[16px] font-semibold text-tinta">
-                  <Building2 className="h-5 w-5 shrink-0 text-acento" aria-hidden="true" />
-                  {x.nome}
-                </span>
-                <span className="mt-2 block text-sm text-tinta/75">
-                  {x.casos} {x.casos === 1 ? "caso" : "casos"} · {x.aguardando} aguardando você ·{" "}
-                  {x.pendentes} com documento faltando
-                </span>
-              </button>
+  // ------------------------------------------------------------ TRIBUNAIS
+  if (secao === "tribunais") {
+    return (
+      <div className="space-y-5">
+        {titulo("Tribunais", "O que foi julgado, e quantas pessoas alcança. Toque para ver por sindicato.")}
+        {teses.length === 0 ? (
+          <Aviso tom="neutro">Nenhuma tese acompanhada para os seus sindicatos ainda.</Aviso>
+        ) : (
+          <div className="space-y-3">
+            {teses.map((t) => (
+              <LinhaDaTese
+                key={t.id}
+                tese={t}
+                token={token}
+                aberta={teseAberta === t.id}
+                onAlternar={() => setTeseAberta((a) => (a === t.id ? "" : t.id))}
+              />
             ))}
           </div>
-        </section>
-      ) : null}
+        )}
+      </div>
+    );
+  }
 
-      {/* OS NÚMEROS, e cada um ABRE a lista do que conta — como no painel
-          do sindicato. */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
-        <Destaque
-          cor="roxo"
-          icone={<Inbox className="h-5 w-5" aria-hidden="true" />}
-          valor={quantos("ENCAMINHADO")}
-          rotulo="aguardando você confirmar"
-          onClick={filtrar("ENCAMINHADO")}
-        />
-        <Destaque
-          cor="azul"
-          icone={<FileQuestion className="h-5 w-5" aria-hidden="true" />}
-          valor={quantos("PENDENTE")}
-          rotulo="com documento faltando"
-          onClick={filtrar("PENDENTE")}
-        />
-        <div className="col-span-2 grid grid-cols-2 gap-3 md:col-span-1 md:grid-cols-1 md:gap-4">
-          <Mini
-            cor="azul"
-            icone={<FileText className="h-5 w-5" aria-hidden="true" />}
-            valor={quantos("RECEBIDO")}
-            rotulo="em conferência"
-            onClick={filtrar("RECEBIDO")}
-          />
-          <Mini
-            cor="claro"
-            icone={<CheckCheck className="h-5 w-5" aria-hidden="true" />}
-            valor={quantos("COMPLETO")}
-            rotulo="documentação completa"
-            onClick={filtrar("COMPLETO")}
-          />
+  // ----------------------------------------------------------- SINDICATOS
+  if (secao === "sindicatos") {
+    return (
+      <div className="space-y-5">
+        {titulo("Meus sindicatos", "Quem contratou este escritório.")}
+        <div className="grid gap-4 md:grid-cols-2">
+          {dados.sindicatos.map((x) => {
+            const dele = dados.casos.filter((c) => c.entidade === x.entidade);
+            const paradosDele = dele.filter(
+              (c) => c.situacao === "ENCAMINHADO" && (diasNaFila(c.encaminhado_em, new Date()) ?? 0) > 7,
+            ).length;
+            return (
+              <div key={x.entidade} className="rounded-xl bg-carta p-5 shadow-cartao">
+                <p className="flex items-center gap-2 text-lg font-semibold text-tinta">
+                  <Building2 className="h-5 w-5 shrink-0 text-acento" aria-hidden="true" />
+                  {x.nome}
+                </p>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                  {[
+                    [x.casos, "casos"],
+                    [x.aguardando, "aguardando você"],
+                    [x.pendentes, "falta documento"],
+                  ].map(([n, r]) => (
+                    <div key={String(r)} className="rounded-lg bg-papel p-3">
+                      <p className="text-2xl font-bold text-tinta">{n}</p>
+                      <p className="text-[13px] text-tinta/65">{r}</p>
+                    </div>
+                  ))}
+                </div>
+                {paradosDele > 0 ? (
+                  <p className="mt-3 text-sm font-semibold text-alerta">
+                    {paradosDele} {paradosDele === 1 ? "parado" : "parados"} há mais de 7 dias
+                  </p>
+                ) : null}
+                <div className="mt-4">
+                  <Botao tamanho="pequeno" onClick={verCasos("", x.entidade)}>
+                    Ver os casos
+                  </Botao>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
+    );
+  }
 
-      {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
+  // ---------------------------------------------------------------- CASOS
+  if (secao === "casos") {
+    const filtros: [string, string][] = [
+      ["", "Todos"],
+      ["ENCAMINHADO", "Aguardando"],
+      ["RECEBIDO", "Recebidos"],
+      ["PENDENTE", "Falta documento"],
+      ["COMPLETO", "Completos"],
+    ];
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          {titulo("Casos", "O que ainda não foi aberto vem primeiro.")}
+          <Botao tipo="secundario" tamanho="pequeno" disabled={filtrados.length === 0} onClick={baixar}>
+            <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+            Baixar planilha
+          </Botao>
+        </div>
 
-      <div id="fila-do-escritorio" className="scroll-mt-4">
-        <Cartao
-          titulo="Casos encaminhados"
-          explicacao="O que ainda não foi aberto vem primeiro, do mais antigo para o mais novo. Toque num caso para ver os documentos. O que você marcar aparece para o filiado e para o sindicato."
-        >
-          <div className="rounded-lg bg-lilas p-4">
-            <Botao tipo="secundario" disabled={filtrados.length === 0} onClick={baixar}>
-              <Download className="mr-2 h-4 w-4" aria-hidden="true" />
-              Baixar a planilha destes casos
-            </Botao>
-            <p className="mt-2 text-sm text-tinta/75">
-              Abre no Excel: nome, CPF, contato, ação, situação e o que falta de cada pessoa.
-            </p>
-          </div>
+        {erro ? <Aviso tom="alerta">{erro}</Aviso> : null}
 
+        <div className="space-y-3 rounded-xl bg-carta p-4 shadow-cartao">
           <Campo
             rotulo="Procurar pelo nome ou pelo CPF"
             valor={texto}
@@ -504,72 +679,181 @@ export function Escritorio({
               </Botao>
             ))}
           </div>
-
-          {todos.length === 0 ? (
-            <Aviso tom="neutro">O sindicato ainda não encaminhou nenhum caso a este escritório.</Aviso>
-          ) : (
-            <>
-              <p className="text-sm text-tinta/70">
-                {filtrados.length === todos.length
-                  ? `${todos.length} ${todos.length === 1 ? "caso" : "casos"}.`
-                  : `${filtrados.length} de ${todos.length} casos.`}
-              </p>
-              <div className="space-y-2">
-                {filtrados.slice(0, mostrando).map((c) => {
-                  const chave = `${c.entidade ?? ""}-${c.cpf}-${c.acao}`;
-                  // O CASO É DO SINDICATO DELE: é ao portal daquele
-                  // sindicato que se pede o documento e se marca a situação.
-                  const dono = c.entidade ?? entidade;
-                  return (
-                    <Linha
-                      key={chave}
-                      caso={c}
-                      comSindicato={varios}
-                      possiveis={dados.documentos_possiveis}
-                      aberto={aberto === chave}
-                      ocupado={ocupado}
-                      onAlternar={() => setAberto((a) => (a === chave ? "" : chave))}
-                      onAbrir={(arquivo) =>
-                        void fazer(async () => {
-                          // A ABA É ABERTA ANTES DO PEDIDO: aberta depois, o
-                          // navegador a trata como janela não pedida e bloqueia.
-                          const aba = window.open("", "_blank");
-                          try {
-                            const endereco = await api.abrirDocumentoDoCaso(dono, token, c.cpf, arquivo);
-                            if (aba) aba.location.href = endereco;
-                            else window.location.assign(endereco);
-                          } catch (e) {
-                            aba?.close();
-                            throw e;
-                          }
-                        })
-                      }
-                      onSituar={(nova, faltam) =>
-                        void fazer(async () => {
-                          await api.situarCaso(dono, token, c.cpf, c.acao, nova, faltam ?? []);
-                          setVersao((v) => v + 1);
-                        })
-                      }
-                    />
-                  );
-                })}
-              </div>
-              {filtrados.length > mostrando ? (
-                <Botao tipo="secundario" onClick={() => setMostrando((m) => m + 10)}>
-                  Mostrar mais {Math.min(10, filtrados.length - mostrando)}
+          {varios ? (
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Sindicato">
+              {[{ entidade: "", nome: "Todos os sindicatos" }, ...dados.sindicatos].map((x) => (
+                <Botao
+                  key={x.entidade || "todos"}
+                  tamanho="pequeno"
+                  tipo={sindicato === x.entidade ? "principal" : "secundario"}
+                  aria-pressed={sindicato === x.entidade}
+                  onClick={() => setSindicato(x.entidade)}
+                >
+                  {x.nome}
                 </Botao>
-              ) : null}
-            </>
-          )}
-        </Cartao>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        {dados.casos.length === 0 ? (
+          <Aviso tom="neutro">Nenhum sindicato encaminhou caso a este escritório ainda.</Aviso>
+        ) : (
+          <>
+            <p className="text-sm text-tinta/70">
+              {filtrados.length} {filtrados.length === 1 ? "caso" : "casos"}
+            </p>
+            <div className="space-y-2">
+              {filtrados.slice(0, mostrando).map((c) => {
+                const chave = `${c.entidade ?? ""}-${c.cpf}-${c.acao}`;
+                // O CASO É DO SINDICATO DELE: é ao portal daquele
+                // sindicato que se pede o documento e se marca a situação.
+                const dono = c.entidade ?? entidade;
+                return (
+                  <Linha
+                    key={chave}
+                    caso={c}
+                    comSindicato={varios}
+                    possiveis={dados.documentos_possiveis}
+                    aberto={aberto === chave}
+                    ocupado={ocupado}
+                    onAlternar={() => setAberto((a) => (a === chave ? "" : chave))}
+                    onAbrir={(arquivo) =>
+                      void fazer(async () => {
+                        // A ABA É ABERTA ANTES DO PEDIDO: aberta depois, o
+                        // navegador a trata como janela não pedida e bloqueia.
+                        const aba = window.open("", "_blank");
+                        try {
+                          const endereco = await api.abrirDocumentoDoCaso(dono, token, c.cpf, arquivo);
+                          if (aba) aba.location.href = endereco;
+                          else window.location.assign(endereco);
+                        } catch (e) {
+                          aba?.close();
+                          throw e;
+                        }
+                      })
+                    }
+                    onSituar={(nova, faltam) =>
+                      void fazer(async () => {
+                        await api.situarCaso(dono, token, c.cpf, c.acao, nova, faltam ?? []);
+                        setVersao((v) => v + 1);
+                      })
+                    }
+                  />
+                );
+              })}
+            </div>
+            {filtrados.length > mostrando ? (
+              <Botao tipo="secundario" onClick={() => setMostrando((m) => m + 10)}>
+                Mostrar mais {Math.min(10, filtrados.length - mostrando)}
+              </Botao>
+            ) : null}
+          </>
+        )}
       </div>
-      {/* AS TESES de cada sindicato. Cada um tem a carreira dele, e por
-          isso a lista é por sindicato. */}
-      {dados.sindicatos
-        .filter((x) => !sindicato || x.entidade === sindicato)
-        .map((x) => (
-          <Teses key={x.entidade} teses={x.teses ?? []} de={varios ? x.nome : undefined} />
-        ))}
+    );
+  }
+
+  // --------------------------------------------------------------- INÍCIO
+  return (
+    <div className="space-y-6">
+      {titulo(`${saudacao(new Date())}.`, "")}
+
+      {/* A NOTÍCIA DO DIA, para bater o olho: o tema, quando, e o NÚMERO.
+          O resto está a um toque, em Tribunais. */}
+      {recentes.length ? (
+        <section aria-label="Novidades nos tribunais">
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-tinta">
+            <Megaphone className="h-5 w-5 text-bom" aria-hidden="true" />
+            {recentes.length === 1 ? "1 novidade" : `${recentes.length} novidades`} nos tribunais
+          </h2>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {recentes.map((t) => {
+              const pendente = t.situacao === "afetado";
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={verTese(t.id)}
+                  className="flex items-center gap-4 rounded-xl border-2 border-bom/30 bg-bom/10 p-4 text-left transition hover:bg-bom/15"
+                >
+                  <span className="text-center">
+                    <span className="block text-4xl font-bold leading-none text-tinta">
+                      {pendente ? t.dependem : t.poderiam}
+                    </span>
+                    <span className="text-[13px] text-tinta/70">{pendente ? "na carreira" : "poderiam"}</span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[16px] font-semibold text-tinta">{t.rotulo}</span>
+                    <span className="block text-sm text-tinta/75">
+                      {rotuloDaSituacaoDaTese(t)} {pendente ? "" : haQuanto(t.data, new Date())} ·{" "}
+                      {t.porSindicato.length} {t.porSindicato.length === 1 ? "sindicato" : "sindicatos"}
+                    </span>
+                  </span>
+                  <ChevronDown className="h-5 w-5 -rotate-90 text-acento" aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {/* OS CASOS, em quatro números — cada um abre a lista do que conta. */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+        <Destaque
+          cor="roxo"
+          icone={<Inbox className="h-5 w-5" aria-hidden="true" />}
+          valor={quantos("ENCAMINHADO")}
+          rotulo="aguardando você confirmar"
+          onClick={verCasos("ENCAMINHADO")}
+        />
+        <Destaque
+          cor="azul"
+          icone={<FileQuestion className="h-5 w-5" aria-hidden="true" />}
+          valor={quantos("PENDENTE")}
+          rotulo="com documento faltando"
+          onClick={verCasos("PENDENTE")}
+        />
+        <div className="col-span-2 grid grid-cols-2 gap-3 md:col-span-1 md:grid-cols-1 md:gap-4">
+          <Mini
+            cor="azul"
+            icone={<FileText className="h-5 w-5" aria-hidden="true" />}
+            valor={quantos("RECEBIDO")}
+            rotulo="em conferência"
+            onClick={verCasos("RECEBIDO")}
+          />
+          <Mini
+            cor="claro"
+            icone={<CheckCheck className="h-5 w-5" aria-hidden="true" />}
+            valor={quantos("COMPLETO")}
+            rotulo="documentação completa"
+            onClick={verCasos("COMPLETO")}
+          />
+        </div>
+      </div>
+
+      {parados > 0 ? (
+        <button
+          type="button"
+          onClick={verCasos("ENCAMINHADO")}
+          className="flex w-full items-center gap-3 rounded-xl border border-alerta/30 bg-alerta/10 px-4 py-3 text-left text-[16px] text-tinta hover:bg-alerta/15"
+        >
+          <Clock className="h-5 w-5 shrink-0 text-alerta" aria-hidden="true" />
+          <span className="flex-1">
+            <strong>{parados}</strong> {parados === 1 ? "caso parado" : "casos parados"} há mais de 7 dias
+          </span>
+          <span className="text-sm font-semibold text-acento underline">Ver</span>
+        </button>
+      ) : null}
+
+      <ProtoNoTopo
+        para="Pergunte sobre os tribunais, a sua fila ou o caso de uma pessoa."
+        abertura={ABERTURA}
+        sugestoes={PERGUNTAS}
+        perguntar={(p) => api.perguntarComoEscritorioEmTodos(token, p)}
+        consultando="Olhando a sua fila…"
+        onSessaoMorta={onSessaoMorta}
+      />
     </div>
   );
 }

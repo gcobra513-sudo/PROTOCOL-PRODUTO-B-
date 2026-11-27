@@ -48,3 +48,53 @@ export function alcanceEmPalavras(
     `${t.fora} ${t.fora === 1 ? "fica" : "ficam"} de fora.`
   );
 }
+
+
+// ------------------------------------------- vários sindicatos, uma lista
+
+export interface TeseJunta extends Tese {
+  /** Como a soma se divide: um item por sindicato que tem esta tese. */
+  porSindicato: { entidade: string; nome: string; poderiam: number; dependem: number; fora: number }[];
+}
+
+/** As teses de todos os sindicatos do escritório, UMA LINHA POR TESE.
+ *
+ *  Cada sindicato traz as teses da carreira dele, e a mesma tese aparece em
+ *  mais de um. Mostrar uma lista por sindicato fazia o escritório ler o
+ *  mesmo tema várias vezes para somar de cabeça — e a pergunta dele é uma
+ *  só: "este julgamento alcança quantas pessoas, e de quem?".
+ *
+ *  A ordem é a da notícia: o que tem a data mais recente primeiro. */
+export function tesesJuntas(
+  sindicatos: { entidade: string; nome: string; teses?: Tese[] }[],
+): TeseJunta[] {
+  const juntas = new Map<string, TeseJunta>();
+  for (const s of sindicatos) {
+    for (const t of s.teses ?? []) {
+      const atual =
+        juntas.get(t.id) ?? { ...t, poderiam: 0, dependem: 0, fora: 0, porSindicato: [] };
+      atual.poderiam += t.poderiam;
+      atual.dependem += t.dependem;
+      atual.fora += t.fora;
+      atual.porSindicato.push({
+        entidade: s.entidade, nome: s.nome,
+        poderiam: t.poderiam, dependem: t.dependem, fora: t.fora,
+      });
+      juntas.set(t.id, atual);
+    }
+  }
+  return [...juntas.values()].sort((a, b) => (b.data || "").localeCompare(a.data || ""));
+}
+
+/** "hoje", "ontem", "há 12 dias". Vazio para data ilegível ou no futuro. */
+export function haQuanto(data: string, agora: Date): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(data ?? "");
+  if (!m) return "";
+  const dia = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  const dias = Math.round((hoje.getTime() - dia.getTime()) / 86_400_000);
+  if (dias < 0) return "";
+  if (dias === 0) return "hoje";
+  if (dias === 1) return "ontem";
+  return `há ${dias} dias`;
+}
