@@ -41,20 +41,24 @@ export function ProtoNoTopo({
   return (
     <section
       aria-label="Proto, o assistente do portal"
-      className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-roxo to-azul p-5 text-white shadow-cartao sm:p-6"
+      className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-roxo to-azul p-4 text-white shadow-cartao sm:p-6"
     >
       <span aria-hidden="true" className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-white/10" />
       <span aria-hidden="true" className="absolute -bottom-20 right-24 h-44 w-44 rounded-full bg-white/5" />
-      <div className="relative flex flex-wrap items-start gap-4">
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white text-roxo shadow-lg">
-          <Bot className="h-8 w-8" aria-hidden="true" />
+      <div className="relative flex flex-wrap items-center gap-3 sm:items-start sm:gap-4">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-roxo shadow-lg sm:h-14 sm:w-14 sm:rounded-2xl">
+          <Bot className="h-6 w-6 sm:h-8 sm:w-8" aria-hidden="true" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-2 text-sm font-semibold uppercase tracking-widest text-white/80">
+          <p className="hidden items-center gap-2 text-sm font-semibold uppercase tracking-widest text-white/80 sm:flex">
             <Sparkles className="h-4 w-4" aria-hidden="true" /> Assistente do portal
           </p>
-          <h2 className="mt-1 text-2xl font-bold">Oi, eu sou o Proto.</h2>
-          <p className="mt-1 max-w-2xl text-[16px] leading-relaxed text-white/90">{para}</p>
+          <h2 className="text-xl font-bold sm:mt-1 sm:text-2xl">Oi, eu sou o Proto.</h2>
+          {/* NO TELEFONE A EXPLICAÇÃO SOME: a faixa inteira ocupava uma tela
+              e meia, e o que a pessoa veio ver ficava embaixo dela. As
+              perguntas prontas já dizem para que ele serve. */}
+          <p className="text-[15px] text-white/85 sm:hidden">Toque numa pergunta.</p>
+          <p className="mt-1 hidden max-w-2xl text-[16px] leading-relaxed text-white/90 sm:block">{para}</p>
         </div>
         {aberta ? (
           <button
@@ -80,9 +84,10 @@ export function ProtoNoTopo({
           />
         </div>
       ) : (
-        <div className="relative mt-5">
-          <p className="text-sm font-medium text-white/80">Pergunte, por exemplo:</p>
-          <div className="mt-2 flex flex-wrap gap-2">
+        <div className="relative mt-4 sm:mt-5">
+          <p className="hidden text-sm font-medium text-white/80 sm:block">Pergunte, por exemplo:</p>
+          {/* No telefone, UMA FILEIRA que desliza para o lado. */}
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:mt-2 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
             {sugestoes.slice(0, 4).map((s) => (
               <button
                 key={s}
@@ -92,7 +97,7 @@ export function ProtoNoTopo({
                   setPrimeira(s);
                   setAberta(true);
                 }}
-                className="rounded-full bg-white/15 px-4 py-2 text-left text-[15px] font-medium hover:bg-white/25"
+                className="min-h-[44px] shrink-0 whitespace-nowrap rounded-full bg-white/15 px-4 py-2 text-left text-[15px] font-medium hover:bg-white/25 sm:shrink sm:whitespace-normal"
               >
                 {s}
               </button>
@@ -100,7 +105,7 @@ export function ProtoNoTopo({
             <button
               type="button"
               onClick={() => (onEscolher ? onEscolher("") : setAberta(true))}
-              className="rounded-full bg-white px-4 py-2 text-[15px] font-semibold text-roxo hover:bg-white/90"
+              className="min-h-[44px] shrink-0 whitespace-nowrap rounded-full bg-white px-4 py-2 text-[15px] font-semibold text-roxo hover:bg-white/90"
             >
               Escrever outra pergunta
             </button>

@@ -36,7 +36,8 @@ const botao = cva(
       },
       tamanho: {
         normal: "h-11 px-5 text-[15px]",
-        pequeno: "h-9 px-3 text-sm",
+        // No telefone o dedo precisa de 44 pontos de altura; no computador, 36.
+        pequeno: "h-11 px-3 text-[15px] sm:h-9 sm:text-sm",
       },
     },
     defaultVariants: { tipo: "principal", tamanho: "normal" },

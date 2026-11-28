@@ -111,8 +111,10 @@ function Linha({
         onClick={onAlternar}
         className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 text-left hover:bg-lilas/40"
       >
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[16px] font-semibold text-tinta">{caso.nome}</span>
+        {/* NO TELEFONE O NOME OCUPA A LINHA INTEIRA; os detalhes vão para a
+            de baixo. Lado a lado, o nome virava "JOSE DE EX…". */}
+        <span className="min-w-0 basis-full sm:flex-1 sm:basis-0">
+          <span className="block text-[16px] font-semibold text-tinta sm:truncate">{caso.nome}</span>
           <span className="block text-sm text-tinta/65">
             CPF {formatarCpf(caso.cpf)} · {caso.rotulo}
           </span>
@@ -139,7 +141,7 @@ function Linha({
         ) : null}
         <Selo situacao={caso.situacao} />
         <ChevronDown
-          className={"h-5 w-5 shrink-0 text-acento transition-transform " + (aberto ? "rotate-180" : "")}
+          className={"ml-auto h-5 w-5 shrink-0 text-acento transition-transform sm:ml-0 " + (aberto ? "rotate-180" : "")}
           aria-hidden="true"
         />
       </button>
@@ -285,8 +287,8 @@ function PessoasDaTese({
         .sort((a, b) => Number(b.como === "poderiam") - Number(a.como === "poderiam"))
         .map((p) => (
         <div key={p.cpf} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-carta px-3 py-2">
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[15px] font-medium text-tinta">{p.nome}</span>
+          <span className="min-w-0 basis-full sm:flex-1 sm:basis-0">
+            <span className="block text-[15px] font-medium text-tinta sm:truncate">{p.nome}</span>
             <span className="block text-sm text-tinta/60">CPF {formatarCpf(p.cpf)}</span>
           </span>
           <span
@@ -338,7 +340,7 @@ function LinhaDaTese({
         onClick={onAlternar}
         className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 text-left hover:bg-lilas/40"
       >
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-lilas text-acento">
+        <span className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-lilas text-acento sm:flex">
           {tese.tipo === "acao" ? (
             <Scale className="h-5 w-5" aria-hidden="true" />
           ) : (
@@ -383,11 +385,11 @@ function LinhaDaTese({
           {tese.porSindicato.map((x) => (
             <div key={x.entidade} className="rounded-lg bg-papel p-3">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <span className="flex min-w-0 flex-1 items-center gap-2 text-[15px] font-semibold text-tinta">
+                <span className="flex min-w-0 basis-full items-center gap-2 text-[15px] font-semibold text-tinta sm:flex-1 sm:basis-0">
                   <Building2 className="h-4 w-4 shrink-0 text-acento" aria-hidden="true" />
                   {x.nome}
                 </span>
-                <span className="text-[15px] text-tinta/80">
+                <span className="flex-1 text-[15px] text-tinta/80 sm:flex-none">
                   {pendente ? (
                     <>
                       <strong className="text-tinta">{x.dependem}</strong> na carreira

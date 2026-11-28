@@ -1585,7 +1585,7 @@ function Escritorios({
           <p className="text-[15px] font-medium text-tinta">{a.rotulo}</p>
           {a.escritorio ? (
             <div className="mt-2 flex flex-wrap items-center gap-3">
-              <p className="min-w-0 flex-1 text-[15px] text-tinta/80">
+              <p className="min-w-0 basis-full text-[15px] text-tinta/80 sm:flex-1 sm:basis-0">
                 {a.a_encaminhar > 0
                   ? `${pessoas(a.a_encaminhar)} já ${a.a_encaminhar === 1 ? "se cadastrou" : "se cadastraram"} e ainda não ${a.a_encaminhar === 1 ? "foi encaminhada" : "foram encaminhadas"}. Quem cuida desta ação: ${nomeDe(a.escritorio)}.`
                   : `Todos os que já se cadastraram estão com ${nomeDe(a.escritorio)}.`}
@@ -1803,10 +1803,18 @@ export function Painel({
     irPara(destino, ancora.slice(1));
   }
 
+  // NO TELEFONE, O QUE FICA ACIMA DAS ABAS SÓ APARECE NO RESUMO. Medido em
+  // 28/11/2026 num iPhone: quem tocava em "Filiados" via a mesma tela e meia
+  // de assistente, números e novidades antes de chegar à lista.
+  const soNoResumo = aba === "resumo" ? "" : "hidden lg:block";
+
   return (
-    <div className="space-y-6">
+    // `flex` e não `space-y`: é o que deixa as abas subirem para o topo no
+    // telefone (`order-first`) sem mudar a ordem no computador.
+    <div className="flex flex-col gap-6 [&>*]:min-w-0">
       {/* O PROTO, NO TOPO: era a quinta aba, e a diretoria não chegava
           até ela. A aba continua, para a conversa longa. */}
+      <div className={soNoResumo}>
       <ProtoNoTopo
         para="Estou aqui para ajudar a diretoria: digo quantos filiados há na base, com quantos você não consegue falar e o que resolver primeiro. Respondo na hora, com o que está neste painel."
         abertura={ABERTURA_DO_PROTO_DO_GESTOR}
@@ -1815,11 +1823,12 @@ export function Painel({
         consultando="Consultando o painel…"
         onSessaoMorta={onSessaoMorta}
       />
+      </div>
 
       {/* OS NÚMEROS DA BASE, antes de tudo — e cada um ABRE a lista do que
           conta. Número que não vira nomes obriga o gestor a procurar por
           conta própria quem são aquelas pessoas. */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
+      <div className={"grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 " + (aba === "resumo" ? "grid" : "hidden lg:grid")}>
         <Destaque
           cor="roxo"
           icone={<Users className="h-5 w-5" aria-hidden="true" />}
@@ -1856,7 +1865,9 @@ export function Painel({
 
       {/* AS NOVIDADES NOS TRIBUNAIS, para a diretoria também: o que foi
           julgado e quantos filiados alcança. */}
-      <Novidades novidades={teses?.novidades ?? []} />
+      <div className={soNoResumo + " empty:hidden"}>
+        <Novidades novidades={teses?.novidades ?? []} />
+      </div>
 
       {/* QUEM JÁ PODE, À VISTA. Os quatro quadros acima são sobre o
           cadastro; este é o resultado, e ficava dentro da aba Filiados,
@@ -1866,7 +1877,7 @@ export function Painel({
         <button
           type="button"
           onClick={() => abrirQuadro("podem")}
-          className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-bom/30 bg-bom/10 px-5 py-4 text-left hover:bg-bom/15"
+          className={"w-full flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-bom/30 bg-bom/10 px-5 py-4 text-left hover:bg-bom/15 " + (aba === "resumo" ? "flex" : "hidden lg:flex")}
         >
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-bom text-white">
             <BadgeCheck className="h-5 w-5" aria-hidden="true" />
@@ -1894,7 +1905,7 @@ export function Painel({
         id="abas-do-painel"
         role="tablist"
         aria-label="Áreas do painel"
-        className="grid scroll-mt-4 grid-cols-3 gap-2 rounded-xl bg-carta p-2 shadow-cartao md:flex md:flex-wrap"
+        className="order-first grid scroll-mt-4 grid-cols-3 gap-2 rounded-xl bg-carta p-2 shadow-cartao md:flex md:flex-wrap lg:order-none"
       >
         {ABAS_DO_PAINEL.map((a) => (
           <button
@@ -1907,7 +1918,9 @@ export function Painel({
             aria-label={a.rotulo}
             onClick={() => setAba(a.id)}
             className={
-              "rounded-lg px-2 py-3 text-[15px] font-medium transition md:px-4 md:text-base " +
+              // No iPhone menor (320 pontos) "Documentos" com o contador não
+              // cabia em um terço da largura a 15 pontos.
+              "rounded-lg px-1 py-3 text-[14px] font-medium transition min-[380px]:px-2 min-[380px]:text-[15px] md:px-4 md:text-base " +
               (aba === a.id
                 ? "bg-roxo text-white"
                 : "text-tinta hover:bg-lilas")
@@ -1916,7 +1929,7 @@ export function Painel({
             <span className="md:hidden">{a.curto}</span>
             <span className="hidden md:inline">{a.rotulo}</span>
             {a.id === "documentos" && (filaNaTela ?? 0) > 0 ? (
-              <span className="ml-1 rounded-full bg-alerta px-2 py-0.5 text-sm text-carta md:ml-2">
+              <span className="ml-1 rounded-full bg-alerta px-1.5 py-0.5 text-[13px] text-carta min-[380px]:px-2 min-[380px]:text-sm md:ml-2">
                 {filaNaTela}
               </span>
             ) : null}

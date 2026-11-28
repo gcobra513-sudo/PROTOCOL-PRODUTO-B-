@@ -204,6 +204,30 @@ export function Casca({
     </nav>
   );
 
+  // O QUE VAI NA BARRA DE BAIXO: as áreas do grupo em que a pessoa está. O
+  // gestor não tem barra — o painel dele é uma tela só, com abas próprias.
+  const DO_FILIADO: Tela[] = ["area", "cadastro", "acoes", "processos", "atendimento"];
+  const DO_ESCRITORIO: Tela[] = ["escritorio", "tribunais", "casos", "sindicatos"];
+  const icone = "h-5 w-5";
+  const embaixo: { tela: Tela; rotulo: string; icone: ReactNode }[] =
+    !temSessao || !comServidor
+      ? []
+      : grupos.escritorio && DO_ESCRITORIO.includes(tela)
+        ? [
+            { tela: "escritorio", rotulo: "Início", icone: <Home className={icone} aria-hidden="true" /> },
+            { tela: "tribunais", rotulo: "Tribunais", icone: <Landmark className={icone} aria-hidden="true" /> },
+            { tela: "casos", rotulo: "Casos", icone: <Briefcase className={icone} aria-hidden="true" /> },
+            { tela: "sindicatos", rotulo: "Sindicatos", icone: <Building2 className={icone} aria-hidden="true" /> },
+          ]
+        : grupos.filiado && DO_FILIADO.includes(tela)
+          ? [
+              { tela: "area", rotulo: "Início", icone: <Home className={icone} aria-hidden="true" /> },
+              { tela: "acoes", rotulo: "Ações", icone: <ListChecks className={icone} aria-hidden="true" /> },
+              { tela: "processos", rotulo: "Processos", icone: <Gavel className={icone} aria-hidden="true" /> },
+              { tela: "atendimento", rotulo: "Proto", icone: <MessagesSquare className={icone} aria-hidden="true" /> },
+            ]
+          : [];
+
   return (
     <div className="min-h-screen bg-carta lg:flex">
       {/* A barra lateral, no computador. */}
@@ -228,7 +252,9 @@ export function Casca({
           >
             {aberta ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
           </button>
-          <span className="lg:hidden">
+          {/* No telefone a marca dá lugar ao NOME DO SINDICATO: com as duas
+              o nome virava "Sindic…". No tablet cabem as duas. */}
+          <span className="hidden sm:block lg:hidden">
             <Marca />
           </span>
           {/* SÓ O NOME DO SINDICATO. O rótulo "Protótipo — não é o portal
@@ -236,8 +262,8 @@ export function Casca({
               produto. O que protege quem abre um servidor de teste continua
               existindo e é outra coisa: a faixa de DEMONSTRAÇÃO, que o
               servidor manda só para sindicato de demonstração. */}
-          <div className="min-w-0 flex-1 text-right lg:text-left">
-            <p className="truncate text-lg font-semibold text-tinta">
+          <div className="min-w-0 flex-1 sm:text-right lg:text-left">
+            <p className="truncate text-[17px] font-semibold text-tinta sm:text-lg">
               {entidade ?? "Seus direitos, organizados"}
             </p>
           </div>
@@ -262,9 +288,53 @@ export function Casca({
           </div>
         ) : null}
 
-        <main className="min-h-[calc(100vh-4.5rem)] bg-papel px-4 py-6 sm:px-6 sm:py-8 lg:mr-4 lg:rounded-t-xl">
+        <main
+          className={cn(
+            "min-h-[calc(100vh-4.5rem)] bg-papel px-4 py-6 sm:px-6 sm:py-8 lg:mr-4 lg:rounded-t-xl",
+            // Espaço para a barra de baixo não cobrir o fim da página.
+            embaixo.length ? "pb-28 lg:pb-8" : "",
+          )}
+        >
           {children}
         </main>
+
+        {/* A BARRA DE BAIXO, só no telefone: as áreas de quem entrou, a um
+            toque do polegar. Atrás do botão de menu, quem não conhece o
+            desenho de três risquinhos não sabia que havia outras telas. */}
+        {embaixo.length ? (
+          <nav
+            aria-label="Áreas"
+            className="fixed inset-x-0 bottom-0 z-20 flex border-t border-borda bg-carta pb-[env(safe-area-inset-bottom)] lg:hidden"
+          >
+            {embaixo.map((item) => (
+              <a
+                key={item.tela}
+                href={link(item.tela)}
+                aria-current={tela === item.tela ? "page" : undefined}
+                onClick={(e) => {
+                  if (cliqueQueNavega(e)) {
+                    e.preventDefault();
+                    ir(item.tela)();
+                  }
+                }}
+                className={cn(
+                  "flex min-h-[60px] flex-1 flex-col items-center justify-center gap-1 px-1 text-[13px] font-medium",
+                  tela === item.tela ? "text-acento" : "text-tinta/65",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-8 w-14 items-center justify-center rounded-full",
+                    tela === item.tela ? "bg-lilas" : "",
+                  )}
+                >
+                  {item.icone}
+                </span>
+                {item.rotulo}
+              </a>
+            ))}
+          </nav>
+        ) : null}
       </div>
     </div>
   );
