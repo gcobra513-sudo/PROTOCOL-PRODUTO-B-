@@ -407,7 +407,11 @@ export function App() {
             mesmo, e continua em toda tela. */}
         {avisoDemo ? (
           <Aviso tom="neutro">
-            <strong>Demonstração.</strong> {avisoDemo}{" "}
+            <strong>Demonstração.</strong>{" "}
+            {/* QUEM JÁ ENTROU, NO TELEFONE, lê a versão de uma linha: a
+                inteira tomava um terço da primeira tela, em todas elas. */}
+            <span className={token ? "hidden sm:inline" : ""}>{avisoDemo}{" "}</span>
+            {token ? <span className="sm:hidden">Tudo aqui é fictício. </span> : null}
             <a className="font-semibold underline" href={`./${GUIA}`}>
               Guia da demonstração
             </a>

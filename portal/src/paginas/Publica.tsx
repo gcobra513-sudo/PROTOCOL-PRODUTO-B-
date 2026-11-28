@@ -49,14 +49,19 @@ export function Moldura({
       href={href}
       aria-current={ativo ? "page" : undefined}
       className={
-        ativo ? "font-semibold text-acento" : "hover:text-acento"
+        // 44 pontos de altura: no telefone o dedo errava o link de 23.
+        "inline-flex min-h-[44px] items-center md:min-h-0 " +
+        (ativo ? "font-semibold text-acento" : "hover:text-acento")
       }
     >
       {rotulo}
     </a>
   );
   return (
-    <div className="min-h-screen bg-papel">
+    // `overflow-x-clip`: os círculos de enfeite saem da borda de propósito,
+    // e no telefone isso deixava a página inteira escorregar 8 pontos para
+    // o lado.
+    <div className="min-h-screen overflow-x-clip bg-papel">
       <header className="bg-carta">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-4 sm:px-6">
           <a href="./" aria-label="PROTOCOL — página inicial">
